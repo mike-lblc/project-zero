@@ -32,12 +32,20 @@ def check(name, fn, warn_only=False):
         print(f"  [FAIL] {name} — {detail}")
 
 
-def http(path, base=LOCAL, timeout=20):
-    try:
-        r = urllib.request.urlopen(urllib.request.Request(base + path, headers=UA), timeout=timeout)
-        return r.status, r.read().decode("utf-8", "ignore")
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "ignore")
+def http(path, base=LOCAL, timeout=20, retries=2):
+    """Разовая сетевая заминка — не провал системы. Пробуем ещё раз,
+    иначе аудит начинает врать про внешние сервисы."""
+    last = (0, "")
+    for attempt in range(retries + 1):
+        try:
+            r = urllib.request.urlopen(urllib.request.Request(base + path, headers=UA),
+                                       timeout=timeout)
+            return r.status, r.read().decode("utf-8", "ignore")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8", "ignore")
+        except Exception as e:
+            last = (0, f"{type(e).__name__}")
+    return last
 
 
 print("=" * 72)
@@ -288,12 +296,18 @@ check("агенты развития подключены", lambda: (len(growth.
 
 
 def worker_alive():
-    last = con.execute("SELECT MAX(created_at) FROM messages WHERE topic='chat'").fetchone()[0]
+    """Живость меряется по ЖУРНАЛУ ПРОГОНОВ, а не по чату.
+
+    Раньше проверялась свежесть реплик — но после введения дедупликации агенты
+    молчат, когда нового нет. Молчание стало означать «нечего сказать», а проверка
+    читала его как «умер» и ложно падала на живой системе.
+    """
+    last = _n("SELECT MAX(started_at) FROM runs")
     if not last:
-        return False, "реплик нет вообще"
+        return False, "прогонов нет вообще"
     from datetime import datetime, timezone
     age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
-    return age < 600, f"последняя реплика {int(age)} сек назад"
+    return age < 600, f"последний прогон {int(age)} сек назад"
 
 
 check("воркер работает прямо сейчас", worker_alive)
