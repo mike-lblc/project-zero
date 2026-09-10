@@ -31,7 +31,6 @@ def call(method, path, body=None):
         return e.code, {"error": e.read().decode()[:500]}
 
 def lists():            return call("GET", "/lists")
-def list_get(lid):      return call("GET", f"/lists/{lid}")
 def contacts(lid):      return call("GET", f"/lists/{lid}/contacts")
 
 if __name__ == "__main__":

@@ -87,18 +87,6 @@ def seen_claim(claim):
     return row is not None
 
 
-def push_focus(agent, topic):
-    con = connect()
-    _init(con)
-    exists = con.execute("SELECT 1 FROM focus_queue WHERE agent=? AND topic=? AND done=0",
-                         (agent, topic)).fetchone()
-    if not exists:
-        con.execute("INSERT INTO focus_queue(agent,topic,created_at) VALUES (?,?,?)",
-                    (agent, topic, now()))
-        con.commit()
-    con.close()
-
-
 def next_focus(agent):
     """Что копать дальше, если по основному направлению нового нет."""
     con = connect()
@@ -129,16 +117,31 @@ def stats():
 
 
 def cleanup_duplicates():
-    """Разовая уборка: оставить по одному экземпляру каждого утверждения и реплики."""
+    """Уборка повторов. СНАЧАЛА считает, есть ли что убирать.
+
+    Раньше удаление шло по всей таблице при каждом вызове, даже когда дублей
+    ноль. Такое удаление берёт исключительную блокировку, и на живой системе,
+    где воркер пишет каждые несколько секунд, оно падало с «database is locked».
+    То есть уборка не просто была бесполезной — она роняла шаг, который её звал.
+    """
     con = connect()
     before_e = con.execute("SELECT COUNT(*) FROM evidence").fetchone()[0]
+    uniq_e = con.execute("SELECT COUNT(DISTINCT claim) FROM evidence").fetchone()[0]
     before_m = con.execute("SELECT COUNT(*) FROM messages WHERE topic='chat'").fetchone()[0]
-    con.execute("""DELETE FROM evidence WHERE id NOT IN
-                   (SELECT MIN(id) FROM evidence GROUP BY claim)""")
-    con.execute("""DELETE FROM messages WHERE topic='chat' AND id NOT IN
-                   (SELECT MIN(id) FROM messages WHERE topic='chat' GROUP BY body)""")
+    uniq_m = con.execute("SELECT COUNT(DISTINCT body) FROM messages "
+                         "WHERE topic='chat'").fetchone()[0]
+    if before_e == uniq_e and before_m == uniq_m:
+        con.close()
+        return {"evidence": (before_e, before_e), "chat": (before_m, before_m),
+                "removed": 0}
+
+    if before_e > uniq_e:
+        con.execute("""DELETE FROM evidence WHERE id NOT IN
+                       (SELECT MIN(id) FROM evidence GROUP BY claim)""")
+    if before_m > uniq_m:
+        con.execute("""DELETE FROM messages WHERE topic='chat' AND id NOT IN
+                       (SELECT MIN(id) FROM messages WHERE topic='chat' GROUP BY body)""")
     con.commit()
-    after_e = con.execute("SELECT COUNT(*) FROM evidence").fetchone()[0]
-    after_m = con.execute("SELECT COUNT(*) FROM messages WHERE topic='chat'").fetchone()[0]
     con.close()
-    return {"evidence": (before_e, after_e), "chat": (before_m, after_m)}
+    return {"evidence": (before_e, uniq_e), "chat": (before_m, uniq_m),
+            "removed": (before_e - uniq_e) + (before_m - uniq_m)}

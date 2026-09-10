@@ -351,6 +351,12 @@ app.get('/api/queue', (_req, res) => {
                          FROM proposals p WHERE p.status IN ('proposed','approved') ORDER BY p.id DESC`),
     blocking: all(`SELECT o.id,o.proposal_id,o.argument,o.created_at
                    FROM objections o WHERE o.severity='blocking' ORDER BY o.id DESC`),
+    // ЭСКАЛАЦИИ. Механизм существовал, но за всё время не был вызван ни разу
+    // и нигде не показывался: суждения, которые локальной модели запрещены,
+    // уходили в никуда. Теперь они видны здесь и ждут ответа.
+    escalations: all(`SELECT id,sender,body,created_at FROM messages
+                      WHERE recipient='ESCALATION' AND consumed_at IS NULL
+                      ORDER BY id DESC LIMIT 20`),
     subscribers: all(`SELECT id,email,status,created_at FROM subscribers ORDER BY id DESC LIMIT 20`)
   };
   db.close(); res.json(out);
@@ -404,6 +410,8 @@ app.get('/api/execution', (_req, res) => {
       return { total: r.total, open: r.open||0, closed: r.closed||0,
                blind_categories: blind, categories: cats }; }
       catch { return null; } })(),
+    fixes: all(`SELECT file,problem,outcome,detail,at FROM code_fixes
+                ORDER BY id DESC LIMIT 8`),
     bounty_dropped: (() => { try {
       return db.prepare(`SELECT COUNT(*) c FROM bounties WHERE status='lost'`).get().c; }
       catch { return 0; } })(),
@@ -514,6 +522,27 @@ app.get('/api/chat', (_req, res) => {
 });
 
 // ---- ACTIONS the owner can take from the dashboard ----
+// ОТВЕТ НА ЭСКАЛАЦИЮ. Суждения уходили в таблицу, и разрешить их было нечем:
+// resolve_escalation() существовал без единого вызывающего. Теперь у очереди
+// суждений есть выход, иначе она копится молча и выглядит как «решать нечего».
+app.post('/api/resolve', (req, res) => {
+  const { escalation_id, answer } = req.body || {};
+  if (!escalation_id || !answer || !String(answer).trim())
+    return res.status(400).json({ ok:false, error:'нужны escalation_id и непустой answer' });
+  const db = new DatabaseSync(DB);
+  try {
+    const row = db.prepare(`SELECT id FROM messages WHERE id=? AND recipient='ESCALATION'
+                            AND consumed_at IS NULL`).get(escalation_id);
+    if (!row) { db.close(); return res.status(404).json({ ok:false, error:'нет такой открытой эскалации' }); }
+    const t = new Date().toISOString();
+    db.prepare(`UPDATE messages SET consumed_at=? WHERE id=?`).run(t, escalation_id);
+    db.prepare(`INSERT INTO messages(sender,recipient,topic,body,created_at)
+                VALUES (?,?,?,?,?)`).run('owner', 'orchestrator', 'resolution', String(answer), t);
+    db.close();
+    res.json({ ok:true, escalation_id });
+  } catch (e) { db.close(); res.status(500).json({ ok:false, error:String(e).slice(0,200) }); }
+});
+
 app.post('/api/decide', (req, res) => {
   const { proposal_id, decision, note } = req.body || {};
   if (!['approve','reject','defer'].includes(decision))

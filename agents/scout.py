@@ -50,22 +50,6 @@ def search(query, limit=8):
             break
     return out
 
-def _legacy_search_unused(query, limit=8):
-    url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query)
-    try:
-        html = _get(url)
-    except Exception as e:
-        return [{"error": f"{type(e).__name__}: {e}"}]
-    out, seen = [], set()
-    for m in re.finditer(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html, re.S):
-        href, title = m.group(1), re.sub(r"<[^>]+>", "", m.group(2)).strip()
-        if "uddg=" in href:
-            href = urllib.parse.unquote(href.split("uddg=")[1].split("&")[0])
-        if href in seen: continue
-        seen.add(href); out.append({"url": href, "title": title})
-        if len(out) >= limit: break
-    return out
-
 def fetch_and_store(url):
     """Fetch a page, strip to text, store a source row. Returns (source_id, text)."""
     guard.check_action("research", "GREEN")

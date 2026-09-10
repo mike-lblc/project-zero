@@ -248,23 +248,3 @@ def repair_round(limit=3):
             f"пропущено {skipped}{tail}")
 
 
-def history(limit=15):
-    c = _con()
-    rows = c.execute("SELECT file,problem,outcome,detail,at FROM code_fixes "
-                     "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-    c.close()
-    return [dict(zip(("file", "problem", "outcome", "detail", "at"), r)) for r in rows]
-
-
-CYCLE = [("mechanic", lambda: repair_round(2))]
-
-
-if __name__ == "__main__":
-    print("═══ ЧТО МЕХАНИК НАШЁЛ В КОДЕ ═══")
-    probs = sorted(find_problems(), key=lambda p: -p["severity"])
-    for p in probs[:14]:
-        print(f"  [{p['severity']}] {p['file']:24} {p['detail'][:62]}")
-    print(f"\nвсего: {len(probs)}")
-    print("\n═══ ЗАПРЕЩЁННЫЕ ФАЙЛЫ (свой надзор не трогает) ═══")
-    for u in sorted(UNTOUCHABLE):
-        print("  ", u)

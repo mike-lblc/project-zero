@@ -67,7 +67,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -75,11 +75,23 @@ AGENT_OF = {"mtbx_audit":"adversary","prospect":"prospector","probe_paths":"pros
             "explore_alternatives":"explorer"}
 
 
+def _iso(t):
+    """Приводит метку времени к виду с часовым поясом.
+
+    Разные вызывающие писали в runs то наивное время, то с поясом, и сравнение
+    падало с TypeError прямо внутри аудита живости. Журнал, по которому нельзя
+    посчитать возраст записи, journal только на вид.
+    """
+    t = str(t)
+    return t if ("+" in t[10:] or t.endswith("Z")) else t + "+00:00"
+
+
 def record_run(step, agent, ok, detail, started, ended):
     """Каждый шаг цикла попадает в журнал. Без этого 'агенты работают' - слова."""
     con = connect()
     con.execute("INSERT INTO runs(agent,started_at,ended_at,status,notes) VALUES (?,?,?,?,?)",
-                (agent, started, ended, "ok" if ok else "error", f"{step}: {detail}"[:400]))
+                (agent, _iso(started), _iso(ended), "ok" if ok else "error",
+                 f"{step}: {detail}"[:400]))
     # репутация считается ТОЛЬКО по исходам, а не по красноречию
     con.execute("""INSERT INTO agent_reputation(agent,role,calls,correct,updated_at)
                    VALUES (?,?,1,?,?)
@@ -88,6 +100,12 @@ def record_run(step, agent, ok, detail, started, ended):
                 (agent, step, 1 if ok else 0, now(), 1 if ok else 0, now()))
     con.commit()
     con.close()
+    # Стоимость шага в учёт. Без неё survival() и agent_roi() считали отдачу
+    # по пустым затратам, то есть по определению не могли никого забраковать.
+    try:
+        economics.record_cost(agent, "cycle_step", 1, 0.0, step)
+    except (ValueError, KeyError):
+        pass
 
 
 def wallet():
@@ -269,6 +287,81 @@ def audit():
     return f"audit: spend={spend} payments={pays} orphan_evidence={orphan}"
 
 
+def housekeeping():
+    """Включает механизмы, которые существовали и никогда не вызывались.
+
+    Детектор мёртвого кода нашёл пятнадцать таких функций. Часть из них —
+    не украшения, а несущие узлы, которые просто никто не дёргал:
+
+      execution.stalled()         кто завис в работе и не двигается
+      execution.unblock()         снятие блокера, когда причина исчезла
+      memory.cleanup_duplicates() уборка повторов, накопившихся до дедупликации
+      bus.my_work() / answers_for() входящие агентов — их никто не читал,
+                                  то есть вопросы задавались в пустоту
+
+    Функция, которую не вызывают, работой не является — ровно как заранее
+    записанный текст. Разница только в том, что первую хотя бы написали
+    добросовестно.
+    """
+    from core import execution, memory as mem, bus, router
+    lines = []
+
+    # ЛОКАЛЬНАЯ МОДЕЛЬ. Она лежала, и этого не заметил ни один аудит: шаги,
+    # ходящие через неё, просто падали по одному, а картина в целом выглядела
+    # рабочей. Отсутствие модели — это не мелочь: через неё идут все
+    # механические задачи, а суждения по протоколу обязаны идти мимо неё.
+    ok, detail = router.health()
+    if not ok:
+        lines.append("локальная модель НЕ ОТВЕЧАЕТ")
+        say("orchestrator", f"Локальная модель не отвечает ({detail[:70]}). Механические "
+                            f"задачи через неё сейчас падают. Это чинится запуском ollama, "
+                            f"и до починки я не выдаю их результаты за полученные.")
+        note("orchestrator", f"LOCAL MODEL DOWN: {detail[:200]}", conf=1.0)
+
+    stuck = execution.stalled(hours=6)
+    if stuck:
+        lines.append(f"зависших задач {len(stuck)}")
+        say("orchestrator", f"Висят без движения дольше 6 часов: {len(stuck)} задач. "
+                            f"Верхняя — «{(stuck[0].get('objective') or '')[:60]}». "
+                            f"Зависшая задача это не работа в процессе, это остановка.")
+        note("orchestrator", f"STALLED TASKS: {len(stuck)} in progress with no movement "
+                             f"for over 6 hours", conf=1.0)
+
+    cleaned = mem.cleanup_duplicates()
+    if cleaned.get("removed"):
+        lines.append(f"убрано повторов: {cleaned['removed']}")
+
+    # ВХОДЯЩИЕ. Вопросы задавались, ответы приходили, читать их было некому.
+    unread = 0
+    for agent in ("orchestrator", "craftsman", "bounty", "prospector", "leads", "salesman"):
+        unread += len(bus.my_work(agent)) + len(bus.answers_for(agent, limit=20))
+    if unread:
+        lines.append(f"непрочитанных входящих {unread}")
+
+    return "; ".join(lines) if lines else "порядок: зависших нет, повторов нет"
+
+
+def escalation_watch():
+    """Сколько суждений ждёт ответа. Механизм был, потребителя не было.
+
+    escalate() создавал запись, pending_escalations() её читал — и не вызывался
+    ниоткуда. То есть вопросы, которые локальной модели решать запрещено,
+    уходили в таблицу и лежали там молча. Молчащая очередь суждений опаснее
+    пустой: со стороны она выглядит как «решать нечего».
+    """
+    from agents import council
+    pend = council.pending_escalations()
+    if not pend:
+        return "суждений на эскалации нет"
+    oldest = pend[0].get("created_at", "")
+    say("orchestrator", f"На эскалации ждут ответа {len(pend)} суждений, старейшее от "
+                        f"{oldest[:16]}. Это вопросы, которые локальной модели решать "
+                        f"запрещено. Они видны в очереди на дашборде.")
+    note("orchestrator", f"PENDING JUDGMENT: {len(pend)} escalation(s) awaiting a "
+                         f"frontier-model answer; oldest {oldest}", conf=1.0)
+    return f"на эскалации {len(pend)} суждений"
+
+
 def mtbx_audit():
     """Полный аудит по спецификации MTBX — 46 механических проверок.
 
@@ -303,6 +396,13 @@ def scout_research():
     t = RESEARCH_TOPICS[_topic_i[0] % len(RESEARCH_TOPICS)]
     _topic_i[0] += 1
     say("scout", f"Беру следующую тему: «{t}». Смотрю, кто там уже зарабатывает и на чём.")
+    # Раз в четыре темы — ПОЛНЫЙ разбор с чтением страниц, а не только индекс.
+    # run_job() умел это с самого начала и не вызывался ниоткуда.
+    if _topic_i[0] % 4 == 0:
+        ids = scout.run_job(f"кто зарабатывает на теме «{t}» и на чём именно",
+                            [f"{t} api pricing", f"{t} paid service"], max_pages=2)
+        say("scout", f"Полный разбор темы «{t}»: собрано утверждений {len(ids or [])}.")
+        return f"глубокий разбор «{t}»: утверждений {len(ids or [])}"
     r = scout.research_index(t)
     if r.get("error"):
         say("scout", f"По теме «{t}» не смог посмотреть: {r['error']}")
@@ -324,6 +424,7 @@ def _growth(fn_name):
 def economic_review():
     """Раздел 28: кто не окупается. Раздел 19: гейт дорогих операций."""
     verdicts = economics.survival()
+    roi = economics.agent_roi()          # отдача по каждому: считалась, но не смотрелась
     bad = [v for v in verdicts if not v["verdict"].startswith("оставить")]
     if bad:
         txt = "; ".join(f"{v['agent']} ({v['verdict']})" for v in bad)
@@ -331,7 +432,7 @@ def economic_review():
                          f"Предлагаю паузу, но решение за владельцем.")
         note("optimizer", f"AGENT SURVIVAL: underperforming — {txt}", conf=0.9)
         return f"кандидатов на паузу: {len(bad)}"
-    return f"все {len(verdicts)} агентов оправдывают работу"
+    return f"все {len(verdicts)} агентов оправдывают работу; отдача посчитана по {len(roi)}"
 
 
 def daily_briefing():
@@ -392,9 +493,16 @@ def _sales(fn_name):
 
 
 def _leads(fn_name):
+    """Диспетчер шагов разведки клиентов.
+
+    Здесь была тихая поломка: он игнорировал имя шага и всегда звал hot_leads().
+    Поэтому find_channel и verify_service, вписанные в цикл, не запустились бы
+    НИКОГДА, а журнал показывал бы «лидов: 25» и выглядел работающим. Именно
+    это и давало 100% одинаковых прогонов у агента leads.
+    """
     def run():
         from agents import leads
-        return f"лидов: {len(leads.hot_leads())}"
+        return dict(leads.CYCLE)[fn_name]()
     return run
 
 
@@ -449,13 +557,62 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("economics", economic_review),
               ("briefing", daily_briefing),
               ("prospect", _prospect("prospect")),          # ищет ВСЕ пути к деньгам
+              ("deep_check", _prospect("deep_check")),
               ("probe_paths", _prospect("probe_paths")),    # щупает их о наши стены
               ("path_report", _prospect("path_report")),
               ("find_channel", _leads("find_channel")),
               ("verify_service", _leads("verify_service")),
               ("collect_payouts", _craft("collect_payouts")),
+              ("pursue", _craft("pursue")),
+              ("housekeeping", housekeeping),
+              ("escalation_watch", escalation_watch),
               ("mtbx_audit", mtbx_audit)]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
+
+
+# Сколько раз подряд шаг может выдать ОДИН И ТОТ ЖЕ результат, прежде чем
+# признать, что он ничего нового не приносит.
+SAME_LIMIT = 3
+# На сколько оборотов он после этого уходит на паузу. Растёт с каждым повтором,
+# но не бесконечно: раз в сутки проверить состояние обязан любой шаг.
+BACKOFF_MAX = 60
+_last_out = {}          # шаг -> последний результат
+_same_count = {}        # шаг -> сколько раз подряд повторился
+_skip_until = {}        # шаг -> номер оборота, до которого пропускаем
+
+
+def should_run(name, turn):
+    """Пропускать ли шаг, который перестал приносить новое.
+
+    Зачем. Детектор подделки нашёл семь агентов, выдающих один и тот же
+    результат в 90-100% прогонов: «1 PR открыты, изменений нет», «лидов: 25»,
+    «медиана $0.0100». Это не ложь — это правда, повторяемая каждые две
+    минуты. Но наружу и в журнал она выглядит как непрерывная работа, а по
+    существу её там нет: ровно та же имитация, что и заранее записанный текст,
+    только собранная из настоящих измерений.
+
+    Шаг, трижды подряд сказавший одно и то же, уходит на паузу с растущим
+    шагом. Он вернётся — состояние меняется, и пропустить перемену нельзя, —
+    но перестанет заполнять журнал повторами.
+    """
+    return turn >= _skip_until.get(name, 0)
+
+
+def note_result(name, out, turn):
+    """Учитывает, принёс ли шаг новое, и назначает паузу если нет."""
+    body = str(out)
+    if body == _last_out.get(name):
+        _same_count[name] = _same_count.get(name, 0) + 1
+    else:
+        _same_count[name] = 0
+        _last_out[name] = body
+        _skip_until.pop(name, None)
+        return None
+    if _same_count[name] >= SAME_LIMIT:
+        wait = min(BACKOFF_MAX, 2 ** (_same_count[name] - SAME_LIMIT + 1))
+        _skip_until[name] = turn + wait
+        return wait
+    return None
 
 
 def run_forever(interval=90):
@@ -473,11 +630,24 @@ def run_forever(interval=90):
         else:
             name, fn = CYCLE[i % len(CYCLE)]
         agent = AGENT_OF.get(name, "orchestrator")
+        if not should_run(name, i):
+            i += 1
+            time.sleep(interval / len(CYCLE) / 8)   # пропуск дешёвый, не ждём полный такт
+            continue
         started = now()
         try:
             out = fn()
+            paused = note_result(name, out, i)
             record_run(name, agent, True, str(out), started, now())
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out}", flush=True)
+            if paused:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out} "
+                      f"— то же самое {SAME_LIMIT} раза подряд, пауза на {paused} оборотов",
+                      flush=True)
+                say(agent, f"Шаг «{name}» {SAME_LIMIT} раза подряд дал один и тот же "
+                           f"результат: «{str(out)[:70]}». Нового он сейчас не приносит, "
+                           f"ухожу с ним на паузу — повторять одно и то же не работа.")
+            else:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out}", flush=True)
         except Exception as e:
             detail = f"{type(e).__name__}: {e}"
             record_run(name, agent, False, detail, started, now())

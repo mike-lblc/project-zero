@@ -16,6 +16,19 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+def _aware(ts):
+    """Метка времени с поясом, чем бы её ни записали.
+
+    В журнале лежали записи и с поясом, и без него, и вычитание падало прямо
+    внутри проверки живости: аудит рапортовал сбой там, где система работала.
+    """
+    from datetime import datetime, timezone
+    t = str(ts)
+    if "+" not in t[10:] and not t.endswith("Z"):
+        t += "+00:00"
+    return datetime.fromisoformat(t.replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 LOCAL = "http://127.0.0.1:8402"
@@ -456,7 +469,7 @@ def worker_alive():
     last = q("SELECT MAX(started_at) FROM runs")
     if not last:
         return False, "прогонов нет"
-    age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds()
+    age = (datetime.now(timezone.utc) - _aware(last)).total_seconds()
     return age < 900, f"последний прогон {int(age)} сек назад"
 
 

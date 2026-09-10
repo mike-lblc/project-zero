@@ -45,13 +45,6 @@ def pending_escalations():
     return [dict(r) for r in con.execute(
         "SELECT * FROM messages WHERE recipient='ESCALATION' AND consumed_at IS NULL ORDER BY id")]
 
-def resolve_escalation(msg_id, answer, model_used="claude-code-subagent"):
-    con = connect()
-    con.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), msg_id))
-    con.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) VALUES (?,?,?,?,?)",
-                (model_used, "orchestrator", "resolution", answer, now())); con.commit()
-
-# ---------------------------------------------------------------- roles
 def proposer(summary, falsifier, action_class="GREEN", payload=None, evidence_ids=None):
     """Proposals REQUIRE a falsifier - how we would know this failed."""
     if not falsifier or not falsifier.strip():
@@ -103,16 +96,3 @@ def judge(proposal_id, decision, reasoning, addressed_objection_id, model_used):
                 ("approved" if decision == "approve" else "rejected", proposal_id))
     con.commit()
 
-def orchestrator_status():
-    con = connect()
-    q = lambda s: con.execute(s).fetchone()[0]
-    return {"proposals": q("SELECT COUNT(*) FROM proposals"),
-            "objections": q("SELECT COUNT(*) FROM objections"),
-            "rulings": q("SELECT COUNT(*) FROM rulings"),
-            "evidence": q("SELECT COUNT(*) FROM evidence"),
-            "sources": q("SELECT COUNT(*) FROM sources"),
-            "pending_escalations": len(pending_escalations()),
-            "unread_messages": q("SELECT COUNT(*) FROM messages WHERE consumed_at IS NULL"),
-            "payments": q("SELECT COUNT(*) FROM payments"),
-            "spend_rows": q("SELECT COUNT(*) FROM spend"),
-            "human_interventions": q("SELECT COUNT(*) FROM human_interventions")}

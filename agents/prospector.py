@@ -372,7 +372,32 @@ def report():
             f"закрытых {closed}, не размечено классов {L['categories_never_searched']}")
 
 
+def deep_check(platform=None):
+    """Разбирает лучшую площадку подробно, а не по одной странице.
+
+    Оценка по главной странице — грубая: она уже один раз выдала витрину
+    котировок за место, где платят. Здесь берётся лучший кандидат и его
+    страница разбирается на утверждения с сохранением источника.
+    """
+    guard.check_action("research", "GREEN")
+    from agents import scout
+    if not platform:
+        con = _con()
+        row = con.execute("SELECT platform FROM money_paths WHERE open_to_us=1 "
+                          "ORDER BY score DESC LIMIT 1").fetchone()
+        con.close()
+        if not row:
+            return "открытых площадок нет — разбирать нечего"
+        platform = row[0]
+    res = scout.investigate("https://" + platform,
+                            "как именно площадка платит исполнителю и что для этого нужно",
+                            ["payout", "reward", "bounty", "wallet", "kyc", "usdc", "eligib"])
+    bus.broadcast("prospector", f"Разобрал подробно {platform}: {str(res)[:150]}")
+    return f"разобрана {platform}"
+
+
 CYCLE = [("prospect", lambda: discover(2, 6)),
+         ("deep_check", deep_check),
          ("probe_paths", lambda: probe(6)),
          ("path_report", report)]
 
