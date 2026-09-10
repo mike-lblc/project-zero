@@ -241,7 +241,6 @@ def briefing():
 
 
 if __name__ == "__main__":
-    import json
     print("=== СТАДИЯ ===")
     for k, v in stage().items():
         print(f"  {k:28} {v}")
