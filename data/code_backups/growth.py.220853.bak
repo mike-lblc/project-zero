@@ -9,7 +9,7 @@
 это делает совет через гейты (DECISION_PROTOCOL.md). Агент, который правит
 других без проверки, деградирует систему, а не развивает её.
 """
-import sys, json
+import sys, json, statistics
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 

@@ -73,11 +73,29 @@ font-family:ui-monospace,Menlo,Consolas,monospace}
 .empty{color:var(--dim);font-size:12px;padding:14px 2px}
 @media(max-width:900px){#panel{left:12px;width:auto;top:auto;height:52vh;bottom:12px}
 #log{display:none}#top{padding:9px}.stat b{font-size:15px}}
+#nav{position:fixed;left:12px;top:96px;z-index:6;padding:9px;display:flex;
+flex-direction:column;gap:5px;align-items:center}
+#nav .nr{display:flex;gap:5px}
+.nb{width:30px;height:27px;border-radius:7px;border:1px solid var(--line);
+background:rgba(77,159,255,.07);color:var(--txt);cursor:pointer;font-size:12px;
+display:flex;align-items:center;justify-content:center;user-select:none;transition:.12s}
+.nb:hover{background:rgba(77,159,255,.22)}
+.nb:active{background:rgba(77,159,255,.36)}
+#nav .nh{font-size:9.5px;color:var(--dim);margin-top:4px;text-align:center;line-height:1.4}
+@media(max-width:900px){#nav{display:none}}
+.tag.c-que{background:rgba(125,139,168,.16);color:#a4b2c8}
+.tag.c-run{background:rgba(77,159,255,.18);color:#a5c8ff}
+.tag.c-done{background:rgba(55,217,154,.16);color:#8ce9c2}
+.tag.c-fail{background:rgba(255,95,109,.16);color:#ff9aa3}
+.tag.c-block{background:rgba(255,180,84,.16);color:#ffd39a}
+.tag.c-money{background:rgba(55,217,154,.14);color:#8ce9c2}
 </style></head><body>
 <canvas id="c"></canvas>
 
 <div id="top" class="hud">
   <div class="brand">P0 &middot; AGENT FLOOR<small>живой поток из brain.db</small></div>
+  <div class="stat" data-tab="exec"><b id="k-tasks">&ndash;</b><span>Задачи</span></div>
+  <div class="stat" data-tab="exec"><b id="k-work">&ndash;</b><span>Найдено работ</span></div>
   <div class="stat" data-tab="feed"><b id="s-ev">&ndash;</b><span>Находки</span></div>
   <div class="stat" data-tab="feed"><b id="s-src">&ndash;</b><span>Источники</span></div>
   <div class="stat" data-tab="queue"><b id="s-obj" style="color:var(--bad)">&ndash;</b><span>Блокеры</span></div>
@@ -92,6 +110,7 @@ font-family:ui-monospace,Menlo,Consolas,monospace}
   <div class="tabs">
     <div class="tab on" data-t="queue">Очередь<span class="badge" id="b-queue">0</span></div>
     <div class="tab" data-t="agents">Агенты</div>
+    <div class="tab" data-t="exec">Конвейер</div>
     <div class="tab" data-t="econ">Экономика</div>
     <div class="tab" data-t="chat">Чат агентов</div>
     <div class="tab" data-t="feed">Находки</div>
@@ -99,6 +118,7 @@ font-family:ui-monospace,Menlo,Consolas,monospace}
   <div class="body">
     <div id="v-queue"></div>
     <div id="v-agents" hidden></div>
+    <div id="v-exec" hidden></div>
     <div id="v-econ" hidden></div>
     <div id="v-chat" hidden></div>
     <div id="v-feed" hidden></div>
@@ -106,6 +126,13 @@ font-family:ui-monospace,Menlo,Consolas,monospace}
 </div>
 
 <div id="agentcard" class="hud" style="display:none;left:12px;top:96px;width:min(360px,calc(100vw - 24px));padding:13px 15px;z-index:6"></div>
+
+<div id="nav" class="hud">
+  <div class="nr"><div class="nb" data-k="up">↑</div></div>
+  <div class="nr"><div class="nb" data-k="left">←</div><div class="nb" data-k="down">↓</div><div class="nb" data-k="right">→</div></div>
+  <div class="nr"><div class="nb" data-k="in">+</div><div class="nb" data-k="reset">⌂</div><div class="nb" data-k="out">−</div></div>
+  <div class="nh">мышь — поворот · колесо — зум<br>стрелки — полёт по сцене</div>
+</div>
 
 <div id="log" class="hud">
   <div><b id="svc">&ndash;</b></div>
@@ -136,26 +163,64 @@ var AGENTS=[
  {id:"leads",label:"РАЗВЕДКА КЛИЕНТОВ",color:0xfbbf24,shape:"dodec"},
  {id:"salesman",label:"ПРОДАВЕЦ",color:0x4ade80,shape:"box"}
 ];
-var scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x05070d,0.021);
+var scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x05070d,0.009);
 var camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,220);
 var renderer=new THREE.WebGLRenderer({canvas:document.getElementById("c"),antialias:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight);
 scene.add(new THREE.AmbientLight(0x5570aa,0.55));
 var k=new THREE.PointLight(0x88bbff,150,95); k.position.set(9,14,11); scene.add(k);
 var rm=new THREE.PointLight(0xff8899,70,80); rm.position.set(-11,-6,-9); scene.add(rm);
-var grid=new THREE.GridHelper(52,34,0x1d3a63,0x11203a); grid.position.y=-4.6; scene.add(grid);
+var grid=new THREE.GridHelper(96,48,0x1d3a63,0x11203a); grid.position.y=-4.6; scene.add(grid);
 var sg=new THREE.BufferGeometry(),sp=[];
 for(var i=0;i<900;i++){sp.push((Math.random()-.5)*170,(Math.random()-.5)*170,(Math.random()-.5)*170);}
 sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3));
 scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x4a6a9e,size:.33,transparent:true,opacity:.5})));
-function geom(s){
-  if(s==="ico")return new THREE.IcosahedronGeometry(1.15,0);
-  if(s==="oct")return new THREE.OctahedronGeometry(1.25,0);
-  if(s==="dodec")return new THREE.DodecahedronGeometry(1.1,0);
-  if(s==="tetra")return new THREE.TetrahedronGeometry(1.4,0);
-  if(s==="box")return new THREE.BoxGeometry(1.7,1.7,1.7);
-  return new THREE.SphereGeometry(1.2,32,24);
+/* Корабль собирается из нескольких деталей, а не из одного примитива:
+   корпус + кольцо + пилоны. У каждого класса свой силуэт, поэтому их
+   различаешь издалека, не читая подписи. */
+function hull(kind){
+  var g=new THREE.Group();
+  if(kind==="ico"){                                  /* разведчик: гранёный клин */
+    g.add(new THREE.Mesh(new THREE.ConeGeometry(.72,2.6,6),null));
+    g.children[0].rotation.x=Math.PI/2;
+    var r=new THREE.Mesh(new THREE.TorusGeometry(.95,.09,6,16),null);
+    r.rotation.x=Math.PI/2; g.add(r);
+  } else if(kind==="oct"){                            /* почтальон: два конуса */
+    var a=new THREE.Mesh(new THREE.ConeGeometry(.8,1.5,8),null);
+    var b=new THREE.Mesh(new THREE.ConeGeometry(.8,1.5,8),null);
+    a.position.z=.6; a.rotation.x=Math.PI/2;
+    b.position.z=-.6; b.rotation.x=-Math.PI/2; g.add(a); g.add(b);
+    var r=new THREE.Mesh(new THREE.TorusGeometry(.85,.07,6,14),null);
+    r.rotation.x=Math.PI/2; g.add(r);
+  } else if(kind==="dodec"){                          /* разведка клиентов: диск */
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.05,.34,12),null));
+    var t=new THREE.Mesh(new THREE.SphereGeometry(.5,14,10),null); t.position.y=.3; g.add(t);
+    var r=new THREE.Mesh(new THREE.TorusGeometry(1.35,.06,6,20),null);
+    r.rotation.x=Math.PI/2; g.add(r);
+  } else if(kind==="tetra"){                          /* оппонент: стрела */
+    var c=new THREE.Mesh(new THREE.ConeGeometry(.85,2.2,4),null);
+    c.rotation.x=Math.PI/2; g.add(c);
+    for(var i=0;i<2;i++){
+      var f=new THREE.Mesh(new THREE.BoxGeometry(1.9,.09,.5),null);
+      f.position.z=-.7; f.rotation.z=i?Math.PI/3:-Math.PI/3; g.add(f);
+    }
+  } else if(kind==="box"){                            /* судья/продавец: линкор */
+    g.add(new THREE.Mesh(new THREE.BoxGeometry(.95,.55,2.5),null));
+    var tw=new THREE.Mesh(new THREE.BoxGeometry(.5,.75,.6),null); tw.position.y=.5; g.add(tw);
+    for(var k=0;k<2;k++){
+      var pod=new THREE.Mesh(new THREE.CylinderGeometry(.2,.2,1.5,8),null);
+      pod.rotation.x=Math.PI/2; pod.position.x=k?.85:-.85; g.add(pod);
+    }
+  } else {                                            /* оркестратор: станция */
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(1.05,26,20),null));
+    var r1=new THREE.Mesh(new THREE.TorusGeometry(1.6,.07,8,28),null);
+    r1.rotation.x=Math.PI/2; g.add(r1);
+    var r2=new THREE.Mesh(new THREE.TorusGeometry(1.85,.05,8,28),null);
+    r2.rotation.x=Math.PI/2.6; r2.rotation.y=.5; g.add(r2);
+  }
+  return g;
 }
+function geom(s){ return hull(s); }
 function hx(c){var s=c.toString(16);while(s.length<6)s="0"+s;return "#"+s;}
 function mkLabel(t,c){var cv=document.createElement("canvas");cv.width=340;cv.height=76;
   var x=cv.getContext("2d"),tx=new THREE.CanvasTexture(cv);
@@ -166,15 +231,23 @@ function draw(n,sub){var u=n.label.userData;u.x.clearRect(0,0,u.cv.width,u.cv.he
   u.x.fillStyle=hx(u.color);u.x.fillText(u.text,170,34);
   u.x.font="400 20px ui-sans-serif,system-ui,sans-serif";u.x.fillStyle="#8496b8";
   u.x.fillText(sub,170,62);u.tex.needsUpdate=true;}
-var nodes=[],R=8.2,ring=AGENTS.filter(function(a){return a.id!=="orchestrator";});
+var nodes=[],R=17,ring=AGENTS.filter(function(a){return a.id!=="orchestrator";});
 AGENTS.forEach(function(a){
   var g=new THREE.Group(),hub=(a.id==="orchestrator");
   var j=ring.indexOf(a),ang=(j/ring.length)*Math.PI*2;
-  if(hub)g.position.set(0,1.6,0); else g.position.set(Math.cos(ang)*R,Math.sin(ang*2)*.7-.6,Math.sin(ang)*R);
-  var mesh=new THREE.Mesh(geom(a.shape),new THREE.MeshStandardMaterial({color:a.color,emissive:a.color,
-    emissiveIntensity:.42,metalness:.55,roughness:.28,transparent:true,opacity:.94}));
-  var cage=new THREE.Mesh(geom(a.shape),new THREE.MeshBasicMaterial({color:a.color,wireframe:true,
-    transparent:true,opacity:.3})); cage.scale.setScalar(1.45);
+  if(hub)g.position.set(0,1.6,0); else {
+    /* два яруса и переменный радиус: корабли перестают налезать друг на друга */
+    var tier=(j%2)?1:0, rr=R*(tier?0.66:1);
+    g.position.set(Math.cos(ang)*rr, (tier?4.2:-1.2)+Math.sin(ang*3)*1.1, Math.sin(ang)*rr);
+  }
+  var mat=new THREE.MeshStandardMaterial({color:a.color,emissive:a.color,
+    emissiveIntensity:.42,metalness:.72,roughness:.24,transparent:true,opacity:.96});
+  var mesh=geom(a.shape);
+  mesh.traverse(function(o){ if(o.isMesh) o.material=mat; });
+  mesh.material=mat;
+  var cmat=new THREE.MeshBasicMaterial({color:a.color,wireframe:true,transparent:true,opacity:.16});
+  var cage=geom(a.shape);
+  cage.traverse(function(o){ if(o.isMesh) o.material=cmat; }); cage.scale.setScalar(1.45);
   var halo=new THREE.Mesh(new THREE.SphereGeometry(1.9,24,18),
     new THREE.MeshBasicMaterial({color:a.color,transparent:true,opacity:.06}));
   var lab=mkLabel(a.label,a.color); lab.position.y=2.5;
@@ -184,29 +257,193 @@ AGENTS.forEach(function(a){
   draw(n,"—"); nodes.push(n);
 });
 var hub=nodes.filter(function(n){return n.id==="orchestrator";})[0];
+
+/* Связи по РЕАЛЬНОМУ взаимодействию, а не «все к одному».
+   Пары взяты из того, как агенты действительно работают друг с другом:
+   разведка кормит продавца, продавец опирается на дистрибьютора и почтальона,
+   критик и оппонент проверяют всех, судья замыкает совет. */
+var LINKS=[
+ ["leads","salesman"],["salesman","postman"],["salesman","distributor"],
+ ["scout","leads"],["scout","verifier"],["verifier","merchant"],
+ ["merchant","salesman"],["explorer","merchant"],["explorer","scribe"],
+ ["scribe","postman"],["distributor","hunter"],["critic","scout"],
+ ["critic","optimizer"],["adversary","proposer"],["proposer","judge"],
+ ["judge","adversary"],["watchdog","optimizer"],["watchdog","distributor"],
+ ["mechanic","critic"],["taskmaster","salesman"],["leads","hunter"]
+];
+function nodeById(id){ return nodes.filter(function(n){return n.id===id;})[0]; }
+
+/* ЛАЗЕРНЫЕ ЛУЧИ вместо статичных линий.
+   Штрихи БЕГУТ вдоль связи: каждый кадр сдвигаем dashOffset, поэтому линия
+   не «прерывистая», а живая — видно направление, в котором идёт работа. */
+var beams=[];
+/* ЛЕТЯЩИЕ ИМПУЛЬСЫ. Бегущий пунктир через dashOffset сделать нельзя —
+   у LineDashedMaterial такого свойства нет. Поэтому вдоль каждой связи
+   летит цепочка светящихся точек: видно и направление, и что связь живая. */
+var dotGeo=new THREE.SphereGeometry(0.11,8,6);
+function beam(a,b,color,speed,op){
+  /* тусклая направляющая — чтобы читалась структура */
+  var g=new THREE.BufferGeometry().setFromPoints([a,b]);
+  scene.add(new THREE.Line(g,new THREE.LineBasicMaterial({
+    color:color,transparent:true,opacity:op*0.22})));
+
+  var mat=new THREE.MeshBasicMaterial({color:color,transparent:true,opacity:op});
+  var dots=[],N=4;
+  for(var i=0;i<N;i++){
+    var d=new THREE.Mesh(dotGeo,mat);
+    scene.add(d);
+    dots.push({m:d,t:i/N});
+  }
+  beams.push({a:a.clone(),b:b.clone(),dots:dots,sp:speed});
+}
+function stepBeams(){
+  for(var i=0;i<beams.length;i++){
+    var bm=beams[i];
+    for(var j=0;j<bm.dots.length;j++){
+      var d=bm.dots[j];
+      d.t+=bm.sp;
+      if(d.t>1) d.t-=1;
+      d.m.position.lerpVectors(bm.a,bm.b,d.t);
+      /* импульс гаснет к концам — получается «выстрел», а не бусина на нитке */
+      d.m.material.opacity=0.9*Math.sin(d.t*Math.PI);
+    }
+  }
+}
+LINKS.forEach(function(pair){
+  var a=nodeById(pair[0]), b=nodeById(pair[1]);
+  if(!a||!b) return;
+  /* цвет берём у отправителя — по лучу видно, кто кому передаёт работу */
+  beam(a.group.position,b.group.position,a.color,0.0035+(pair[0].length%5)*0.0011,0.85);
+});
+/* привязка к ступице — тусклее и медленнее, чтобы не спорила с рабочими связями */
 nodes.forEach(function(n){ if(n.id==="orchestrator")return;
-  var gg=new THREE.BufferGeometry().setFromPoints([hub.group.position,n.group.position]);
-  scene.add(new THREE.Line(gg,new THREE.LineBasicMaterial({color:n.color,transparent:true,opacity:.16})));});
+  beam(hub.group.position,n.group.position,0x4a7ab0,0.0018,0.35);});
 var pulses=[];
 function pulse(to){var m=new THREE.Mesh(new THREE.SphereGeometry(.18,12,10),
    new THREE.MeshBasicMaterial({color:to.color,transparent:true}));
   m.position.copy(hub.group.position);scene.add(m);
   pulses.push({m:m,from:hub.group.position.clone(),to:to.group.position.clone(),t:0});}
-var camA=0;
+/* КАМЕРА УПРАВЛЯЕТСЯ ЧЕЛОВЕКОМ. Автовращение убрано: картинка должна стоять,
+   пока её не трогают, иначе невозможно ничего рассмотреть. */
+var cam={az:0.7,el:0.40,dist:innerWidth<900?52:42,cx:0,cy:0,
+         tAz:0.7,tEl:0.40,tDist:innerWidth<900?52:42,tcx:0,tcy:0};
+var drag=false,px=0,py=0,moved=false;
+var cvEl=renderer.domElement;
+cvEl.style.cursor="grab";
+cvEl.addEventListener("mousedown",function(e){drag=true;moved=false;px=e.clientX;py=e.clientY;
+  cvEl.style.cursor="grabbing";});
+addEventListener("mouseup",function(){drag=false;cvEl.style.cursor="grab";});
+addEventListener("mousemove",function(e){
+  if(!drag)return; moved=true;
+  cam.tAz-=(e.clientX-px)*0.005;
+  cam.tEl=Math.max(-1.15,Math.min(1.35,cam.tEl+(e.clientY-py)*0.004));
+  px=e.clientX;py=e.clientY;});
+cvEl.addEventListener("wheel",function(e){e.preventDefault();
+  cam.tDist=Math.max(9,Math.min(110,cam.tDist+e.deltaY*0.03));},{passive:false});
+cvEl.addEventListener("touchstart",function(e){if(e.touches.length===1){drag=true;moved=false;
+  px=e.touches[0].clientX;py=e.touches[0].clientY;}});
+cvEl.addEventListener("touchend",function(){drag=false;});
+cvEl.addEventListener("touchmove",function(e){
+  if(!drag||e.touches.length!==1)return; moved=true;
+  cam.tAz-=(e.touches[0].clientX-px)*0.006;
+  cam.tEl=Math.max(-1.15,Math.min(1.35,cam.tEl+(e.touches[0].clientY-py)*0.005));
+  px=e.touches[0].clientX;py=e.touches[0].clientY;},{passive:true});
+
+/* ── СВОБОДНЫЙ ПОЛЁТ ──────────────────────────────────────────────
+   Стрелки перемещают камеру в пространстве, НЕ вращая её.
+   Скорость с затуханием: нажатие разгоняет, отпускание плавно тормозит. */
+var fly={x:0,y:0,z:0, vx:0,vz:0, keys:{}};
+var FLY_ACCEL=0.055, FLY_MAX=0.9, FLY_DAMP=0.86, FLY_BOUND=46;
+
+function nav(k){
+  /* кнопки на экране дают короткий импульс в ту же сторону, что и клавиши */
+  var imp={left:["strafe",-1],right:["strafe",1],up:["fwd",1],down:["fwd",-1]};
+  if(imp[k]){ applyMove(imp[k][0], imp[k][1]*7); return; }
+  if(k==="in") cam.tDist=Math.max(9,cam.tDist-4);
+  else if(k==="out") cam.tDist=Math.min(110,cam.tDist+4);
+  else if(k==="reset"){ cam.tAz=0.7;cam.tEl=0.40;cam.tDist=innerWidth<900?52:42;
+                        fly.x=0;fly.z=0;fly.vx=0;fly.vz=0; }
+}
+
+/* направление взгляда в плоскости пола */
+function viewDir(){
+  var d=new THREE.Vector3();
+  camera.getWorldDirection(d); d.y=0;
+  if(d.lengthSq()<1e-6) d.set(0,0,-1);
+  return d.normalize();
+}
+function applyMove(kind, mult){
+  var f=viewDir();
+  if(kind==="fwd"){ fly.vx+=f.x*FLY_ACCEL*mult; fly.vz+=f.z*FLY_ACCEL*mult; }
+  else { /* боком: перпендикуляр к взгляду */
+    fly.vx+=(-f.z)*FLY_ACCEL*mult; fly.vz+=(f.x)*FLY_ACCEL*mult; }
+}
+
+addEventListener("keydown",function(e){
+  if(document.activeElement && document.activeElement.tagName==="INPUT") return;
+  var m={ArrowLeft:1,ArrowRight:1,ArrowUp:1,ArrowDown:1};
+  if(m[e.key]){ e.preventDefault(); fly.keys[e.key]=true; return; }
+  if(e.key==="+"||e.key==="="){ e.preventDefault(); nav("in"); }
+  else if(e.key==="-"){ e.preventDefault(); nav("out"); }
+  else if(e.key==="Home"){ e.preventDefault(); nav("reset"); }
+});
+addEventListener("keyup",function(e){ delete fly.keys[e.key]; });
+addEventListener("blur",function(){ fly.keys={}; });
+
+function stepFly(){
+  if(fly.keys.ArrowUp)    applyMove("fwd", 1);
+  if(fly.keys.ArrowDown)  applyMove("fwd", -1);
+  if(fly.keys.ArrowRight) applyMove("strafe", 1);
+  if(fly.keys.ArrowLeft)  applyMove("strafe", -1);
+
+  /* ограничение скорости */
+  var sp=Math.hypot(fly.vx,fly.vz);
+  if(sp>FLY_MAX){ fly.vx=fly.vx/sp*FLY_MAX; fly.vz=fly.vz/sp*FLY_MAX; }
+
+  fly.x+=fly.vx; fly.z+=fly.vz;
+  fly.vx*=FLY_DAMP; fly.vz*=FLY_DAMP;
+  if(Math.abs(fly.vx)<0.0008) fly.vx=0;
+  if(Math.abs(fly.vz)<0.0008) fly.vz=0;
+
+  /* границы сцены: не улететь в пустоту */
+  var r=Math.hypot(fly.x,fly.z);
+  if(r>FLY_BOUND){ fly.x=fly.x/r*FLY_BOUND; fly.z=fly.z/r*FLY_BOUND;
+                   fly.vx*=0.4; fly.vz*=0.4; }
+}
+
 function loop(){requestAnimationFrame(loop);
-  var now=performance.now()/1000; camA+=0.0015;
-  var d=innerWidth<900?31:24;
-  camera.position.set(Math.cos(camA)*d,9.5+Math.sin(now*.35)*1.1,Math.sin(camA)*d);
-  camera.lookAt(0,.5,0);
+  var now=performance.now()/1000;
+  cam.az+=(cam.tAz-cam.az)*0.09; cam.el+=(cam.tEl-cam.el)*0.09;
+  cam.dist+=(cam.tDist-cam.dist)*0.09;
+  cam.cx+=(cam.tcx-cam.cx)*0.09; cam.cy+=(cam.tcy-cam.cy)*0.09;
+  stepFly();
+  var ce=Math.cos(cam.el);
+  /* точка, вокруг которой висит камера, ездит вместе с полётом —
+     поэтому стрелки двигают весь вид, а не крутят его */
+  var fx=cam.cx+fly.x, fz=fly.z;
+  camera.position.set(fx+Math.cos(cam.az)*cam.dist*ce,
+                      cam.cy+Math.sin(cam.el)*cam.dist+3,
+                      fz+Math.sin(cam.az)*cam.dist*ce);
+  camera.lookAt(fx,cam.cy+0.5,fz);
   nodes.forEach(function(n){
     var hot=n.busy||n.active, s=n.busy?2.6:(n.active?1.5:.42);
-    n.mesh.rotation.x+=.0042*s;n.mesh.rotation.y+=.0061*s;
-    n.cage.rotation.x-=.0031*s;n.cage.rotation.y-=.0044*s;
+    n.mesh.rotation.y+=.0055*s; n.mesh.rotation.z+=.0016*s;
+    n.cage.rotation.y-=.0035*s;
     var pz=1+Math.sin(now*(hot?3.1:1.15)+n.phase)*(hot?.12:.045);
     n.mesh.scale.setScalar(pz); n.halo.scale.setScalar(pz*(hot?1.2:1));
     n.halo.material.opacity=hot?.15+Math.sin(now*2.6+n.phase)*.07:.05;
-    n.mesh.material.emissiveIntensity=n.busy?1.25:(n.active?.85:.36);
+    if(n.mesh.material) n.mesh.material.emissiveIntensity=n.busy?1.15:(n.active?.8:.34);
+    /* агент не стоит столбом: занятый подлетает к центру и приподнимается,
+       свободный возвращается на свою орбиту */
+    if(!n.home){n.home=n.group.position.clone();n.tgt=n.group.position.clone();}
+    var pull=n.busy?0.42:(n.active?0.16:0);
+    n.tgt.set(n.home.x*(1-pull), n.home.y+(n.busy?1.7:0), n.home.z*(1-pull));
+    n.group.position.lerp(n.tgt,0.035);
+    n.group.position.y+=Math.sin(now*0.8+n.phase)*0.004;
+    if(n.label&&n.label.material)n.label.material.opacity=cam.dist>50?0.3:1;
   });
+  /* бегущие штрихи: сдвигаем смещение, луч «летит» */
+  stepBeams();
   for(var i=pulses.length-1;i>=0;i--){var p=pulses[i];p.t+=.021;
     p.m.position.lerpVectors(p.from,p.to,p.t);p.m.material.opacity=1-p.t;
     if(p.t>=1){scene.remove(p.m);pulses.splice(i,1);}}
@@ -216,7 +453,7 @@ addEventListener("resize",function(){camera.aspect=innerWidth/innerHeight;
   camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 
 /* ---------------- console ---------------- */
-var RECENT=1000*60*45, TAB="queue", STATE={}, QUEUE={}, CHAT=[], ECON={};
+var RECENT=1000*60*45, TAB="queue", STATE={}, QUEUE={}, CHAT=[], ECON={}, EXEC={};
 function $(id){return document.getElementById(id);}
 function txt(id,v){$(id).textContent=v;}
 function esc(t){return String(t==null?"":t).replace(/[<>&]/g,function(c){
@@ -390,8 +627,57 @@ function renderEcon(){
   });
   $("v-econ").innerHTML=h;
 }
+
+var TSTATE={queued:["c-que","в очереди"],running:["c-run","в работе"],
+            done:["c-done","готово"],failed:["c-fail","провал"],
+            blocked:["c-block","блокер"],cancelled:["c-que","отменена"]};
+function renderExec(){
+  var d=EXEC, b=(d.board||{}), h='';
+  var tot=0; for(var k in b) tot+=b[k];
+
+  h+='<h3>Доска задач</h3>';
+  if(!tot){ h+='<div class="empty">задач нет</div>'; }
+  else{
+    h+='<div class="item"><div class="t">';
+    ["running","queued","blocked","failed","done"].forEach(function(k){
+      if(b[k]) h+='<span class="tag '+TSTATE[k][0]+'">'+TSTATE[k][1]+' '+b[k]+'</span>';
+    });
+    h+='</div><div class="m" style="margin:6px 0 0">закрыто с доказательством работы: '+
+       (d.with_proof||0)+' из '+tot+'</div></div>';
+  }
+  (d.tasks||[]).slice(0,10).forEach(function(t){
+    var c=TSTATE[t.state]||TSTATE.queued;
+    h+='<div class="item"><div class="t"><span class="tag '+c[0]+'">'+c[1]+'</span>'+
+       (t.money_proximity<=1?'<span class="tag c-money">ближе к деньгам</span>':'')+
+       esc(t.objective)+'</div><div class="m">→ '+esc(t.next_action)+
+       (t.proofs?' · доказательств '+t.proofs:'')+
+       (t.blocker_kind?'<br>блокер: '+esc(t.blocker_detail||t.blocker_kind):'')+'</div></div>';
+  });
+
+  /* ЧЕСТНЫЕ ПОДПИСИ. Слово «потенциал» вводило в заблуждение: это не деньги,
+     а сумма прайса, ЕСЛИ бы все нашедшиеся компании купили. Никто не связывался. */
+  h+='<h3>Найденные работы</h3>';
+  h+='<div class="item"><div class="t">'+
+     '<b style="font-size:17px">$'+(d.pipeline_value||0)+'</b> — прайс найденных работ<br>'+
+     '<b style="font-size:17px;color:var(--ok)">$0</b> — продано</div>'+
+     '<div class="m">Это НЕ выручка и не прогноз. Столько стоили бы работы, если бы все '+
+     ((d.problems||[]).length)+' найденных проблем у '+((d.leads||[]).length)+
+     ' компаний были куплены. Связывались: 0. Согласовано: 0.</div></div>';
+  (d.problems||[]).slice(0,6).forEach(function(x){
+    h+='<div class="item"><div class="t">'+esc(x.domain)+' · <span style="color:var(--ok)">$'+
+       x.price_usd+'</span></div><div class="m">'+esc(x.evidence)+'</div></div>';
+  });
+
+  var e=d.external||{};
+  if(e.messages){
+    h+='<h3>Внешние агенты</h3><div class="item"><div class="t">'+e.known+' известны · '+
+       e.messages+' сообщений</div><div class="m">отбито попыток внедрения инструкций: '+
+       '<b style="color:var(--bad)">'+(e.blocked_injection||0)+'</b></div></div>';
+  }
+  $("v-exec").innerHTML=h;
+}
 function render(){ if(TAB==="queue"){renderQueue();} else if(TAB==="agents"){renderAgents();}
-  else if(TAB==="chat"){renderChat();} else if(TAB==="econ"){renderEcon();} else {renderFeed();} }
+  else if(TAB==="chat"){renderChat();} else if(TAB==="econ"){renderEcon();} else if(TAB==="exec"){renderExec();} else {renderFeed();} }
 
 function refresh(){
   fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
@@ -409,6 +695,11 @@ function refresh(){
     txt("payto",d.service.payTo);
     render();
   }).catch(function(){ txt("live","reconnecting…"); });
+  fetch("/api/execution",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
+    EXEC=d; var b=d.board||{};
+    var kt=$("k-tasks"); if(kt) kt.textContent=(b.queued||0)+(b.running||0);
+    var kv=$("k-work"); if(kv) kv.textContent="$"+(d.pipeline_value||0);
+    if(TAB==="exec"){renderExec();} }).catch(function(){});
   fetch("/api/economics",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
     ECON=d; if(TAB==="econ"){renderEcon();} }).catch(function(){});
   fetch("/api/chat",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){

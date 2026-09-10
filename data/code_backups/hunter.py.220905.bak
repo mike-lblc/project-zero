@@ -18,7 +18,7 @@ identities. Do not violate platform policies»):
   draft_post()     — готовый текст для публикации ВЛАДЕЛЬЦЕМ
   funnel()         — где рвётся воронка прямо сейчас
 """
-import sys, json, urllib.request, urllib.error
+import sys, json, re, urllib.request, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 

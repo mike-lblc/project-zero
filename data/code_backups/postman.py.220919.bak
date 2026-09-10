@@ -19,7 +19,7 @@
   stats()     — состояние воронки
   setup_todo()— что владельцу нужно собрать руками, по шагам
 """
-import sys
+import sys, json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 

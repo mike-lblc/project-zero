@@ -67,7 +67,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -334,6 +334,13 @@ def daily_briefing():
     return f"{b['stage']}, выручка ${b['verified_revenue_usd']}"
 
 
+def _mech(fn_name):
+    def run():
+        from agents import mechanic
+        return dict(mechanic.CYCLE)[fn_name]()
+    return run
+
+
 def _sales(fn_name):
     def run():
         from agents import salesman
@@ -381,7 +388,8 @@ CYCLE = [("watch_payments", watch_payments),        # миссия: первый
          ("watchdog", _team("watchdog"))]           # живость агентов
 
 # РЕДКИЕ — полезны, но не ежеминутно.
-SLOW_CYCLE = [("scout_research", scout_research),
+SLOW_CYCLE = [("mechanic", _mech("mechanic")),
+              ("scout_research", scout_research),
               ("critique", _growth("critique")),
               ("scribe", _team("scribe")),
               ("explorer_replies", _team("explorer_replies")),

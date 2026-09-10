@@ -296,6 +296,9 @@ function agentState() {
     { id: 'postman', role: 'Почтальон', job: 'подписчики, теги, запуск серии писем',
       work: n(`SELECT COUNT(*) c FROM subscribers`) + n(`SELECT COUNT(*) c FROM email_events`),
       last: (one(`SELECT MAX(created_at) t FROM messages WHERE sender='postman'`) || {}).t },
+    { id: 'mechanic', role: 'Механик', job: 'чинит код, откатывает при провале аудита',
+      work: n(`SELECT COUNT(*) c FROM code_fixes`),
+      last: (one(`SELECT MAX(at) t FROM code_fixes`) || {}).t },
     { id: 'watchdog', role: 'Сторож', job: 'следит за живостью агентов',
       work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='watchdog'`),
       last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='watchdog'`) || {}).t }
@@ -342,6 +345,46 @@ app.get('/api/queue', (_req, res) => {
     subscribers: all(`SELECT id,email,status,created_at FROM subscribers ORDER BY id DESC LIMIT 20`)
   };
   db.close(); res.json(out);
+});
+
+// ---- КОНВЕЙЕР ИСПОЛНЕНИЯ: задачи, доказательства, блокеры ----
+app.get('/api/execution', (_req, res) => {
+  const db = new DatabaseSync(DB, { readOnly: true });
+  const all = (q, ...a) => { try { return db.prepare(q).all(...a); } catch { return []; } };
+  const n = (q) => { try { return db.prepare(q).get().c || 0; } catch { return 0; } };
+
+  const states = ['queued', 'running', 'done', 'failed', 'blocked', 'cancelled'];
+  const board = {};
+  for (const st of states) n0(st);
+  function n0(st) { board[st] = n(`SELECT COUNT(*) c FROM tasks WHERE state='${st}'`); }
+
+  const out = {
+    board,
+    with_proof: n(`SELECT COUNT(DISTINCT task_id) c FROM proof_of_work`),
+    tasks: all(`SELECT id,objective,next_action,owner_agent,state,money_proximity,attempts,
+                blocker_kind,blocker_detail,updated_at,
+                (SELECT COUNT(*) FROM proof_of_work p WHERE p.task_id=tasks.id) proofs
+                FROM tasks ORDER BY
+                CASE state WHEN 'running' THEN 0 WHEN 'queued' THEN 1 WHEN 'blocked' THEN 2
+                           WHEN 'failed' THEN 3 ELSE 4 END,
+                money_proximity ASC, id DESC LIMIT 40`),
+    proofs: all(`SELECT task_id,kind,reference,detail,created_at FROM proof_of_work
+                 ORDER BY id DESC LIMIT 20`),
+    leads: all(`SELECT domain,services,payers_30d,spend_signal,top_tags FROM leads
+                ORDER BY spend_signal DESC LIMIT 15`),
+    problems: all(`SELECT domain,problem,evidence,service_offer,price_usd FROM lead_problems
+                   ORDER BY severity DESC LIMIT 20`),
+    pipeline_value: (() => { try {
+      return db.prepare(`SELECT COALESCE(SUM(price_usd),0) c FROM lead_problems`).get().c; }
+      catch { return 0; } })(),
+    external: {
+      known: n(`SELECT COUNT(*) c FROM external_agents`),
+      messages: n(`SELECT COUNT(*) c FROM external_messages`),
+      blocked_injection: n(`SELECT COUNT(*) c FROM external_messages WHERE verdict='rejected_injection'`),
+    },
+  };
+  db.close();
+  res.json(out);
 });
 
 // ---- ЭКОНОМИКА: стадия, сводка, выживание, скоринг ----

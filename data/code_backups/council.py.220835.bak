@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
-from core import guard
+from core import guard, router
 
 def now(): return datetime.now(timezone.utc).isoformat()
 
