@@ -18,7 +18,7 @@
 Здесь нет ни одного обращения к .env и ни одной записи в рабочие таблицы —
 шлюз умеет только принимать текст и выносить вердикт.
 """
-import sys, re, json, hashlib
+import sys, re, json
 from pathlib import Path
 from datetime import datetime, timezone
 
