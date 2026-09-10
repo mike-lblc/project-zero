@@ -143,6 +143,27 @@ CREATE TABLE IF NOT EXISTS agent_reputation (
   UNIQUE(agent, role)
 );
 
+-- ============ ЧЕСТНОСТЬ ДОКАЗАТЕЛЬСТВА ============
+-- Эти две таблицы раньше создавались отдельным скриптом и отсутствовали
+-- при развёртывании с нуля. Обнаружено прогоном на серверах GitHub.
+CREATE TABLE IF NOT EXISTS human_interventions (
+  id INTEGER PRIMARY KEY,
+  what TEXT NOT NULL,
+  why TEXT NOT NULL,
+  minutes REAL,
+  category TEXT NOT NULL,          -- account_creation | key_paste | approval | rescue | other
+  agent_could_have INTEGER NOT NULL DEFAULT 0,
+  occurred_at TEXT NOT NULL
+);
+-- Обязана оставаться ПУСТОЙ, иначе заявление «с нуля» недействительно
+CREATE TABLE IF NOT EXISTS spend (
+  id INTEGER PRIMARY KEY,
+  amount TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  what TEXT NOT NULL,
+  occurred_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS runs (
   id INTEGER PRIMARY KEY,
   agent TEXT NOT NULL,

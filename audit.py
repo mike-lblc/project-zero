@@ -111,6 +111,29 @@ from core.db import connect
 con = connect()
 tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
 check("таблиц >= 16", lambda: (len(tables) >= 16, f"{len(tables)} таблиц"))
+
+
+def fresh_install_works():
+    """Разворачивается ли проект С НУЛЯ. Этот баг поймали только на серверах GitHub:
+    таблицы spend и human_interventions создавались скриптом на ходу и отсутствовали
+    в схеме, поэтому чистая установка падала."""
+    import sqlite3, tempfile, os
+    from core.db import SCHEMA
+    tmp = os.path.join(tempfile.gettempdir(), "p0_fresh_audit.db")
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    c = sqlite3.connect(tmp)
+    c.executescript(SCHEMA)
+    got = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    c.close(); os.remove(tmp)
+    need = {"evidence", "sources", "proposals", "objections", "rulings", "messages",
+            "actions", "subscribers", "email_events", "payments", "agent_reputation",
+            "runs", "candidates", "scores", "human_interventions", "spend"}
+    miss = need - got
+    return (not miss), (f"{len(got)} таблиц из схемы" if not miss else f"НЕТ: {miss}")
+
+
+check("установка с нуля работает", fresh_install_works)
 for t in ["evidence", "sources", "proposals", "objections", "rulings", "messages",
           "payments", "spend", "human_interventions", "subscribers"]:
     check(f"таблица {t}", lambda t=t: (t in tables, "есть"))
