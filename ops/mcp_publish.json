@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.mike-lblc/x402-bazaar-rank",
   "title": "x402 Bazaar Rank",
-  "description": "Ranked search over 14k+ live x402 paid services, scored by real 30-day unique payers.",
-  "version": "0.1.0",
+  "description": "Ranked search over 14k+ live x402 services by real payers. Free tier + free weekly digest.",
+  "version": "0.1.1",
   "remotes": [
     {
       "type": "streamable-http",
