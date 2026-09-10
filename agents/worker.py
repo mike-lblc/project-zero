@@ -67,7 +67,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -334,6 +334,20 @@ def daily_briefing():
     return f"{b['stage']}, выручка ${b['verified_revenue_usd']}"
 
 
+def _sales(fn_name):
+    def run():
+        from agents import salesman
+        return dict(salesman.CYCLE)[fn_name]()
+    return run
+
+
+def _leads(fn_name):
+    def run():
+        from agents import leads
+        return f"лидов: {len(leads.hot_leads())}"
+    return run
+
+
 def _postman(fn_name):
     def run():
         from agents import postman
@@ -364,7 +378,9 @@ CYCLE = [("watch_payments", watch_payments),      # миссия: первый �
          ("watchdog", _team("watchdog")),         # живость агентов
          ("scribe", _team("scribe")),             # сам продаваемый отчёт
          ("explorer_replies", _team("explorer_replies")),
-         ("mail_sync", _postman("mail_sync"))]
+         ("mail_sync", _postman("mail_sync")),
+         ("find_leads", _leads("find_leads")),
+         ("diagnose_leads", _sales("diagnose_leads"))]
 
 # РЕДКИЕ — раз в N циклов. Их выводы не меняются каждые 12 секунд.
 SLOW_CYCLE = [("mail_advance", _postman("mail_advance")),

@@ -132,7 +132,9 @@ var AGENTS=[
  {id:"distributor",label:"ДИСТРИБЬЮТОР",color:0x60a5fa,shape:"tetra"},
  {id:"scribe",label:"ПИСАРЬ",color:0xfb923c,shape:"sphere"},
  {id:"watchdog",label:"СТОРОЖ",color:0xe879f9,shape:"ico"},
- {id:"postman",label:"ПОЧТАЛЬОН",color:0x22d3ee,shape:"oct"}
+ {id:"postman",label:"ПОЧТАЛЬОН",color:0x22d3ee,shape:"oct"},
+ {id:"leads",label:"РАЗВЕДКА КЛИЕНТОВ",color:0xfbbf24,shape:"dodec"},
+ {id:"salesman",label:"ПРОДАВЕЦ",color:0x4ade80,shape:"box"}
 ];
 var scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x05070d,0.021);
 var camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,220);
@@ -330,7 +332,7 @@ function renderFeed(){
 }
 var NAMES={scout:"Разведчик",proposer:"Предлагающий",verifier:"Проверяющий",
  adversary:"Оппонент",judge:"Судья",orchestrator:"Оркестратор",
- explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",postman:"Почтальон",
+ explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",postman:"Почтальон",leads:"Разведка клиентов",salesman:"Продавец",
  merchant:"Коммерсант",distributor:"Дистрибьютор",scribe:"Писарь",watchdog:"Сторож"};
 function renderChat(){
   var h='<h3>Агенты переговариваются вживую</h3>';
