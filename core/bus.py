@@ -49,7 +49,14 @@ def _put(sender, recipient, topic, body):
 
 
 def broadcast(sender, text):
-    """Объявление всем. Видно в чате дашборда."""
+    """Объявление всем. Дословный повтор за последние 6 часов молча пропускается:
+    повторять одно и то же — не работа, а шум."""
+    con = connect()
+    dup = con.execute("SELECT 1 FROM messages WHERE topic='chat' AND body=? "
+                      "AND created_at > datetime('now','-6 hours') LIMIT 1", (text,)).fetchone()
+    con.close()
+    if dup:
+        return None
     return _put(sender, None, "chat", text)
 
 

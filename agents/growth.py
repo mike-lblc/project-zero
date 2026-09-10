@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
-from core import guard
+from core import guard, memory
 
 ROOT = Path(__file__).resolve().parent.parent
 IDX = ROOT / "data" / "bazaar_index.json"
@@ -27,12 +27,18 @@ def now():
 
 def say(agent, text):
     con = connect()
+    dup = con.execute("SELECT 1 FROM messages WHERE topic='chat' AND body=? "
+                      "AND created_at > datetime('now','-6 hours') LIMIT 1", (text,)).fetchone()
+    if dup:
+        con.close(); return
     con.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) VALUES (?,?,?,?,?)",
                 (agent, None, "chat", text, now()))
     con.commit(); con.close()
 
 
 def note(agent, claim, conf=None):
+    if memory.seen_claim(claim):
+        return
     con = connect()
     sid = con.execute("INSERT INTO sources(url,title,fetched_at,raw_excerpt) VALUES (?,?,?,?)",
                       (f"agent://{agent}", f"{agent} finding", now(), claim[:400])).lastrowid

@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
-from core import router, guard
+from core import router, guard, memory
 
 UA = "Mozilla/5.0 (compatible; P0-scout/0.1)"
 NAME = "scout"
@@ -94,6 +94,8 @@ def extract(question, text, source_id):
         return f"ESCALATE: {e}"
 
 def record(claim, source_id, confidence=0.7):
+    if memory.seen_claim(claim):
+        return None
     """confidence обязателен. Утверждение без оценки уверенности - это мнение,
     выданное за факт. Умолчание 0.7 = 'извлечено из источника, но не перепроверено'."""
     con = connect()

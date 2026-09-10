@@ -134,6 +134,69 @@ def fresh_install_works():
 
 
 check("установка с нуля работает", fresh_install_works)
+
+# ---- разделы директивы emba.txt ----
+from core import economics, memory
+
+# отдельное соединение: основное к этому месту уже закрыто
+def _n(q):
+    c2 = connect()
+    try:
+        return c2.execute(q).fetchone()[0]
+    finally:
+        c2.close()
+
+
+def value_needs_evidence():
+    """Раздел 27: ценность без доказательства не должна засчитываться."""
+    try:
+        economics.record_value("test", "revenue", "", usd=1000)
+        return False, "ЦЕННОСТЬ БЕЗ ДОКАЗАТЕЛЬСТВА ПРОШЛА!"
+    except ValueError:
+        return True, "выдуманная ценность отклонена"
+
+
+def roi_gate_blocks():
+    """Раздел 19: дорогая эскалация без ожидаемой отдачи должна отклоняться."""
+    ok, _ = economics.roi_gate("scout", "frontier_escalation", 0)
+    ok2, _ = economics.roi_gate("scout", "frontier_escalation", 30)
+    return (not ok and ok2), "дешёвую пускает, дорогую без отдачи — нет"
+
+
+def silence_not_punished():
+    """Раздел 28: агента, чья работа искать проблемы, нельзя наказывать за их отсутствие."""
+    v = {x["agent"]: x["verdict"] for x in economics.survival()}
+    w = v.get("watchdog", "")
+    return w.startswith("оставить"), f"сторож: {w[:44]}"
+
+
+check("ценность требует доказательства (27)", value_needs_evidence)
+check("ROI-гейт работает (19)", roi_gate_blocks)
+check("выживание агентов считает верно (28)", silence_not_punished)
+check("экономические стадии (29)", lambda: (
+    economics.stage()["stage"].startswith("СТАДИЯ"), economics.stage()["stage"]))
+check("заявление «с нуля» цело (6)", lambda: (
+    economics.stage()["zero_capital_claim_intact"], "трат нет"))
+check("ежедневная сводка (37)", lambda: (
+    "verified_revenue_usd" in economics.briefing(), "сводка собирается"))
+check("защита от повторов (34)", lambda: (
+    _n("SELECT COUNT(*) FROM evidence") - _n("SELECT COUNT(DISTINCT claim) FROM evidence") < 5,
+    f"дублей {_n('SELECT COUNT(*) FROM evidence') - _n('SELECT COUNT(DISTINCT claim) FROM evidence')}"))
+check("скоринг возможностей (10)", lambda: (
+    _n("SELECT COUNT(*) FROM opportunities") >= 5,
+    f"{_n('SELECT COUNT(*) FROM opportunities')} возможностей оценено"))
+check("гейт «продай до постройки» (11)", lambda: (
+    _n("SELECT COUNT(*) FROM opportunities WHERE gate_passed IS NOT NULL") > 0, "гейт применён"))
+check("MCP опубликован и виден", lambda: (
+    "x402-bazaar-rank" in http("/v0/servers?search=x402-bazaar-rank",
+                               "https://registry.modelcontextprotocol.io")[1],
+    "запись в официальном реестре"))
+check("сервис на постоянном адресе", lambda: (
+    http("/health", "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev")[0] == 200,
+    "Cloudflare Workers, не туннель"))
+check("MCP-эндпоинт отвечает", lambda: (
+    http("/mcp", "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev")[0] == 200,
+    "инструменты доступны агентам"))
 for t in ["evidence", "sources", "proposals", "objections", "rulings", "messages",
           "payments", "spend", "human_interventions", "subscribers"]:
     check(f"таблица {t}", lambda t=t: (t in tables, "есть"))

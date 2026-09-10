@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
-from core import guard
+from core import guard, memory, economics
 
 UA = "Mozilla/5.0 (compatible; P0-worker/0.1)"
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,7 +33,18 @@ def get(url, timeout=30):
 
 
 def say(agent, text, topic="chat"):
-    """Агент проговаривает вслух, что он делает и о чём думает. По-русски."""
+    """Агент говорит ТОЛЬКО если это новое. Повтор одного и того же — не работа.
+
+    Владелец поймал: 89% реплик были дословными дублями. Теперь дубль молча
+    пропускается, а редкое подтверждение жизни идёт раз в 20 циклов.
+    """
+    if topic == "chat":
+        con = connect()
+        dup = con.execute("SELECT 1 FROM messages WHERE topic='chat' AND body=? "
+                          "AND created_at > datetime('now','-6 hours') LIMIT 1", (text,)).fetchone()
+        con.close()
+        if dup:
+            return
     con = connect()
     con.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) VALUES (?,?,?,?,?)",
                 (agent, None, topic, text, now()))
@@ -42,7 +53,9 @@ def say(agent, text, topic="chat"):
 
 
 def note(agent, claim, source_id=None, conf=None):
-    """Every unit of work leaves a trace, so 'ops' on the dashboard is real."""
+    """След оставляется только для НОВОГО вывода. Дубли не пишутся."""
+    if memory.seen_claim(claim):
+        return
     con = connect()
     if source_id is None:
         source_id = con.execute(
@@ -54,7 +67,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -286,6 +299,31 @@ def _growth(fn_name):
     return run
 
 
+def economic_review():
+    """Раздел 28: кто не окупается. Раздел 19: гейт дорогих операций."""
+    verdicts = economics.survival()
+    bad = [v for v in verdicts if not v["verdict"].startswith("оставить")]
+    if bad:
+        txt = "; ".join(f"{v['agent']} ({v['verdict']})" for v in bad)
+        say("optimizer", f"Экономический разбор: не окупаются — {txt}. "
+                         f"Предлагаю паузу, но решение за владельцем.")
+        note("optimizer", f"AGENT SURVIVAL: underperforming — {txt}", conf=0.9)
+        return f"кандидатов на паузу: {len(bad)}"
+    return f"все {len(verdicts)} агентов оправдывают работу"
+
+
+def daily_briefing():
+    """Раздел 37: ежедневная экономическая сводка."""
+    b = economics.briefing()
+    say("orchestrator",
+        f"Сводка: выручка ${b['verified_revenue_usd']}, потрачено ${b['spend_usd']}, "
+        f"прогонов за сутки {b['runs_24h']} (сбоев {b['failures_24h']}), "
+        f"новых находок {b['new_findings_24h']}. {b['stage']} — {b['goal']}")
+    if not b["zero_capital_claim_intact"]:
+        say("adversary", "ВНИМАНИЕ: появились траты — заявление «с нуля» больше недействительно.")
+    return f"{b['stage']}, выручка ${b['verified_revenue_usd']}"
+
+
 def _team(fn_name):
     def run():
         from agents import team
@@ -307,7 +345,9 @@ CYCLE = [("watch_payments", watch_payments),
          ("distributor", _team("distributor")),
          ("explorer_replies", _team("explorer_replies")),
          ("scribe", _team("scribe")),
-         ("watchdog", _team("watchdog"))]
+         ("watchdog", _team("watchdog")),
+         ("economics", economic_review),
+         ("briefing", daily_briefing)]
 
 
 def run_forever(interval=90):

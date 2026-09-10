@@ -1,0 +1,14 @@
+name = "x402-bazaar-rank"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+PAY_TO = "0xECa891e34b3E5873181Fb779672564E198C55354"
+
+[build]
+command = ""
+
+# индекс подключается импортом из src/index.js и уезжает внутрь скрипта
+rules = [
+  { type = "Data", globs = ["**/*.json"], fallthrough = true }
+]

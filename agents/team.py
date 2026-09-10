@@ -14,13 +14,13 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
-from core import guard, bus
+from core import guard, memory, bus
 
 ROOT = Path(__file__).resolve().parent.parent
 IDX = ROOT / "data" / "bazaar_index.json"
 SERVICE = "http://127.0.0.1:8402"
 
-OUR_TIERS = {"/search": 0.001, "/report": 0.05, "/alpha": 0.25, "/dataset": 0.50}
+OUR_TIERS = {"/search": 0.01, "/report": 0.10, "/alpha": 0.50, "/dataset": 1.25}
 
 
 def now():
@@ -28,6 +28,8 @@ def now():
 
 
 def note(agent, claim, conf=None):
+    if memory.seen_claim(claim):
+        return
     con = connect()
     sid = con.execute("INSERT INTO sources(url,title,fetched_at,raw_excerpt) VALUES (?,?,?,?)",
                       (f"agent://{agent}", f"{agent} finding", now(), claim[:400])).lastrowid
