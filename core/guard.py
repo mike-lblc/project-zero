@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
 
 KILL_SWITCH = Path(__file__).resolve().parent.parent / "data" / "KILL_SWITCH"
-CAPS = {"email_send": 200, "page_publish": 20, "public_post": 10}
+CAPS = {"email_send": 200, "email_tag": 200, "page_publish": 20, "public_post": 10}
 CLASSES = {"GREEN","YELLOW","RED","BLACK"}
 
 class Halted(Exception): pass

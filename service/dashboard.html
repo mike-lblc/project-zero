@@ -92,16 +92,20 @@ font-family:ui-monospace,Menlo,Consolas,monospace}
   <div class="tabs">
     <div class="tab on" data-t="queue">Очередь<span class="badge" id="b-queue">0</span></div>
     <div class="tab" data-t="agents">Агенты</div>
+    <div class="tab" data-t="econ">Экономика</div>
     <div class="tab" data-t="chat">Чат агентов</div>
     <div class="tab" data-t="feed">Находки</div>
   </div>
   <div class="body">
     <div id="v-queue"></div>
     <div id="v-agents" hidden></div>
+    <div id="v-econ" hidden></div>
     <div id="v-chat" hidden></div>
     <div id="v-feed" hidden></div>
   </div>
 </div>
+
+<div id="agentcard" class="hud" style="display:none;left:12px;top:96px;width:min(360px,calc(100vw - 24px));padding:13px 15px;z-index:6"></div>
 
 <div id="log" class="hud">
   <div><b id="svc">&ndash;</b></div>
@@ -127,7 +131,8 @@ var AGENTS=[
  {id:"merchant",label:"КОММЕРСАНТ",color:0x34d399,shape:"box"},
  {id:"distributor",label:"ДИСТРИБЬЮТОР",color:0x60a5fa,shape:"tetra"},
  {id:"scribe",label:"ПИСАРЬ",color:0xfb923c,shape:"sphere"},
- {id:"watchdog",label:"СТОРОЖ",color:0xe879f9,shape:"ico"}
+ {id:"watchdog",label:"СТОРОЖ",color:0xe879f9,shape:"ico"},
+ {id:"postman",label:"ПОЧТАЛЬОН",color:0x22d3ee,shape:"oct"}
 ];
 var scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x05070d,0.021);
 var camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,220);
@@ -209,7 +214,7 @@ addEventListener("resize",function(){camera.aspect=innerWidth/innerHeight;
   camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 
 /* ---------------- console ---------------- */
-var RECENT=1000*60*45, TAB="queue", STATE={}, QUEUE={}, CHAT=[];
+var RECENT=1000*60*45, TAB="queue", STATE={}, QUEUE={}, CHAT=[], ECON={};
 function $(id){return document.getElementById(id);}
 function txt(id,v){$(id).textContent=v;}
 function esc(t){return String(t==null?"":t).replace(/[<>&]/g,function(c){
@@ -219,13 +224,13 @@ function log(m){$("out").textContent=m;}
 document.querySelectorAll(".tab").forEach(function(el){
   el.onclick=function(){ TAB=el.dataset.t;
     document.querySelectorAll(".tab").forEach(function(x){x.classList.toggle("on",x.dataset.t===TAB);});
-    ["queue","agents","chat","feed"].forEach(function(v){ $("v-"+v).hidden=(v!==TAB); });
+    ["queue","agents","econ","chat","feed"].forEach(function(v){ $("v-"+v).hidden=(v!==TAB); });
     render(); };
 });
 document.querySelectorAll(".stat[data-tab]").forEach(function(el){
   el.onclick=function(){ var t=el.dataset.tab;
     document.querySelectorAll(".tab").forEach(function(x){x.classList.toggle("on",x.dataset.t===t);});
-    TAB=t; ["queue","agents","chat","feed"].forEach(function(v){ $("v-"+v).hidden=(v!==t); }); render(); };
+    TAB=t; ["queue","agents","econ","chat","feed"].forEach(function(v){ $("v-"+v).hidden=(v!==t); }); render(); };
 });
 
 function post(url,body){ return fetch(url,{method:"POST",
@@ -307,7 +312,10 @@ function renderAgents(){
     var n=nodes.filter(function(x){return x.id===a.id;})[0];
     var col=n?hx(n.color):"#888";
     var runnable=(a.id==="scout");
-    h+='<div class="agent"><span class="sw" style="background:'+col+
+    var SLOW={optimizer:1,explorer:1,merchant:1,verifier:1};
+    var tier = SLOW[a.id] ? '<span class="tag" style="background:rgba(255,180,84,.16);color:#ffd39a">редкий</span>'
+                          : '<span class="tag" style="background:rgba(55,217,154,.16);color:#7ee9c1">ядро</span>';
+    h+='<div class="agent">'+tier+'<span class="sw" style="background:'+col+
        ';box-shadow:0 0 10px '+col+'"></span><div class="n">'+esc(a.role)+
        '<em>'+esc(a.job)+'</em></div><span class="w">'+a.work+' ops</span>'+
        (runnable?'<button class="run" onclick="runAgent(\''+a.id+'\',this)">Сейчас</button>':'')+'</div>';
@@ -322,7 +330,7 @@ function renderFeed(){
 }
 var NAMES={scout:"Разведчик",proposer:"Предлагающий",verifier:"Проверяющий",
  adversary:"Оппонент",judge:"Судья",orchestrator:"Оркестратор",
- explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",
+ explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",postman:"Почтальон",
  merchant:"Коммерсант",distributor:"Дистрибьютор",scribe:"Писарь",watchdog:"Сторож"};
 function renderChat(){
   var h='<h3>Агенты переговариваются вживую</h3>';
@@ -338,8 +346,50 @@ function renderChat(){
   });
   $("v-chat").innerHTML=h;
 }
+
+function renderEcon(){
+  var e=ECON||{}, h='';
+  var ok = e.zero_capital_intact;
+  h+='<h3>Где мы находимся</h3>'+
+     '<div class="item"><div class="t"><b style="color:'+(e.revenue_usd?"#37d99a":"#ffb454")+'">'+
+     esc(e.stage||"—")+'</b></div><div class="m" style="margin:0">'+esc(e.goal||"")+'</div></div>';
+  h+='<div class="item"><div class="row" style="gap:14px">'+
+     '<div><b style="font-size:17px;color:#4d9fff">$'+(e.revenue_usd||0)+'</b>'+
+     '<div class="m" style="margin:0">выручка</div></div>'+
+     '<div><b style="font-size:17px;color:'+(ok?"#37d99a":"#ff5f6d")+'">'+(e.spend_rows||0)+'</b>'+
+     '<div class="m" style="margin:0">трат</div></div>'+
+     '<div><b style="font-size:17px">'+(e.runs_24h||0)+'</b>'+
+     '<div class="m" style="margin:0">прогонов/сутки</div></div>'+
+     '<div><b style="font-size:17px;color:'+((e.failures_24h||0)?"#ff5f6d":"#37d99a")+'">'+
+     (e.failures_24h||0)+'</b><div class="m" style="margin:0">сбоев</div></div>'+
+     '</div><div class="m" style="margin-top:8px">'+
+     (ok?'Заявление «с нуля» цело: ни одной траты.'
+        :'ВНИМАНИЕ: появились траты — заявление «с нуля» больше недействительно.')+
+     '</div></div>';
+
+  h+='<h3 style="margin-top:14px">Оправдывает ли агент свою работу</h3>';
+  (e.survival||[]).forEach(function(a){
+    var bad = a.verdict.indexOf('оставить')!==0;
+    h+='<div class="item"><div class="t"><b>'+esc(NAMES[a.agent]||a.agent)+'</b> '+
+       '<span style="color:#6f7f9f;font-size:11px">'+a.runs+' прогонов · выход '+a.output+
+       ' · успех '+a.rate+'%</span></div>'+
+       '<div class="m" style="margin:0;color:'+(bad?"#ffb3b9":"#8494b5")+'">'+esc(a.verdict)+'</div></div>';
+  });
+
+  h+='<h3 style="margin-top:14px">Скоринг возможностей</h3>'+
+     '<div class="item" style="background:rgba(77,159,255,.06)"><div class="m" style="margin:0">'+
+     'Балл считается по формуле директивы: произведение девяти плюсов делённое на сумму пяти '+
+     'минусов. Чем выше — тем ближе к первым деньгам.</div></div>';
+  (e.opportunities||[]).forEach(function(o){
+    h+='<div class="item"><div class="t"><b style="color:#7ee9c1">'+
+       Number(o.score).toLocaleString('ru-RU')+'</b> &nbsp;'+esc(o.name)+'</div>'+
+       '<div class="m" style="margin:0">'+esc(o.gate_notes||'')+
+       (o.verdict?'<br><b>гейт продажи:</b> '+esc(o.verdict):'')+'</div></div>';
+  });
+  $("v-econ").innerHTML=h;
+}
 function render(){ if(TAB==="queue"){renderQueue();} else if(TAB==="agents"){renderAgents();}
-  else if(TAB==="chat"){renderChat();} else {renderFeed();} }
+  else if(TAB==="chat"){renderChat();} else if(TAB==="econ"){renderEcon();} else {renderFeed();} }
 
 function refresh(){
   fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
@@ -357,6 +407,8 @@ function refresh(){
     txt("payto",d.service.payTo);
     render();
   }).catch(function(){ txt("live","reconnecting…"); });
+  fetch("/api/economics",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
+    ECON=d; if(TAB==="econ"){renderEcon();} }).catch(function(){});
   fetch("/api/chat",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
     CHAT=d.messages||[]; if(TAB==="chat"){renderChat();} }).catch(function(){});
   fetch("/api/queue",{cache:"no-store"}).then(function(r){return r.json();}).then(function(q){

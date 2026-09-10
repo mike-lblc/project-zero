@@ -287,6 +287,9 @@ function agentState() {
     { id: 'scribe', role: 'Писарь', job: 'отчёты и тексты из данных',
       work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='scribe'`),
       last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='scribe'`) || {}).t },
+    { id: 'postman', role: 'Почтальон', job: 'подписчики, теги, запуск серии писем',
+      work: n(`SELECT COUNT(*) c FROM subscribers`) + n(`SELECT COUNT(*) c FROM email_events`),
+      last: (one(`SELECT MAX(created_at) t FROM messages WHERE sender='postman'`) || {}).t },
     { id: 'watchdog', role: 'Сторож', job: 'следит за живостью агентов',
       work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='watchdog'`),
       last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='watchdog'`) || {}).t }
@@ -333,6 +336,55 @@ app.get('/api/queue', (_req, res) => {
     subscribers: all(`SELECT id,email,status,created_at FROM subscribers ORDER BY id DESC LIMIT 20`)
   };
   db.close(); res.json(out);
+});
+
+// ---- ЭКОНОМИКА: стадия, сводка, выживание, скоринг ----
+app.get('/api/economics', (_req, res) => {
+  const db = new DatabaseSync(DB, { readOnly: true });
+  const all = (q, ...a) => { try { return db.prepare(q).all(...a); } catch { return []; } };
+  const one = (q, ...a) => { try { return db.prepare(q).get(...a) || {}; } catch { return {}; } };
+  const n = (q) => (one(q).c || 0);
+
+  const revenue = (one(`SELECT COALESCE(SUM(CAST(amount AS REAL)),0) c FROM payments`).c) || 0;
+  const spend = n(`SELECT COUNT(*) c FROM spend`);
+  const stages = [[0,'СТАДИЯ 0 — доказательство','выручки нет; цель: первый сторонний платёж'],
+                  [0.01,'СТАДИЯ 1 — первая выручка','деньги пришли; цель: повторить'],
+                  [100,'СТАДИЯ 2 — повторяемость','цель: стабильный поток'],
+                  [1000,'СТАДИЯ 3 — самоокупаемость','система платит за себя']];
+  let stage = stages[0];
+  for (const st of stages) if (revenue >= st[0]) stage = st;
+
+  // профильный выход каждого агента: у разных агентов он разный
+  const outputs = {
+    adversary: n(`SELECT COUNT(*) c FROM objections`),
+    judge: n(`SELECT COUNT(*) c FROM rulings`),
+    proposer: n(`SELECT COUNT(*) c FROM proposals`),
+  };
+  const runs = all(`SELECT agent, COUNT(*) runs,
+                    SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) ok FROM runs GROUP BY agent`);
+  const silenceOk = new Set(['watchdog','critic','adversary']);
+  const survival = runs.map(r => {
+    const out = outputs[r.agent] !== undefined ? outputs[r.agent]
+      : n(`SELECT COUNT(*) c FROM evidence WHERE agent='${r.agent.replace(/'/g,"")}'`);
+    let verdict = 'оставить';
+    if (silenceOk.has(r.agent) && out === 0) verdict = 'оставить: его продукт — отсутствие проблем';
+    else if (r.runs >= 10 && out === 0) verdict = 'кандидат на паузу';
+    else if (r.runs >= 5 && r.ok / r.runs < 0.5) verdict = 'чинить';
+    return { agent: r.agent, runs: r.runs, output: out,
+             rate: r.runs ? Math.round(100 * r.ok / r.runs) : 0, verdict };
+  }).sort((a, b) => b.output - a.output);
+
+  const day = new Date(Date.now() - 864e5).toISOString();
+  res.json({
+    stage: stage[1], goal: stage[2],
+    revenue_usd: revenue, spend_rows: spend, zero_capital_intact: spend === 0,
+    runs_24h: n(`SELECT COUNT(*) c FROM runs WHERE started_at > '${day}'`),
+    failures_24h: n(`SELECT COUNT(*) c FROM runs WHERE status='error' AND started_at > '${day}'`),
+    findings_24h: n(`SELECT COUNT(*) c FROM evidence WHERE created_at > '${day}'`),
+    survival,
+    opportunities: all(`SELECT name, score, verdict, gate_notes FROM opportunities
+                        ORDER BY score DESC`)
+  });
 });
 
 // ---- AGENT CHAT (russian) ----
