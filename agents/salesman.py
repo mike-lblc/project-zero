@@ -23,7 +23,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.db import connect
+from core.db import connect, ensure_schema
 from core import guard, bus
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -62,7 +62,7 @@ def now():
 
 def _con():
     c = connect()
-    c.executescript(SCHEMA)
+    ensure_schema(c, SCHEMA)
     return c
 
 

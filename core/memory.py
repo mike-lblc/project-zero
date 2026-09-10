@@ -14,7 +14,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.db import connect
+from core.db import connect, ensure_schema
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cycle_memory (
@@ -43,7 +43,7 @@ def now():
 
 
 def _init(con):
-    con.executescript(SCHEMA)
+    ensure_schema(con, SCHEMA)
 
 
 def _digest(value):

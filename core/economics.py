@@ -27,7 +27,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.db import connect
+from core.db import connect, ensure_schema
 
 # Локальная модель на своём железе и бесплатные тарифы = прямых денежных затрат нет.
 # Но «бесплатно» не значит «даром»: считаем в условных единицах работы, чтобы
@@ -70,7 +70,7 @@ def now():
 
 def _con():
     c = connect()
-    c.executescript(SCHEMA)
+    ensure_schema(c, SCHEMA)
     return c
 
 

@@ -23,7 +23,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.db import connect
+from core.db import connect, ensure_schema
 
 # Раздел 38: машина состояний. Переходы разрешены только по этой таблице.
 STATES = {
@@ -112,7 +112,7 @@ def now():
 
 def _con():
     c = connect()
-    c.executescript(SCHEMA)
+    ensure_schema(c, SCHEMA)
     return c
 
 

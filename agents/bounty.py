@@ -25,7 +25,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.db import connect
+from core.db import connect, ensure_schema
 from core import guard, bus
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -77,35 +77,81 @@ def now():
 
 def _con():
     c = connect()
-    c.executescript(SCHEMA)
+    ensure_schema(c, SCHEMA)
     return c
 
 
-def _gh(args, timeout=40):
+_API_TROUBLE = []          # накопленные отказы API за текущий заход
+
+
+def _gh(args, timeout=40, expect_missing=False):
+    """Вызов gh. Отказ API запоминается, а не выдаётся за пустой ответ.
+
+    expect_missing=True — для запросов, где «нет такого файла» это нормальный
+    ответ, а не сбой (мы наугад щупаем CONTRIBUTING.md по трём путям). Без
+    этого различия ожидаемый 404 объявлял весь заход несостоявшимся.
+
+    Раньше любая ошибка превращалась в "", и заход рапортовал «работы нет»,
+    хотя на самом деле GitHub просто отказал по лимиту поиска (30 запросов
+    в минуту). Молчание, выданное за отсутствие работы, — это ровно тот
+    вид вранья, который спецификация запрещает.
+    """
     try:
         r = subprocess.run(["gh"] + args, capture_output=True, text=True, timeout=timeout)
-        return r.stdout if r.returncode == 0 else ""
-    except Exception:
+    except (subprocess.SubprocessError, OSError) as e:
+        _API_TROUBLE.append(type(e).__name__)
         return ""
+    if r.returncode == 0:
+        return r.stdout
+    err = (r.stderr or "") + (r.stdout or "")
+    if expect_missing and "Not Found" in err:
+        return ""
+    if "rate limit" in err.lower():
+        _API_TROUBLE.append("лимит запросов GitHub исчерпан")
+    elif "403" in err or "401" in err:
+        _API_TROUBLE.append("доступ к API отклонён")
+    else:
+        _API_TROUBLE.append(err.strip()[:60] or "неизвестная ошибка gh")
+    return ""
 
 
 def competition(repo, issue_number, title):
-    """Сколько людей УЖЕ делают эту задачу.
+    """Сколько человек УЖЕ делают эту задачу и не выплачена ли она.
 
-    Без этой проверки агент вёл нас в задачу с 14 открытыми PR: пятнадцатый
-    был бы выброшенной работой. Занятость важнее размера суммы — на
-    контестованном баунти вероятность выигрыша близка к нулю.
+    Возвращает (соперники, выплачена_ли).
+
+    Первая версия искала открытые PR, чьи заголовки содержат слова из
+    заголовка задачи, и на реальном примере выдала «соперников 0» для
+    tscircuit#92, где в обсуждении лежало больше сотни заявок `/attempt`,
+    два десятка присланных PR и комментарий бота о том, что $75 УЖЕ
+    выплачены другому человеку. Заголовки PR просто не совпадали со
+    словами задачи — и агент чуть не вложил работу в разобранную задачу.
+
+    Считать надо по самому обсуждению: заявки и ссылки на PR лежат там.
     """
-    key = re.sub(r"[^a-z0-9_ ]", " ", (title or "").lower())
-    words = [w for w in key.split() if len(w) > 5][:3]
-    if not words:
-        return 0
-    q = f"repo:{repo} is:pr is:open " + " ".join(words)
-    out = _gh(["api", "-X", "GET", "search/issues", "-f", f"q={q}", "--jq", ".total_count"])
+    if not issue_number:
+        return 0, False
+    out = _gh(["api", f"repos/{repo}/issues/{issue_number}/comments?per_page=100",
+               "--jq", '[.[]|{u:.user.login, b:.body}] | @json'], timeout=45)
+    if not out:
+        return 0, False
     try:
-        return int((out or "0").strip())
-    except Exception:
-        return 0
+        comments = json.loads(out.strip().split("\n")[0])
+    except (json.JSONDecodeError, IndexError):
+        return 0, False
+
+    claimants, paid = set(), False
+    for c in comments:
+        b = (c.get("b") or "")
+        low = b.lower()
+        # бот площадки объявляет о выплате — задача закрыта деньгами
+        if "has been awarded" in low or "you've been awarded" in low \
+                or "you have been awarded" in low:
+            paid = True
+        if re.search(r"/attempt\b|/claim\b|/start\b|/opire try\b", low) \
+                or "github.com/" in low and "/pull/" in low:
+            claimants.add(c.get("u") or b[:20])
+    return len(claimants), paid
 
 
 # Способы выплаты и доходят ли они до РФ-резидента с кошельком.
@@ -131,7 +177,8 @@ def payout_reachable(repo, body):
     # правила проекта: смотрим руководство для участников
     for path in ("docs/doc/developer/Contribution.mdx", "CONTRIBUTING.md",
                  ".github/CONTRIBUTING.md"):
-        out = _gh(["api", f"repos/{repo}/contents/{path}", "--jq", ".content"], timeout=25)
+        out = _gh(["api", f"repos/{repo}/contents/{path}", "--jq", ".content"],
+                  timeout=25, expect_missing=True)
         if not out:
             continue
         try:
@@ -192,20 +239,19 @@ def parse_amount(text):
 def search(limit=60):
     """Ищет открытые оплачиваемые задачи по нашему стеку."""
     guard.check_action("research", "GREEN")
+    # Запросы отранжированы ИЗМЕРЕНИЕМ, а не догадкой. Замер показал:
+    #   commenter:algora-pbc     38 задач — почти все настоящие, платформа платит в USDC
+    #   label:"💎 Bounty"       557 задач — та же платформа, но с примесью форков и песочниц
+    #   label:bounty          4 019 задач — 95% мусор: боты-радары и security-программы
+    #   "/attempt #"        407 831 задача — слово встречается в любом CI-логе, бесполезно
+    # Поэтому первым идёт след платёжного бота, а широкие запросы — только хвостом.
     queries = [
-        # Algora ставит эту метку и команду /bounty — самый достоверный признак
+        'commenter:algora-pbc state:open is:issue',
+        'commenter:algora-pbc state:open is:issue label:bug',
+        'label:"💎 Bounty" state:open is:issue archived:false',
+        'label:"💰 Bounty" state:open is:issue archived:false',
         '"/bounty" in:body state:open is:issue language:python',
         '"/bounty" in:body state:open is:issue language:typescript',
-        '"/bounty" in:body state:open is:issue language:javascript',
-        'label:"💎 Bounty" state:open is:issue',
-        # свежие: чем новее, тем меньше шанс, что уже разобрали
-        'label:bounty state:open is:issue language:python created:>2026-08-15',
-        'label:bounty state:open is:issue language:typescript created:>2026-08-15',
-        'label:bounty state:open is:issue language:javascript created:>2026-08-15',
-        # прямое указание суммы в заголовке
-        '"$" bounty in:title state:open is:issue language:python',
-        'label:"help wanted" "/bounty" in:body state:open is:issue',
-        # без указания языка — вдруг подходящее найдётся вне основного стека
         '"/bounty" in:body state:open is:issue created:>2026-08-01',
     ]
     seen, rows = set(), []
@@ -265,9 +311,11 @@ def enrich_and_score(rows):
         if pay is False:
             continue          # платят способом, недоступным владельцу
 
-        # ЗАНЯТОСТЬ: сколько уже делают то же самое
-        rivals = competition(repo, d.get("n"), d["t"])
-        if rivals >= 5:
+        # ЗАНЯТОСТЬ: сколько уже делают то же самое и не выплачено ли уже
+        rivals, paid = competition(repo, d.get("n"), d["t"])
+        if paid:
+            continue                      # премию уже получил другой — работать не за что
+        if rivals >= 4:
             continue                      # задача фактически разобрана
         stack_fit = OUR_STACK.get(lang, 0.25)
         # доверие к репозиторию: звёзды сглаженно
@@ -295,27 +343,56 @@ def enrich_and_score(rows):
 
 def hunt(limit=60):
     """Полный заход: найти, оценить, записать."""
-    rows = enrich_and_score(search(limit))
-    if not rows:
-        bus.broadcast("bounty", "Оплачиваемых задач по нашему стеку сейчас не нашёл.")
-        return "ничего не найдено"
+    _API_TROUBLE.clear()
+    raw = search(limit)
+    rows = enrich_and_score(raw)
+    # Отказ API — единственный случай, когда заход НЕЛЬЗЯ считать проведённым:
+    # мы не видели рынок, значит и снимать задачи с очереди не имеем права.
+    if _API_TROUBLE and not rows:
+        why = ", ".join(sorted(set(_API_TROUBLE))[:3])
+        bus.broadcast("bounty", f"Заход НЕ СОСТОЯЛСЯ: API отказал ({why}). "
+                                f"Это не «работы нет» — это «я не смог посмотреть». "
+                                f"Повторю в следующем цикле.")
+        return f"поиск не выполнен: {why}"
     c = _con()
     for r in rows:
         c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,stars,language,
-                     labels,fit_score,payout,found_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                     ON CONFLICT(url) DO UPDATE SET amount_usd=?, fit_score=?, stars=?""",
+                     labels,fit_score,rivals,payout,found_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(url) DO UPDATE SET amount_usd=?, fit_score=?, stars=?,
+                     rivals=?, status='found'""",
                   (r["url"], r["repo"], r["title"], r["amount"], "USD", r["stars"],
-                   r["language"], r["labels"], r["fit"], r.get("payout"), now(),
-                   r["amount"], r["fit"], r["stars"]))
+                   r["language"], r["labels"], r["fit"], r.get("rivals", 0),
+                   r.get("payout"), now(),
+                   r["amount"], r["fit"], r["stars"], r.get("rivals", 0)))
+    # ЧИСТКА. Задача, не прошедшая фильтры в этот заход, больше не «доступная»:
+    # премию могли выплатить, толпа могла набежать. Оставлять её в очереди —
+    # значит однажды вложить работу в разобранное. Поймано на tscircuit#92:
+    # 72 заявки и уже выплаченные $75, а в базе висело «соперников 0».
+    alive = {r["url"] for r in rows}
+    stale = c.execute("SELECT url,repo FROM bounties WHERE status='found'").fetchall()
+    dropped = 0
+    for url, repo in stale:
+        if url not in alive:
+            c.execute("UPDATE bounties SET status='lost', note=? WHERE url=?",
+                      ("не прошла повторную проверку: разобрана, выплачена или недостижима", url))
+            dropped += 1
     c.commit()
-    tot = c.execute("SELECT COUNT(*) FROM bounties").fetchone()[0]
-    money = c.execute("SELECT COALESCE(SUM(amount_usd),0) FROM bounties").fetchone()[0]
-    top = c.execute("SELECT title,amount_usd,repo FROM bounties ORDER BY fit_score DESC LIMIT 1").fetchone()
+    tot = c.execute("SELECT COUNT(*) FROM bounties WHERE status='found'").fetchone()[0]
+    money = c.execute("SELECT COALESCE(SUM(amount_usd),0) FROM bounties "
+                      "WHERE status='found'").fetchone()[0]
+    top = c.execute("SELECT title,amount_usd,repo FROM bounties WHERE status='found' "
+                    "ORDER BY fit_score DESC LIMIT 1").fetchone()
     c.close()
-    bus.broadcast("bounty", f"Найдено оплачиваемых задач: {tot}, суммарно ${money:.0f}. "
-                            f"Лучшая по пригодности: {top[2]} — ${top[1]:.0f}. "
-                            f"Это чек за задачу, а не центы за вызов.")
-    return f"задач {tot}, суммарно ${money:.0f}"
+    if not tot:
+        bus.broadcast("bounty", f"Просмотрел {len(raw)} открытых задач: доступных не осталось, "
+                                f"{dropped} снято с очереди как разобранные или уже "
+                                f"выплаченные. Рынок баунти забит конкурирующими агентами — "
+                                f"нужен менее людный источник работы.")
+        return f"просмотрено {len(raw)}, доступных нет, снято {dropped}"
+    bus.broadcast("bounty", f"Доступных задач: {tot}, суммарно ${money:.0f}"
+                            + (f", снято с очереди {dropped}" if dropped else "")
+                            + f". Лучшая: {top[2]} — ${top[1]:.0f}.")
+    return f"доступно {tot} на ${money:.0f}, снято {dropped}"
 
 
 def shortlist(n=10):

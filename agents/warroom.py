@@ -16,7 +16,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.db import connect
+from core.db import connect, ensure_schema
 from core import guard
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -125,7 +125,7 @@ GATE_ANSWERS = {
 
 def _init():
     con = connect()
-    con.executescript(SCHEMA)
+    ensure_schema(con, SCHEMA)
     con.commit()
     return con
 

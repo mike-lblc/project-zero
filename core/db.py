@@ -1,5 +1,5 @@
 """P0 spine. The database IS the asset - every external platform is a replaceable pipe."""
-import sqlite3, os, json, time
+import sqlite3, os, re, json, time
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "brain.db"
@@ -190,10 +190,42 @@ def connect():
     con.row_factory = sqlite3.Row
     return con
 
+def ensure_schema(con, schema_sql):
+    """Создаёт таблицы И ДОБАВЛЯЕТ недостающие колонки в уже существующие.
+
+    Зачем это отдельно от executescript. `CREATE TABLE IF NOT EXISTS` на
+    существующей таблице не делает НИЧЕГО — включая случай, когда в схему
+    добавили новую колонку. Именно так охотник за баунти перестал сохранять
+    находки: колонку payout вписали в схему, таблица осталась старой, и каждый
+    заход падал на вставке. Снаружи это выглядело как «работы не нашлось».
+
+    Первичные ключи и UNIQUE через ALTER TABLE не добавить — такие колонки
+    пропускаются молча: они есть только в свежих таблицах, а это уже не
+    молчаливая потеря данных, а разница в ограничениях.
+    """
+    con.executescript(schema_sql)
+    for m in re.finditer(r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\((.*?)\n\);",
+                         schema_sql, re.S):
+        table, body = m.group(1), m.group(2)
+        have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if not have:
+            continue
+        for line in body.split("\n"):
+            line = line.split("--")[0].strip().rstrip(",")
+            if not line or line.upper().startswith(("PRIMARY", "UNIQUE", "FOREIGN", "CHECK")):
+                continue
+            parts = line.split()
+            col, decl = parts[0], " ".join(parts[1:])
+            if col in have or "PRIMARY KEY" in decl.upper() or "UNIQUE" in decl.upper():
+                continue
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+    con.commit()
+    return con
+
+
 def init():
     con = connect()
-    con.executescript(SCHEMA)
-    con.commit()
+    ensure_schema(con, SCHEMA)
     return con
 
 if __name__ == "__main__":
