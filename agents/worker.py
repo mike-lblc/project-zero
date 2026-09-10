@@ -7,7 +7,7 @@ no assigned work, agents do self-directed work rather than sit still.
 All work here is GREEN (reversible, private, free). Judgment still escalates -
 this loop never decides anything, it gathers and measures.
 """
-import sys, json, time, urllib.request, urllib.error
+import sys, re, json, time, subprocess, urllib.request, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -269,6 +269,28 @@ def audit():
     return f"audit: spend={spend} payments={pays} orphan_evidence={orphan}"
 
 
+def mtbx_audit():
+    """Полный аудит по спецификации MTBX — 46 механических проверок.
+
+    Запускается самой экосистемой, а не человеком: спецификация требует
+    перепроверять всё непрерывно, а не один раз при сдаче. Любая упавшая
+    проверка уходит в чат как претензия противника, чтобы механик её увидел.
+    """
+    r = subprocess.run(["py", "-3.13", "-X", "utf8", "mtbx_audit.py"],
+                       cwd=str(ROOT), capture_output=True, text=True, timeout=900)
+    out = r.stdout or ""
+    fails = [l.strip()[2:].strip() for l in out.splitlines() if l.strip().startswith("- [")]
+    m = re.search(r"ИТОГ: (\d+) прошло, (\d+) упало", out)
+    ok, bad = (m.group(1), m.group(2)) if m else ("?", "?")
+    if fails:
+        say("adversary", f"Аудит MTBX: {ok} прошло, {bad} УПАЛО. Первое: {fails[0][:150]}")
+        for f in fails[:5]:
+            note("adversary", f"MTBX audit failure: {f}", conf=1.0)
+    else:
+        say("adversary", f"Аудит MTBX пройден целиком: {ok} проверок, ни одной упавшей.")
+    return f"mtbx: {ok} ok / {bad} fail"
+
+
 # Scout тоже работает сам, без кнопки: крутит темы по очереди
 RESEARCH_TOPICS = ["llm inference", "web search", "market data price", "twitter social",
                    "onchain wallet balance", "image generation", "news feed", "email verify"]
@@ -417,7 +439,8 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("study_market", study_market),
               ("optimize", _growth("optimize")),
               ("economics", economic_review),
-              ("briefing", daily_briefing)]
+              ("briefing", daily_briefing),
+              ("mtbx_audit", mtbx_audit)]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 
 
