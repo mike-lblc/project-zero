@@ -27,7 +27,7 @@
 уходит совету. Разведчик приносит проверенные варианты и честно говорит,
 какие из них закрыты и чем именно.
 """
-import sys, re, json, urllib.request, urllib.error
+import sys, re, urllib.request, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 
