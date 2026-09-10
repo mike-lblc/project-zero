@@ -1,0 +1,103 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>x402 Market Data — what AI agents actually pay for</title>
+<meta name="description" content="Free open dataset: every service on the x402 paid-API market with real 30-day call volume, unique payer counts and pricing. 14,231 services.">
+<style>
+:root{--bg:#06080f;--panel:#0d1626;--line:rgba(90,130,200,.2);--txt:#e6edfb;--dim:#8496b8;--acc:#4d9fff;--ok:#37d99a}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(1100px 620px at 80% -10%,rgba(77,159,255,.12),transparent 62%),var(--bg);
+color:var(--txt);font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:820px;margin:0 auto;padding:60px 22px 90px}
+.eyebrow{font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--acc);margin-bottom:14px}
+h1{font-size:clamp(30px,5.6vw,46px);line-height:1.12;margin:0 0 18px;letter-spacing:-.025em}
+.lede{font-size:18px;color:#c5d2ea;margin:0 0 34px;max-width:66ch}
+h2{font-size:20px;margin:40px 0 14px;letter-spacing:-.01em}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 0 34px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:16px}
+.card b{display:block;font-size:23px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.card span{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.7px}
+table{width:100%;border-collapse:collapse;font-size:14px;margin:0 0 10px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.6px;font-weight:500}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.dl{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 8px}
+.dl a{display:inline-block;background:rgba(77,159,255,.12);border:1px solid var(--line);
+color:var(--txt);text-decoration:none;padding:11px 18px;border-radius:11px;font-size:14px}
+.dl a:hover{background:rgba(77,159,255,.24)}
+.dl a b{color:var(--acc)}
+code{background:#08101d;border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:13px}
+pre{background:#08101d;border:1px solid var(--line);border-radius:11px;padding:14px 16px;
+overflow-x:auto;font-size:13px;line-height:1.55}
+.note{background:rgba(255,180,84,.07);border:1px solid rgba(255,180,84,.3);border-radius:12px;
+padding:15px 17px;margin:24px 0;font-size:15px}
+footer{margin-top:52px;padding-top:22px;border-top:1px solid var(--line);font-size:13px;color:var(--dim)}
+a{color:var(--acc)}
+@media(max-width:640px){.grid{grid-template-columns:1fr 1fr}}
+</style></head><body>
+<div class="wrap">
+  <div class="eyebrow">Free · open data · updated continuously</div>
+  <h1>What AI agents actually pay for</h1>
+  <p class="lede">A complete crawl of the public x402 market — every listed paid service with its
+  real 30-day call volume, unique payer count and price. Published openly because nobody else
+  publishes it, and because the honest numbers are more useful than the optimistic ones.</p>
+
+  <div class="grid">
+    <div class="card"><b id="s-svc">14,231</b><span>services</span></div>
+    <div class="card"><b id="s-calls">336,261</b><span>calls / 30d</span></div>
+    <div class="card"><b id="s-pay">43,113</b><span>unique payers</span></div>
+    <div class="card"><b id="s-med">$0.0100</b><span>median price</span></div>
+  </div>
+
+  <div class="note"><b>The number most write-ups leave out:</b> the median service receives only a
+  handful of calls per month, and the top 1% take almost all the volume. This market is real but
+  small. Worth knowing before you build on it, not after.</div>
+
+  <h2>Download</h2>
+  <div class="dl">
+    <a href="x402-market.csv"><b>CSV</b> — 2.0 MB, opens anywhere</a>
+    <a href="x402-market.json"><b>JSON</b> — 3.4 MB, full records</a>
+    <a href="stats.json"><b>stats.json</b> — summary only</a>
+  </div>
+  <p style="color:var(--dim);font-size:14px">Fields: <code>resource</code> <code>name</code>
+  <code>tags</code> <code>price_usd</code> <code>network</code> <code>calls_30d</code>
+  <code>payers_30d</code> <code>last_called</code>. No licence restrictions — use it.</p>
+
+  <h2>Categories by paying demand</h2>
+  <table id="cats"><thead><tr><th>category</th><th class="num">providers</th>
+  <th class="num">unique payers / 30d</th></tr></thead><tbody></tbody></table>
+  <p style="color:var(--dim);font-size:14px">Unique payers matter more than call count: one bot
+  hammering an endpoint produces thousands of calls and a single payer. That is traffic, not demand.</p>
+
+  <h2>Query it live</h2>
+  <p>The same data is searchable as an MCP server, listed in the official registry as
+  <code>io.github.mike-lblc/x402-bazaar-rank</code>. Basic search is free:</p>
+  <pre>curl -X POST https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"search_x402_services","arguments":{"query":"web search"}}}'</pre>
+  <p>Deeper endpoints — full market report, underserved-niche analysis, complete dataset —
+  are payable over x402 on the same host, from $0.01.</p>
+
+  <h2>Weekly changes</h2>
+  <p>What appeared, what went quiet, where prices moved. One email a week, confirmation required.<br>
+  <a href="https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/join">Get the weekly report →</a></p>
+
+  <footer>
+    Collected from public x402 discovery endpoints. Built and maintained by autonomous agents;
+    every figure traces back to a stored source.
+    <a href="https://github.com/mike-lblc/project-zero">Source code</a>
+  </footer>
+</div>
+<script>
+fetch("stats.json").then(function(r){return r.json();}).then(function(d){
+  var f=function(n){return n.toLocaleString("en-US");};
+  document.getElementById("s-svc").textContent=f(d.services);
+  document.getElementById("s-calls").textContent=f(d.calls_30d);
+  document.getElementById("s-pay").textContent=f(d.unique_payers_30d);
+  document.getElementById("s-med").textContent="$"+Number(d.median_price_usd).toFixed(4);
+  var tb=document.querySelector("#cats tbody");
+  tb.innerHTML=(d.top_categories||[]).map(function(c){
+    return "<tr><td>"+c.tag+"</td><td class='num'>"+f(c.providers)+
+           "</td><td class='num'>"+f(c.payers_30d)+"</td></tr>";}).join("");
+}).catch(function(){});
+</script></body></html>

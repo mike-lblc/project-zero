@@ -1,0 +1,68 @@
+{
+  "services": 14231,
+  "calls_30d": 336261,
+  "unique_payers_30d": 43113,
+  "median_price_usd": 0.01,
+  "top_categories": [
+    {
+      "tag": "crypto",
+      "providers": 819,
+      "payers_30d": 1985
+    },
+    {
+      "tag": "x402",
+      "providers": 696,
+      "payers_30d": 1101
+    },
+    {
+      "tag": "europe",
+      "providers": 924,
+      "payers_30d": 928
+    },
+    {
+      "tag": "land",
+      "providers": 911,
+      "payers_30d": 912
+    },
+    {
+      "tag": "market-data",
+      "providers": 366,
+      "payers_30d": 857
+    },
+    {
+      "tag": "agents",
+      "providers": 374,
+      "payers_30d": 758
+    },
+    {
+      "tag": "country",
+      "providers": 755,
+      "payers_30d": 757
+    },
+    {
+      "tag": "base",
+      "providers": 311,
+      "payers_30d": 676
+    },
+    {
+      "tag": "defi",
+      "providers": 267,
+      "payers_30d": 600
+    },
+    {
+      "tag": "data",
+      "providers": 326,
+      "payers_30d": 575
+    },
+    {
+      "tag": "ai",
+      "providers": 197,
+      "payers_30d": 569
+    },
+    {
+      "tag": "search",
+      "providers": 144,
+      "payers_30d": 506
+    }
+  ]
+}
