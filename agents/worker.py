@@ -368,22 +368,25 @@ def _team(fn_name):
 #   optimizer 52/55 — накрутка: одна и та же фраза с меняющимся счётчиком
 #   explorer 151/2, verifier 52/1 — почти ничего, и дублируют разведку
 # Они не удалены, а переведены в редкий режим: их польза реальна, но не ежеминутна.
-CYCLE = [("watch_payments", watch_payments),      # миссия: первый платёж
-         ("refresh_market", refresh_market),      # свежесть продукта
-         ("scout_research", scout_research),      # наполнение продукта
-         ("health_check", health_check),          # аптайм = место в выдаче
-         ("distributor", _team("distributor")),   # ГЛАВНОЕ узкое место
-         ("critique", _growth("critique")),       # ловит реальные дефекты
-         ("audit", audit),                        # целостность доказательства
-         ("watchdog", _team("watchdog")),         # живость агентов
-         ("scribe", _team("scribe")),             # сам продаваемый отчёт
-         ("explorer_replies", _team("explorer_replies")),
-         ("mail_sync", _postman("mail_sync")),
-         ("find_leads", _leads("find_leads")),
-         ("diagnose_leads", _sales("diagnose_leads"))]
+# ЯДРО — раздел 32 директивы «revenue-first prioritization».
+# После разворота на услуги приоритет пересобран: сначала то, что ведёт к деньгам,
+# потом всё остальное. Разведка клиентов и диагноз — это выручка, они в ядре.
+CYCLE = [("watch_payments", watch_payments),        # миссия: первый платёж
+         ("find_leads", _leads("find_leads")),      # кто может заплатить
+         ("diagnose_leads", _sales("diagnose_leads")),  # за что именно заплатит
+         ("distributor", _team("distributor")),     # видно ли нас
+         ("health_check", health_check),            # аптайм = место в выдаче
+         ("refresh_market", refresh_market),        # свежесть данных = свежесть диагнозов
+         ("audit", audit),                          # целостность доказательства
+         ("watchdog", _team("watchdog"))]           # живость агентов
 
-# РЕДКИЕ — раз в N циклов. Их выводы не меняются каждые 12 секунд.
-SLOW_CYCLE = [("mail_advance", _postman("mail_advance")),
+# РЕДКИЕ — полезны, но не ежеминутно.
+SLOW_CYCLE = [("scout_research", scout_research),
+              ("critique", _growth("critique")),
+              ("scribe", _team("scribe")),
+              ("explorer_replies", _team("explorer_replies")),
+              ("mail_sync", _postman("mail_sync")),
+              ("mail_advance", _postman("mail_advance")),
               ("explore", _growth("explore")),
               ("explore_alternatives", _growth("explore_alternatives")),
               ("merchant", _team("merchant")),
