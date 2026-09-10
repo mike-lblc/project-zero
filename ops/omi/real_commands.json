@@ -1,0 +1,55 @@
+{
+ "auth": [
+  "login",
+  "logout",
+  "status",
+  "whoami",
+  "refresh"
+ ],
+ "memory": [
+  "list",
+  "get",
+  "create",
+  "update",
+  "delete"
+ ],
+ "conversation": [
+  "list",
+  "get",
+  "create",
+  "from-segments",
+  "update",
+  "delete"
+ ],
+ "action-item": [
+  "list",
+  "get",
+  "create",
+  "update",
+  "complete",
+  "delete"
+ ],
+ "goal": [
+  "list",
+  "get",
+  "update",
+  "progress",
+  "history",
+  "delete"
+ ],
+ "local": [
+  "configure",
+  "status",
+  "tools",
+  "call",
+  "search-screen",
+  "screenshot",
+  "recap",
+  "sql"
+ ],
+ "config": [
+  "show",
+  "path",
+  "set"
+ ]
+}

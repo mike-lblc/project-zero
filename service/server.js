@@ -296,6 +296,9 @@ function agentState() {
     { id: 'postman', role: 'Почтальон', job: 'подписчики, теги, запуск серии писем',
       work: n(`SELECT COUNT(*) c FROM subscribers`) + n(`SELECT COUNT(*) c FROM email_events`),
       last: (one(`SELECT MAX(created_at) t FROM messages WHERE sender='postman'`) || {}).t },
+    { id: 'craftsman', role: 'Мастеровой', job: 'сверяет утверждения с кодом и стережёт PR',
+      work: n(`SELECT COUNT(*) c FROM claim_checks`) + n(`SELECT COUNT(*) c FROM pull_requests`),
+      last: (one(`SELECT MAX(checked_at) t FROM claim_checks`) || {}).t },
     { id: 'bounty', role: 'Охотник за баунти', job: 'ищет оплачиваемые задачи в открытых репозиториях',
       work: n(`SELECT COUNT(*) c FROM bounties`),
       last: (one(`SELECT MAX(found_at) t FROM bounties`) || {}).t },
@@ -444,6 +447,21 @@ app.get('/api/economics', (_req, res) => {
   });
 });
 
+// ---- ПУЛЬС: что агенты делают ПРЯМО СЕЙЧАС ----
+// Отдельно от чата: чат дедуплицируется и потому молчит, когда нового нет,
+// а человек читает тишину как «система умерла». Здесь идёт сырой поток
+// прогонов — он всегда свежий, потому что это не выводы, а пульс.
+app.get('/api/pulse', (_req, res) => {
+  const db = new DatabaseSync(DB, { readOnly: true });
+  let runs = [];
+  try {
+    runs = db.prepare(`SELECT agent,status,notes,started_at FROM runs
+                       ORDER BY id DESC LIMIT 8`).all();
+  } catch {}
+  db.close();
+  res.json({ runs });
+});
+
 // ---- СИГНАЛЫ: настоящие сообщения между агентами ----
 // Дашборд рисует импульс на КАЖДОЕ реальное сообщение. Нет общения — нет импульсов.
 app.get('/api/signals', (req, res) => {
@@ -466,7 +484,7 @@ app.get('/api/chat', (_req, res) => {
   const db = new DatabaseSync(DB, { readOnly: true });
   let rows = [];
   try {
-    rows = db.prepare(`SELECT id,sender,body,created_at FROM messages
+    rows = db.prepare(`SELECT id,sender,topic,body,created_at FROM messages
                        WHERE topic IN ('chat','ask','answer','handoff') ORDER BY id DESC LIMIT 50`).all();
   } catch {}
   db.close();

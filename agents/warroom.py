@@ -11,7 +11,7 @@
 Оценки ставятся честно, включая наш собственный продукт. Если он проигрывает —
 так и пишем, иначе скоринг превращается в самооправдание.
 """
-import sys, json
+import sys
 from pathlib import Path
 from datetime import datetime, timezone
 

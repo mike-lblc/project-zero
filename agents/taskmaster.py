@@ -19,9 +19,9 @@
 whenever tools and permissions make execution possible.» Этот агент — исполнение
 той строки в виде кода, а не пожелания.
 """
-import sys, json, urllib.request, urllib.error
+import sys, urllib.request, urllib.error
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect

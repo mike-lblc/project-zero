@@ -195,6 +195,39 @@ check("скоринг возможностей (10)", lambda: (
     f"{_n('SELECT COUNT(*) FROM opportunities')} возможностей оценено"))
 check("гейт «продай до постройки» (11)", lambda: (
     _n("SELECT COUNT(*) FROM opportunities WHERE gate_passed IS NOT NULL") > 0, "гейт применён"))
+def dashboard_in_sync():
+    """Дашборд не должен отставать от системы.
+
+    Дважды случалось: агент появлялся в API, но не в 3D-сцене, и владелец
+    видел неполную картину. Проверка делает рассинхрон невозможным незаметно.
+    """
+    import re as _re
+    srv = (ROOT / "service" / "server.js").read_text(encoding="utf-8")
+    dash = (ROOT / "service" / "dashboard.html").read_text(encoding="utf-8")
+    in_api = set(_re.findall(r"id: '([a-z_]+)'", srv))
+    in_3d = set(_re.findall(r'\{id:"([a-z_]+)"', dash))
+    missing = in_api - in_3d
+    extra = in_3d - in_api
+    if missing or extra:
+        return False, (f"в API но не в сцене: {missing or '—'}; "
+                       f"в сцене но не в API: {extra or '—'}")
+    return True, f"{len(in_api)} агентов совпадают в API и в сцене"
+
+
+def cycle_agents_shown():
+    """Каждый агент, который что-то делает в цикле, обязан быть виден."""
+    import re as _re
+    from agents import worker
+    srv = (ROOT / "service" / "server.js").read_text(encoding="utf-8")
+    owners = set(worker.AGENT_OF.values())
+    in_api = set(_re.findall(r"id: '([a-z_]+)'", srv))
+    missing = owners - in_api
+    return (not missing), (f"все {len(owners)} рабочих агентов в API"
+                           if not missing else f"НЕ показаны: {missing}")
+
+
+check("дашборд синхронен с системой", dashboard_in_sync)
+check("работающие агенты видны в дашборде", cycle_agents_shown)
 check("MCP опубликован и виден", lambda: (
     "x402-bazaar-rank" in http("/v0/servers?search=x402-bazaar-rank",
                                "https://registry.modelcontextprotocol.io")[1],

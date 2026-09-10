@@ -177,8 +177,16 @@ CREATE INDEX IF NOT EXISTS idx_ev_source ON evidence(source_id);
 """
 
 def connect():
+    """Соединение с базой.
+
+    busy_timeout обязателен: агенты работают одновременно, и без ожидания
+    второй пишущий получает «database is locked» и падает. Поймано на живой
+    системе — охотник за баунти не смог записать находки, пока воркер крутил цикл.
+    """
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(DB_PATH, timeout=30)
+    con.execute("PRAGMA busy_timeout=30000")
+    con.execute("PRAGMA journal_mode=WAL")
     con.row_factory = sqlite3.Row
     return con
 

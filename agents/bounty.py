@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS bounties (
   language TEXT,
   labels TEXT,
   fit_score REAL,
+  rivals INTEGER DEFAULT 0,
+  payout TEXT,
   status TEXT NOT NULL DEFAULT 'found',   -- found | shortlisted | attempted | won | lost
   note TEXT,
   found_at TEXT NOT NULL
@@ -87,6 +89,92 @@ def _gh(args, timeout=40):
         return ""
 
 
+def competition(repo, issue_number, title):
+    """Сколько людей УЖЕ делают эту задачу.
+
+    Без этой проверки агент вёл нас в задачу с 14 открытыми PR: пятнадцатый
+    был бы выброшенной работой. Занятость важнее размера суммы — на
+    контестованном баунти вероятность выигрыша близка к нулю.
+    """
+    key = re.sub(r"[^a-z0-9_ ]", " ", (title or "").lower())
+    words = [w for w in key.split() if len(w) > 5][:3]
+    if not words:
+        return 0
+    q = f"repo:{repo} is:pr is:open " + " ".join(words)
+    out = _gh(["api", "-X", "GET", "search/issues", "-f", f"q={q}", "--jq", ".total_count"])
+    try:
+        return int((out or "0").strip())
+    except Exception:
+        return 0
+
+
+# Способы выплаты и доходят ли они до РФ-резидента с кошельком.
+# ЭТОТ ФИЛЬТР ВАЖНЕЕ СУММЫ. Урок повторился дважды: сначала Binance
+# (рынок есть, деньги не дойдут), теперь omi ($25 есть, платят PayPal).
+# Проверять «чем платят» надо ДО того, как вложена работа.
+PAYOUT_OK = ("algora", "crypto", "usdc", "usdt", "eth", "wallet", "onchain",
+             "gitcoin", "polar.sh", "opire")
+PAYOUT_BLOCKED = ("paypal", "venmo", "zelle", "cashapp", "ach ", "wire transfer")
+
+
+def payout_reachable(repo, body):
+    """Дойдут ли деньги. True / False / None (неизвестно).
+
+    None означает «не выяснили» — тогда работу вкладывать рано, но и
+    отбрасывать нельзя: надо спросить у мейнтейнера.
+    """
+    b = (body or "").lower()
+    if any(w in b for w in PAYOUT_OK):
+        return True
+    if any(w in b for w in PAYOUT_BLOCKED):
+        return False
+    # правила проекта: смотрим руководство для участников
+    for path in ("docs/doc/developer/Contribution.mdx", "CONTRIBUTING.md",
+                 ".github/CONTRIBUTING.md"):
+        out = _gh(["api", f"repos/{repo}/contents/{path}", "--jq", ".content"], timeout=25)
+        if not out:
+            continue
+        try:
+            import base64
+            txt = base64.b64decode(out).decode("utf-8", "ignore").lower()
+        except Exception:
+            continue
+        # Ищем ТОЛЬКО вокруг слов о выплате. Первая версия искала по всему
+        # документу и сказала «дойдут» для проекта, где платят PayPal, —
+        # потому что слово «wallet» там про носимое устройство, а не про деньги.
+        zones = []
+        for m in re.finditer(r"(claim\w*\s+payment|payout|get paid|bounty rules|"
+                             r"claiming payment|reward)", txt):
+            zones.append(txt[max(0, m.start() - 200): m.start() + 400])
+        near = " ".join(zones)
+        if not near:
+            break
+        if any(w in near for w in PAYOUT_BLOCKED):
+            return False
+        if any(w in near for w in PAYOUT_OK):
+            return True
+        break
+    return None
+
+
+def looks_like_real_money(body, labels):
+    """Настоящая ли это оплата.
+
+    Проверено на живых примерах:
+      /bounty $75          -> команда Algora, НАСТОЯЩИЕ деньги
+      «25 RTC»             -> собственный токен проекта, НЕ доллары
+      тело без суммы вовсе -> тренировочная песочница (9446 автозадач)
+    """
+    b = (body or "").lower()
+    if "/bounty" in b or "algora" in b:
+        return True
+    if re.search(r"\$\s?\d", b):
+        return True
+    if re.search(r"\d+\s*(rtc|points?|credits?|tokens?)", b):
+        return False          # своя валюта, не деньги
+    return False
+
+
 def parse_amount(text):
     """Сумма из заголовка или тела. Берём максимум, но не верим абсурду."""
     best = 0.0
@@ -105,17 +193,27 @@ def search(limit=60):
     """Ищет открытые оплачиваемые задачи по нашему стеку."""
     guard.check_action("research", "GREEN")
     queries = [
-        'label:"💎 Bounty" state:open language:python',
-        'label:"💎 Bounty" state:open language:typescript',
-        'label:bounty state:open language:python',
-        'label:bounty state:open language:javascript',
-        'label:"help wanted" bounty in:body state:open language:python',
+        # Algora ставит эту метку и команду /bounty — самый достоверный признак
+        '"/bounty" in:body state:open is:issue language:python',
+        '"/bounty" in:body state:open is:issue language:typescript',
+        '"/bounty" in:body state:open is:issue language:javascript',
+        'label:"💎 Bounty" state:open is:issue',
+        # свежие: чем новее, тем меньше шанс, что уже разобрали
+        'label:bounty state:open is:issue language:python created:>2026-08-15',
+        'label:bounty state:open is:issue language:typescript created:>2026-08-15',
+        'label:bounty state:open is:issue language:javascript created:>2026-08-15',
+        # прямое указание суммы в заголовке
+        '"$" bounty in:title state:open is:issue language:python',
+        'label:"help wanted" "/bounty" in:body state:open is:issue',
+        # без указания языка — вдруг подходящее найдётся вне основного стека
+        '"/bounty" in:body state:open is:issue created:>2026-08-01',
     ]
     seen, rows = set(), []
     for q in queries:
         out = _gh(["api", "-X", "GET", "search/issues", "-f", f"q={q}",
-                   "-f", "per_page=25", "-f", "sort=updated",
-                   "--jq", ".items[] | {u:.html_url, t:.title, b:(.body//\"\"|.[0:400]), "
+                   "-f", "per_page=30", "-f", "sort=created", "-f", "order=desc",
+                   "--jq", ".items[] | {u:.html_url, t:.title, b:(.body//\"\"|.[0:900]), "
+                           "n:.number, cm:.comments, "
                            "r:(.repository_url|split(\"/\")|.[-2:]|join(\"/\")), "
                            "l:[.labels[].name]} | @json"])
         for line in (out or "").strip().split("\n"):
@@ -137,7 +235,10 @@ def enrich_and_score(rows):
     out = []
     repo_cache = {}
     for d in rows:
-        amount = parse_amount(d["t"] + " " + d.get("b", ""))
+        body = d.get("b", "")
+        if not looks_like_real_money(body, d.get("l", [])):
+            continue                      # песочница или своя валюта — мимо
+        amount = parse_amount(d["t"] + " " + body)
         if not amount:
             continue
         repo = d["r"]
@@ -159,13 +260,27 @@ def enrich_and_score(rows):
         if amount >= BIG_AMOUNT and stars < MIN_STARS_FOR_BIG:
             continue          # $1250 от репозитория с 8 звёздами — почти всегда мусор
 
+        # ДОЙДУТ ЛИ ДЕНЬГИ — проверяем ДО оценки работы
+        pay = payout_reachable(repo, body)
+        if pay is False:
+            continue          # платят способом, недоступным владельцу
+
+        # ЗАНЯТОСТЬ: сколько уже делают то же самое
+        rivals = competition(repo, d.get("n"), d["t"])
+        if rivals >= 5:
+            continue                      # задача фактически разобрана
         stack_fit = OUR_STACK.get(lang, 0.25)
         # доверие к репозиторию: звёзды сглаженно
         import math
         trust = min(1.0, math.log10(1 + stars) / 2.4)
-        fit = round(amount * stack_fit * (0.35 + 0.65 * trust), 1)
+        # чем больше соперников и обсуждения, тем ниже шанс, что возьмут именно нас
+        crowd = 1.0 / (1 + rivals * 0.8 + (d.get("cm", 0) or 0) * 0.02)
+        # неизвестный способ выплаты — не запрет, но и не повод вкладываться
+        pay_factor = 1.0 if pay is True else 0.35
+        fit = round(amount * stack_fit * (0.35 + 0.65 * trust) * crowd * pay_factor, 1)
         out.append({"url": d["u"], "repo": repo, "title": d["t"][:180],
-                    "amount": amount, "stars": stars, "language": lang,
+                    "amount": amount, "stars": stars, "language": lang, "rivals": rivals,
+                    "payout": ("крипта/Algora" if pay is True else "неизвестно"),
                     "labels": ",".join(d.get("l", []))[:120], "fit": fit})
     out.sort(key=lambda r: -r["fit"])
     # не больше MAX_PER_REPO задач из одного репозитория: ферма иначе забьёт весь список
@@ -187,10 +302,10 @@ def hunt(limit=60):
     c = _con()
     for r in rows:
         c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,stars,language,
-                     labels,fit_score,found_at) VALUES (?,?,?,?,?,?,?,?,?,?)
+                     labels,fit_score,payout,found_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)
                      ON CONFLICT(url) DO UPDATE SET amount_usd=?, fit_score=?, stars=?""",
                   (r["url"], r["repo"], r["title"], r["amount"], "USD", r["stars"],
-                   r["language"], r["labels"], r["fit"], now(),
+                   r["language"], r["labels"], r["fit"], r.get("payout"), now(),
                    r["amount"], r["fit"], r["stars"]))
     c.commit()
     tot = c.execute("SELECT COUNT(*) FROM bounties").fetchone()[0]

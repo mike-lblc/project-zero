@@ -73,16 +73,6 @@ font-family:ui-monospace,Menlo,Consolas,monospace}
 .empty{color:var(--dim);font-size:12px;padding:14px 2px}
 @media(max-width:900px){#panel{left:12px;width:auto;top:auto;height:52vh;bottom:12px}
 #log{display:none}#top{padding:9px}.stat b{font-size:15px}}
-#nav{position:fixed;left:12px;top:96px;z-index:6;padding:9px;display:flex;
-flex-direction:column;gap:5px;align-items:center}
-#nav .nr{display:flex;gap:5px}
-.nb{width:30px;height:27px;border-radius:7px;border:1px solid var(--line);
-background:rgba(77,159,255,.07);color:var(--txt);cursor:pointer;font-size:12px;
-display:flex;align-items:center;justify-content:center;user-select:none;transition:.12s}
-.nb:hover{background:rgba(77,159,255,.22)}
-.nb:active{background:rgba(77,159,255,.36)}
-#nav .nh{font-size:9.5px;color:var(--dim);margin-top:4px;text-align:center;line-height:1.4}
-@media(max-width:900px){#nav{display:none}}
 .tag.c-que{background:rgba(125,139,168,.16);color:#a4b2c8}
 .tag.c-run{background:rgba(77,159,255,.18);color:#a5c8ff}
 .tag.c-done{background:rgba(55,217,154,.16);color:#8ce9c2}
@@ -128,17 +118,14 @@ display:flex;align-items:center;justify-content:center;user-select:none;transiti
 
 <div id="agentcard" class="hud" style="display:none;left:12px;top:96px;width:min(360px,calc(100vw - 24px));padding:13px 15px;z-index:6"></div>
 
-<div id="nav" class="hud">
-  <div class="nr"><div class="nb" data-k="up">↑</div></div>
-  <div class="nr"><div class="nb" data-k="left">←</div><div class="nb" data-k="down">↓</div><div class="nb" data-k="right">→</div></div>
-  <div class="nr"><div class="nb" data-k="in">+</div><div class="nb" data-k="reset">⌂</div><div class="nb" data-k="out">−</div></div>
-  <div class="nh">мышь — поворот · колесо — зум<br>стрелки — полёт по сцене</div>
-</div>
-
 <div id="log" class="hud">
   <div><b id="svc">&ndash;</b></div>
   <div style="color:var(--dim);font-size:11px;word-break:break-all" id="payto">&ndash;</div>
-  <pre id="out">агенты работают сами, по кругу — кнопки не нужны</pre>
+  <pre id="out">агенты работают сами, по кругу</pre>
+  <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+    <div style="font-size:9.5px;letter-spacing:1px;color:var(--dim);text-transform:uppercase;margin-bottom:5px">Сейчас происходит</div>
+    <div id="pulse" style="font-size:11px;color:#9fb2d4;line-height:1.7"></div>
+  </div>
   <div class="mission">МИССИЯ: доказать, что агенты зарабатывают с нуля. Засчитывается, только пока
     <b>Потрачено = 0</b> и платёж пришёл от <b>постороннего</b>, а не от владельца.</div>
 </div>
@@ -162,7 +149,10 @@ var AGENTS=[
  {id:"watchdog",label:"СТОРОЖ",color:0xe879f9,shape:"ico"},
  {id:"postman",label:"ПОЧТАЛЬОН",color:0x22d3ee,shape:"oct"},
  {id:"leads",label:"РАЗВЕДКА КЛИЕНТОВ",color:0xfbbf24,shape:"dodec"},
- {id:"salesman",label:"ПРОДАВЕЦ",color:0x4ade80,shape:"box"}
+ {id:"salesman",label:"ПРОДАВЕЦ",color:0x4ade80,shape:"box"},
+ {id:"mechanic",label:"МЕХАНИК",color:0x94a3b8,shape:"box"},
+ {id:"bounty",label:"ОХОТНИК ЗА БАУНТИ",color:0xfacc15,shape:"tetra"},
+ {id:"craftsman",label:"МАСТЕРОВОЙ",color:0xf97316,shape:"box"}
 ];
 var scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x05070d,0.009);
 var camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,220);
@@ -584,8 +574,23 @@ function renderFeed(){
 }
 var NAMES={scout:"Разведчик",proposer:"Предлагающий",verifier:"Проверяющий",
  adversary:"Оппонент",judge:"Судья",orchestrator:"Оркестратор",
- explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",postman:"Почтальон",leads:"Разведка клиентов",salesman:"Продавец",
+ explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",postman:"Почтальон",leads:"Разведка клиентов",salesman:"Продавец",mechanic:"Механик",bounty:"Охотник за баунти",craftsman:"Мастеровой",
  merchant:"Коммерсант",distributor:"Дистрибьютор",scribe:"Писарь",watchdog:"Сторож"};
+function chatBody(m){
+  /* ask/answer/handoff лежат в базе как JSON — разворачиваем в человеческую фразу */
+  var b=m.body||"";
+  if(b.charAt(0)!=="{") return b;
+  try{
+    var d=JSON.parse(b);
+    if(m.topic==="ask")     return "спрашивает: "+(d.q||b);
+    if(m.topic==="answer")  return "отвечает: "+(d.a||b);
+    if(m.topic==="handoff") return "передаёт работу: "+(d.task||"")+
+                                   (d.why?" — потому что "+d.why:"");
+    return d.q||d.a||d.task||b;
+  }catch(e){ return b; }
+}
+var TOPIC_TAG={ask:["c-run","вопрос"],answer:["c-done","ответ"],
+               handoff:["c-block","передача"],chat:["c-que","объявление"]};
 function renderChat(){
   var h='<h3>Агенты переговариваются вживую</h3>';
   if(!(CHAT||[]).length){ h+='<div class="empty">Пока тихо — первые реплики появятся в течение минуты.</div>'; }
@@ -596,7 +601,10 @@ function renderChat(){
        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+col+
        ';margin-right:7px"></span><b style="color:'+col+'">'+(NAMES[m.sender]||m.sender)+'</b> '+
        '<span style="color:#6f7f9f;font-size:10.5px">'+String(m.created_at||"").slice(11,19)+'</span>'+
-       '</div><div class="m" style="margin:0;color:#c2cee6">'+esc(m.body)+'</div></div>';
+       '</div><div class="m" style="margin:0;color:#c2cee6">'+
+       '<span class="tag '+((TOPIC_TAG[m.topic]||TOPIC_TAG.chat)[0])+'">'+
+       ((TOPIC_TAG[m.topic]||TOPIC_TAG.chat)[1])+'</span>'+
+       esc(chatBody(m))+'</div></div>';
   });
   $("v-chat").innerHTML=h;
 }
@@ -721,6 +729,15 @@ function refresh(){
     txt("payto",d.service.payTo);
     render();
   }).catch(function(){ txt("live","reconnecting…"); });
+  fetch("/api/pulse",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
+    var el=$("pulse"); if(!el) return;
+    el.innerHTML=(d.runs||[]).map(function(r){
+      var ok=r.status==="ok";
+      return '<div><span style="color:'+(ok?"var(--ok)":"var(--bad)")+'">●</span> '+
+        '<span style="color:var(--dim)">'+String(r.started_at||"").slice(11,19)+'</span> '+
+        esc(NAMES[r.agent]||r.agent)+' — '+esc((r.notes||"").slice(0,54))+'</div>';
+    }).join("") || '<div style="color:var(--dim)">цикл запускается…</div>';
+  }).catch(function(){});
   fetch("/api/execution",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
     EXEC=d; var b=d.board||{};
     var kt=$("k-tasks"); if(kt) kt.textContent=(b.queued||0)+(b.running||0);
