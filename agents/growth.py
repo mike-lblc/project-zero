@@ -197,10 +197,14 @@ def optimize():
     if not suggestions:
         suggestions.append("узких мест в системе не вижу; ограничение снаружи, а не внутри")
 
-    say("optimizer", f"Померил систему: {', '.join(findings)}. Что предлагаю: "
+    # Раньше сюда попадал счётчик проверок, из-за чего каждая строка была "новой"
+    # и агент накручивал показатель, ничего не сообщая. Теперь записывается только
+    # СМЫСЛ (предложения), без меняющихся чисел — дубли отсекаются честно.
+    # В чат идёт ВЫВОД, а не счётчики: меняющееся число обходило дедупликацию
+    # и создавало видимость новой реплики каждый цикл.
+    say("optimizer", f"Померил систему. Аптайм {uptime}%. Что предлагаю: "
                      f"{'; '.join(suggestions)}.")
-    note("optimizer", f"SYSTEM METRICS: {', '.join(findings)} | SUGGESTIONS: {'; '.join(suggestions)}",
-         conf=0.85)
+    note("optimizer", f"SYSTEM SUGGESTIONS: {'; '.join(suggestions)}", conf=0.85)
     return f"аптайм {uptime}%, предложений: {len(suggestions)}"
 
 

@@ -272,7 +272,18 @@ check("индекс рынка >= 14000", lambda: (
 # ---------------------------------------------------------------- 8. ВОРКЕР
 print("\n8. НЕПРЕРЫВНАЯ РАБОТА")
 from agents import worker, growth
-check("в цикле >= 15 шагов", lambda: (len(worker.CYCLE) >= 15, f"{len(worker.CYCLE)} шагов"))
+# Много шагов больше НЕ достоинство: по данным (optimizer 52 прогона / 55 «находок»
+# из меняющегося счётчика) частые шаги без выхода накручивают показатель. Проверяем,
+# что работа покрыта целиком, но ядро осталось узким.
+check("работа покрыта целиком", lambda: (
+    len(worker.CYCLE) + len(worker.SLOW_CYCLE) >= 15,
+    f"{len(worker.CYCLE)} ядро + {len(worker.SLOW_CYCLE)} редких"))
+check("ядро цикла узкое (раздел 28)", lambda: (
+    len(worker.CYCLE) <= 12, f"{len(worker.CYCLE)} шагов в ядре"))
+check("непроизводительные вынесены в редкие", lambda: (
+    all(n not in [x for x, _ in worker.CYCLE]
+        for n in ("optimize", "explore", "merchant", "study_market")),
+    "optimize/explore/merchant/study_market не в каждом цикле"))
 check("агенты развития подключены", lambda: (len(growth.CYCLE) >= 4, f"{len(growth.CYCLE)} функций"))
 
 

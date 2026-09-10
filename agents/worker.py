@@ -313,7 +313,17 @@ def economic_review():
 
 
 def daily_briefing():
-    """Раздел 37: ежедневная экономическая сводка."""
+    """Раздел 37: сводка РАЗ В СУТКИ. Раньше выходила каждые 20 шагов и меняющиеся
+    числа обходили дедупликацию — получалась имитация новостей."""
+    con = connect()
+    last = con.execute("SELECT MAX(created_at) FROM messages WHERE topic='chat' "
+                       "AND sender='orchestrator' AND body LIKE 'Сводка:%'").fetchone()[0]
+    con.close()
+    if last:
+        from datetime import datetime as _dt
+        age = (datetime.now(timezone.utc) - _dt.fromisoformat(last)).total_seconds()
+        if age < 20 * 3600:
+            return f"сводка была {int(age/3600)} ч назад — рано"
     b = economics.briefing()
     say("orchestrator",
         f"Сводка: выручка ${b['verified_revenue_usd']}, потрачено ${b['spend_usd']}, "
@@ -331,23 +341,32 @@ def _team(fn_name):
     return run
 
 
-CYCLE = [("watch_payments", watch_payments),
-         ("refresh_market", refresh_market),
-         ("scout_research", scout_research),
-         ("health_check", health_check),
-         ("explore", _growth("explore")),
-         ("study_market", study_market),
-         ("critique", _growth("critique")),
-         ("audit", audit),
-         ("optimize", _growth("optimize")),
-         ("explore_alternatives", _growth("explore_alternatives")),
-         ("merchant", _team("merchant")),
-         ("distributor", _team("distributor")),
-         ("explorer_replies", _team("explorer_replies")),
-         ("scribe", _team("scribe")),
-         ("watchdog", _team("watchdog")),
-         ("economics", economic_review),
-         ("briefing", daily_briefing)]
+# ЯДРО — то, что реально двигает миссию. Крутится каждый цикл.
+# Раздел 2 директивы запрещает держать агентов ради видимости работы,
+# раздел 28 требует, чтобы агент окупал прогон. По данным (прогоны/выход):
+#   optimizer 52/55 — накрутка: одна и та же фраза с меняющимся счётчиком
+#   explorer 151/2, verifier 52/1 — почти ничего, и дублируют разведку
+# Они не удалены, а переведены в редкий режим: их польза реальна, но не ежеминутна.
+CYCLE = [("watch_payments", watch_payments),      # миссия: первый платёж
+         ("refresh_market", refresh_market),      # свежесть продукта
+         ("scout_research", scout_research),      # наполнение продукта
+         ("health_check", health_check),          # аптайм = место в выдаче
+         ("distributor", _team("distributor")),   # ГЛАВНОЕ узкое место
+         ("critique", _growth("critique")),       # ловит реальные дефекты
+         ("audit", audit),                        # целостность доказательства
+         ("watchdog", _team("watchdog")),         # живость агентов
+         ("scribe", _team("scribe")),             # сам продаваемый отчёт
+         ("explorer_replies", _team("explorer_replies"))]
+
+# РЕДКИЕ — раз в N циклов. Их выводы не меняются каждые 12 секунд.
+SLOW_CYCLE = [("explore", _growth("explore")),
+              ("explore_alternatives", _growth("explore_alternatives")),
+              ("merchant", _team("merchant")),
+              ("study_market", study_market),
+              ("optimize", _growth("optimize")),
+              ("economics", economic_review),
+              ("briefing", daily_briefing)]
+SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 
 
 def run_forever(interval=90):
@@ -359,7 +378,11 @@ def run_forever(interval=90):
         except Exception as e:
             print(f"[worker] HALTED: {e}", flush=True)
             return
-        name, fn = CYCLE[i % len(CYCLE)]
+        # каждые SLOW_EVERY шагов — один редкий вместо быстрого
+        if i and i % SLOW_EVERY == 0:
+            name, fn = SLOW_CYCLE[(i // SLOW_EVERY - 1) % len(SLOW_CYCLE)]
+        else:
+            name, fn = CYCLE[i % len(CYCLE)]
         agent = AGENT_OF.get(name, "orchestrator")
         started = now()
         try:
