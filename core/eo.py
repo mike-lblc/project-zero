@@ -1,6 +1,6 @@
 """EmailOctopus client. Agents have FULL authority here (owner, 2026-09-10),
 except sending to humans, which is capped in code - see SEND_CAP_PER_DAY."""
-import os, json, urllib.request, urllib.error
+import json, urllib.request, urllib.error
 from pathlib import Path
 
 API = "https://api.emailoctopus.com"
