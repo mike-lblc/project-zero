@@ -1,0 +1,416 @@
+import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createPaymentMiddleware } from '@openfacilitator/sdk';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(__dirname, '..');
+
+// ---- config from .env (gitignored) ----
+const env = Object.fromEntries(
+  fs.readFileSync(path.join(ROOT, '.env'), 'utf8')
+    .split('\n').filter(l => l.includes('=') && !l.trim().startsWith('#'))
+    .map(l => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()])
+);
+const PAY_TO = env.WALLET_ETH;
+if (!/^0x[0-9a-fA-F]{40}$/.test(PAY_TO || '')) throw new Error('WALLET_ETH missing/invalid in .env');
+
+const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const PRICE = '10000';          // $0.01 — медиана рынка (мы стояли в 10x ниже)
+
+// ---- the asset: crawled Bazaar index with real usage metrics ----
+const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'bazaar_index.json'), 'utf8'));
+const CATALOG = raw.map(it => {
+  const a = (it.accepts || [])[0] || {};
+  const q = it.quality || {};
+  return {
+    resource: it.resource || '',
+    name: it.serviceName || null,
+    description: (it.description || a.description || '').slice(0, 400),
+    tags: it.tags || [],
+    network: a.network || null,
+    priceUsd: a.maxAmountRequired ? Number(a.maxAmountRequired) / 1e6 : null,
+    calls30d: q.l30DaysTotalCalls || 0,
+    payers30d: q.l30DaysUniquePayers || 0,
+    lastCalledAt: q.lastCalledAt || null,
+    _blob: [it.serviceName, it.description, a.description, (it.tags || []).join(' '), it.resource]
+             .filter(Boolean).join(' ').toLowerCase()
+  };
+});
+console.log(`catalog loaded: ${CATALOG.length} services`);
+
+// ---- ranking: relevance x proven usage. Unique payers weighted over raw calls,
+//      because one bot hammering an endpoint is not the same as broad demand. ----
+function rank(q, limit = 10, network = null) {
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const scored = [];
+  for (const s of CATALOG) {
+    if (network && s.network !== network) continue;
+    let rel = 0;
+    for (const t of terms) {
+      if (!s._blob.includes(t)) continue;
+      rel += 1;
+      if ((s.name || '').toLowerCase().includes(t)) rel += 2;
+      if (s.tags.some(g => g.toLowerCase().includes(t))) rel += 1.5;
+    }
+    if (!rel) continue;
+    const trust = Math.log10(1 + s.payers30d) * 2 + Math.log10(1 + s.calls30d);
+    scored.push({ ...s, _score: +(rel * (1 + trust)).toFixed(3) });
+  }
+  scored.sort((a, b) => b._score - a._score);
+  return scored.slice(0, limit).map(({ _blob, ...r }) => r);
+}
+
+const app = express();
+
+// ---- FREE: lets an agent inspect capability and price before paying ----
+app.get('/', (_req, res) => res.json({
+  service: 'x402 Bazaar Rank',
+  description: 'Search 14k+ x402 services ranked by REAL 30-day usage and unique payers. '
+             + 'The official index is unranked; this returns the ones agents actually pay for.',
+  paid_endpoint: '/search?q=<capability>&limit=10&network=eip155:8453',
+  price_usdc: Number(PRICE) / 1e6,
+  network: 'eip155:8453 (Base)',
+  catalog_size: CATALOG.length,
+  pricing: [
+    { endpoint: '/search',  usdc: 0.01, what: 'ranked service search by capability' },
+    { endpoint: '/report',  usdc: 0.10,  what: 'full market report: demand, pricing bands, movers' },
+    { endpoint: '/alpha',   usdc: 0.50,  what: 'underserved niches: demand-per-provider ranking' },
+    { endpoint: '/dataset', usdc: 1.25,  what: 'complete dataset export, all services + metrics' }
+  ],
+  free_endpoints: ['/', '/health', '/sample']
+}));
+app.get('/health', (_req, res) => res.json({ ok: true, catalog: CATALOG.length }));
+app.get('/sample', (_req, res) => res.json({ note: 'free sample, 3 results', results: rank('search', 3) }));
+
+// ---- PAID ----
+const pay = createPaymentMiddleware({
+  getRequirements: () => ({
+    scheme: 'exact',
+    network: 'base',
+    maxAmountRequired: PRICE,
+    asset: USDC_BASE,
+    payTo: PAY_TO,
+    description: 'Ranked x402 service discovery: search 14k+ services by capability, '
+               + 'ranked by verified 30-day call volume and unique payer count.',
+    mimeType: 'application/json'
+  })
+});
+
+// ---- ПЛАТНЫЕ ТАРИФЫ: не только дешёвый поиск ----
+// Цены обоснованы ценностью, а не желанием. $0.001 - это дно рынка (медиана),
+// но у нас есть то, чего нет у конкурентов: ПОЛНЫЙ краул с метриками использования.
+function tier(amount, description) {
+  return createPaymentMiddleware({
+    getRequirements: () => ({
+      scheme: 'exact', network: 'base', maxAmountRequired: String(amount),
+      asset: USDC_BASE, payTo: PAY_TO, description, mimeType: 'application/json'
+    })
+  });
+}
+
+function categoryStats() {
+  const stat = {};
+  for (const s of CATALOG) {
+    for (const t of (s.tags || [])) {
+      const d = stat[t] || (stat[t] = { n: 0, payers: 0, calls: 0, prices: [] });
+      d.n++; d.payers += s.payers30d; d.calls += s.calls30d;
+      if (s.priceUsd != null) d.prices.push(s.priceUsd);
+    }
+  }
+  return stat;
+}
+
+// $0.05 — полный отчёт по рынку
+app.get('/report', tier(100000,
+  'Full x402 market report: category demand, pricing bands, top movers and quiet services. '
+  + 'Built from a complete crawl of every listed service with 30-day usage metrics.'),
+  (_req, res) => {
+    const stat = categoryStats();
+    const cats = Object.entries(stat)
+      .filter(([, d]) => d.n >= 3)
+      .map(([tag, d]) => ({
+        tag, providers: d.n, payers30d: d.payers, calls30d: d.calls,
+        medianPriceUsd: d.prices.length
+          ? d.prices.sort((a, b) => a - b)[Math.floor(d.prices.length / 2)] : null
+      }))
+      .sort((a, b) => b.payers30d - a.payers30d).slice(0, 40);
+    const top = [...CATALOG].sort((a, b) => b.calls30d - a.calls30d).slice(0, 25)
+      .map(({ _blob, ...r }) => r);
+    res.json({ generatedAt: new Date().toISOString(), catalogSize: CATALOG.length,
+               categories: cats, topServices: top });
+  });
+
+// $0.25 — где спрос выше конкуренции (то, за что реально платят консультантам)
+app.get('/alpha', tier(500000,
+  'Underserved-niche finder: categories ranked by demand-per-provider (unique payers divided by '
+  + 'number of providers). Shows where paying demand exceeds supply, with price bands.'),
+  (_req, res) => {
+    const stat = categoryStats();
+    const gaps = Object.entries(stat)
+      .filter(([, d]) => d.n >= 3 && d.payers >= 10)
+      .map(([tag, d]) => ({
+        tag, providers: d.n, payers30d: d.payers,
+        demandPerProvider: +(d.payers / d.n).toFixed(2),
+        medianPriceUsd: d.prices.length
+          ? d.prices.sort((a, b) => a - b)[Math.floor(d.prices.length / 2)] : null
+      }))
+      .sort((a, b) => b.demandPerProvider - a.demandPerProvider).slice(0, 30);
+    res.json({ generatedAt: new Date().toISOString(),
+               method: 'unique payers per provider, 30d window; min 3 providers and 10 payers',
+               opportunities: gaps });
+  });
+
+// $0.50 — весь датасет целиком
+app.get('/dataset', tier(1250000,
+  'Complete x402 service dataset: every indexed service with pricing, network, tags and '
+  + '30-day call and unique-payer counts. One-shot export, JSON.'),
+  (_req, res) => res.json({ generatedAt: new Date().toISOString(), count: CATALOG.length,
+                            services: CATALOG.map(({ _blob, ...r }) => r) }));
+
+app.get('/search', pay, (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  if (!q) return res.status(400).json({ error: 'q required' });
+  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+  res.json({ query: q, results: rank(q, limit, req.query.network || null) });
+});
+
+// ---------------- EMAIL TRACK: our own opt-in, our own consent proof ----------------
+const EO_LIST = '5aafce28-ad18-11f1-9ced-1760a9b2e09e';
+const EO_KEY  = env.EMAILOCTOPUS_API_KEY;
+import crypto from 'node:crypto';
+
+async function eo(method, p, body) {
+  const r = await fetch('https://api.emailoctopus.com' + p, {
+    method,
+    headers: { Authorization: 'Bearer ' + EO_KEY, Accept: 'application/json',
+               'Content-Type': 'application/json', 'User-Agent': 'P0-agent/0.1' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  let j = {}; try { j = await r.json(); } catch {}
+  return { status: r.status, body: j };
+}
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.get('/join', (_req, res) => res.sendFile(path.join(__dirname, 'join.html')));
+
+app.post('/subscribe', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+    return res.status(400).json({ ok: false, error: 'valid email required' });
+  const token = crypto.randomBytes(16).toString('hex');
+  const proof = JSON.stringify({
+    ts: new Date().toISOString(),
+    ip: (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0],
+    ua: (req.headers['user-agent'] || '').slice(0, 180),
+    page: '/join', token
+  });
+  // our DB is the asset; the ESP is a pipe
+  try {
+    const db = new DatabaseSync(DB);
+    db.prepare(`INSERT OR IGNORE INTO subscribers(email,status,source,consent_proof,segment,created_at)
+                VALUES (?,?,?,?,?,?)`)
+      .run(email, 'pending', 'x402-service', proof, 'founding', new Date().toISOString());
+    db.close();
+  } catch (e) { return res.status(500).json({ ok: false, error: 'store failed' }); }
+  // pending in the ESP too - nobody is mailed until they confirm
+  const r = await eo('POST', `/lists/${EO_LIST}/contacts`,
+    { email_address: email, status: 'pending', tags: ['source:x402-service', 'cohort:founding'] });
+  res.json({ ok: true, status: 'pending',
+             confirm: `/confirm?t=${token}`,
+             note: 'Confirm to complete signup. Nothing is sent before you confirm.',
+             esp: r.status });
+});
+
+app.get('/confirm', (req, res) => {
+  const t = String(req.query.t || '');
+  const db = new DatabaseSync(DB);
+  const row = db.prepare(`SELECT id,email FROM subscribers WHERE consent_proof LIKE ? AND status='pending'`)
+                .get('%' + t + '%');
+  if (!row) { db.close(); return res.status(404).send('<h2>Link not valid or already confirmed.</h2>'); }
+  db.prepare(`UPDATE subscribers SET status='confirmed' WHERE id=?`).run(row.id);
+  db.close();
+  eo('PUT', `/lists/${EO_LIST}/contacts/` + crypto.createHash('md5').update(row.email).digest('hex'),
+     { status: 'subscribed' }).catch(() => {});
+  res.send(`<body style="font:16px system-ui;background:#05070d;color:#dfe8fb;padding:48px">
+    <h2 style="color:#37d99a">Confirmed.</h2><p>${row.email} is on the list.</p>
+    <p style="color:#7d8db0">Weekly x402 market intelligence, from a full crawl of 14,231 services.</p></body>`);
+});
+
+// ---------------- LIVE AGENT DASHBOARD ----------------
+import { DatabaseSync } from 'node:sqlite';
+const DB = path.join(ROOT, 'data', 'brain.db');
+
+function agentState() {
+  const db = new DatabaseSync(DB, { readOnly: true });
+  const one = (q, ...a) => { try { return db.prepare(q).get(...a); } catch { return {}; } };
+  const all = (q, ...a) => { try { return db.prepare(q).all(...a); } catch { return []; } };
+  const n = (q, ...a) => (one(q, ...a) || {}).c || 0;
+
+  const agents = [
+    { id: 'scout',        role: 'Разведчик',        job: 'ищет данные и подшивает источники',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='scout'`) + n(`SELECT COUNT(*) c FROM sources`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='scout'`) || {}).t },
+    { id: 'proposer',        role: 'Предлагающий',        job: 'вносит предложения с фальсификатором',
+      work: n(`SELECT COUNT(*) c FROM proposals`),
+      last: (one(`SELECT MAX(created_at) t FROM proposals`) || {}).t },
+    { id: 'verifier',        role: 'Проверяющий',        job: 'независимо перепроверяет факты',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='frontier-escalation'`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='frontier-escalation'`) || {}).t },
+    { id: 'adversary',        role: 'Оппонент',        job: 'пытается убить предложение',
+      work: n(`SELECT COUNT(*) c FROM objections`),
+      last: (one(`SELECT MAX(created_at) t FROM objections`) || {}).t },
+    { id: 'judge',        role: 'Судья',        job: 'решает, разобрав сильнейший довод',
+      work: n(`SELECT COUNT(*) c FROM rulings`),
+      last: (one(`SELECT MAX(created_at) t FROM rulings`) || {}).t },
+    { id: 'orchestrator', role: 'Оркестратор', job: 'маршрутизация, гейты, журнал',
+      work: n(`SELECT COUNT(*) c FROM messages`),
+      last: (one(`SELECT MAX(created_at) t FROM messages`) || {}).t },
+    { id: 'explorer',  role: 'Исследователь', job: 'ищет свободные ниши и другие пути',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='explorer'`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='explorer'`) || {}).t },
+    { id: 'critic',    role: 'Критик', job: 'проверяет работу остальных агентов',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='critic'`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='critic'`) || {}).t },
+    { id: 'optimizer', role: 'Оптимизатор', job: 'измеряет систему и улучшает её',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='optimizer'`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='optimizer'`) || {}).t },
+    { id: 'merchant', role: 'Коммерсант', job: 'цены и тарифы по рынку',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='merchant'`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='merchant'`) || {}).t },
+    { id: 'distributor', role: 'Дистрибьютор', job: 'обнаружимость и каналы',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='distributor'`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='distributor'`) || {}).t },
+    { id: 'scribe', role: 'Писарь', job: 'отчёты и тексты из данных',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='scribe'`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='scribe'`) || {}).t },
+    { id: 'watchdog', role: 'Сторож', job: 'следит за живостью агентов',
+      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='watchdog'`),
+      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='watchdog'`) || {}).t }
+  ];
+  const state = {
+    agents,
+    mission: {
+      payments:  n(`SELECT COUNT(*) c FROM payments`),
+      spend:     n(`SELECT COUNT(*) c FROM spend`),
+      human:     n(`SELECT COUNT(*) c FROM human_interventions`),
+      evidence:  n(`SELECT COUNT(*) c FROM evidence`),
+      sources:   n(`SELECT COUNT(*) c FROM sources`),
+      blocking:  n(`SELECT COUNT(*) c FROM objections WHERE severity='blocking'`),
+      asked:     n(`SELECT COUNT(*) c FROM messages WHERE topic='ask'`),
+      answered:  n(`SELECT COUNT(*) c FROM messages WHERE topic='answer'`),
+      handoffs:  n(`SELECT COUNT(*) c FROM messages WHERE topic='handoff'`)
+    },
+    service: { live: true, catalog: CATALOG.length, priceUsd: Number(PRICE)/1e6, payTo: PAY_TO },
+    feed: all(`SELECT 'evidence' k, id, substr(claim,1,150) t, created_at FROM evidence
+               UNION ALL SELECT 'objection', id, substr(argument,1,150), created_at FROM objections
+               UNION ALL SELECT 'proposal', id, substr(summary,1,150), created_at FROM proposals
+               ORDER BY created_at DESC LIMIT 14`)
+  };
+  db.close();
+  return state;
+}
+
+app.get('/api/status', (_req, res) => { try { res.json(agentState()); }
+  catch (e) { res.status(500).json({ error: String(e) }); } });
+
+// ---- WHAT NEEDS THE HUMAN: the actionable queue ----
+app.get('/api/queue', (_req, res) => {
+  const db = new DatabaseSync(DB, { readOnly: true });
+  const all = (q, ...a) => { try { return db.prepare(q).all(...a); } catch { return []; } };
+  const out = {
+    interventions: all(`SELECT id,what,why,category,agent_could_have,occurred_at
+                        FROM human_interventions ORDER BY id DESC`),
+    open_proposals: all(`SELECT p.id,p.summary,p.falsifier,p.action_class,p.status,p.created_at,
+                          (SELECT COUNT(*) FROM objections o WHERE o.proposal_id=p.id
+                             AND o.severity='blocking') blocking
+                         FROM proposals p WHERE p.status IN ('proposed','approved') ORDER BY p.id DESC`),
+    blocking: all(`SELECT o.id,o.proposal_id,o.argument,o.created_at
+                   FROM objections o WHERE o.severity='blocking' ORDER BY o.id DESC`),
+    subscribers: all(`SELECT id,email,status,created_at FROM subscribers ORDER BY id DESC LIMIT 20`)
+  };
+  db.close(); res.json(out);
+});
+
+// ---- AGENT CHAT (russian) ----
+app.get('/api/chat', (_req, res) => {
+  const db = new DatabaseSync(DB, { readOnly: true });
+  let rows = [];
+  try {
+    rows = db.prepare(`SELECT id,sender,body,created_at FROM messages
+                       WHERE topic IN ('chat','ask','answer','handoff') ORDER BY id DESC LIMIT 50`).all();
+  } catch {}
+  db.close();
+  res.json({ messages: rows.reverse() });
+});
+
+// ---- ACTIONS the owner can take from the dashboard ----
+app.post('/api/decide', (req, res) => {
+  const { proposal_id, decision, note } = req.body || {};
+  if (!['approve','reject','defer'].includes(decision))
+    return res.status(400).json({ ok:false, error:'decision must be approve|reject|defer' });
+  const db = new DatabaseSync(DB);
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO rulings(proposal_id,decision,reasoning,model_used,created_at)
+              VALUES (?,?,?,?,?)`)
+    .run(Number(proposal_id), decision, note || 'owner decision via dashboard', 'owner', now);
+  db.prepare(`UPDATE proposals SET status=? WHERE id=?`)
+    .run(decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'proposed',
+         Number(proposal_id));
+  db.prepare(`INSERT INTO human_interventions(what,why,category,agent_could_have,occurred_at)
+              VALUES (?,?,?,?,?)`)
+    .run(`Ruled ${decision} on proposal #${proposal_id}`, note || 'dashboard', 'approval', 0, now);
+  db.close(); res.json({ ok:true, proposal_id, decision });
+});
+
+app.post('/api/objection/:id/resolve', (req, res) => {
+  const db = new DatabaseSync(DB);
+  db.prepare(`UPDATE objections SET severity='concern' WHERE id=?`).run(Number(req.params.id));
+  db.prepare(`INSERT INTO human_interventions(what,why,category,agent_could_have,occurred_at)
+              VALUES (?,?,?,?,?)`)
+    .run(`Downgraded blocking objection #${req.params.id}`,
+         String((req.body||{}).note || 'owner override'), 'approval', 0, new Date().toISOString());
+  db.close(); res.json({ ok:true });
+});
+
+// ---- MAKE AGENTS WORK: trigger a real job ----
+import { spawn } from 'node:child_process';
+const JOBS = {};
+app.post('/api/run/:agent', (req, res) => {
+  const agent = req.params.agent;
+  const q = String((req.body||{}).query || 'x402 paid api pricing');
+  const scripts = {
+    scout: ['-3.13','-X','utf8','-c',
+      `import sys,json; sys.path.insert(0,r'${ROOT}')
+from agents import scout
+` +
+      `r=scout.research_index(${JSON.stringify(q)})
+` +
+      `print('matches:',r.get('matches'))
+` +
+      `[print(' ',h['payers30d'],'payers',h['calls30d'],'calls',h['name'][:44]) for h in (r.get('top') or [])]`],
+    crawl: ['-3.13','-X','utf8','-c',
+      `import sys; sys.path.insert(0,r'${ROOT}')
+import urllib.request,json
+` +
+      `r=urllib.request.urlopen(urllib.request.Request('https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=100',headers={'User-Agent':'P0','Accept':'application/json'}),timeout=30)
+` +
+      `d=json.loads(r.read().decode());print('refreshed',len(d.get('items',[])))`]
+  };
+  if (!scripts[agent]) return res.status(400).json({ ok:false, error:'unknown agent job' });
+  const id = Date.now().toString(36);
+  const pr = spawn('py', scripts[agent], { cwd: ROOT });
+  JOBS[id] = { agent, out:'', done:false };
+  pr.stdout.on('data', d => JOBS[id].out += d);
+  pr.stderr.on('data', d => JOBS[id].out += d);
+  pr.on('close', c => { JOBS[id].done = true; JOBS[id].code = c; });
+  res.json({ ok:true, job:id, agent });
+});
+app.get('/api/job/:id', (req,res) => res.json(JOBS[req.params.id] || { error:'no such job' }));
+app.get('/dashboard', (_req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
+
+const PORT = process.env.PORT || 8402;
+app.listen(PORT, () => console.log(`x402 service on :${PORT} -> payTo ${PAY_TO}`));

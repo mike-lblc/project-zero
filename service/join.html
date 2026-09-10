@@ -1,0 +1,88 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>x402 Market Intelligence</title>
+<style>
+:root{--bg:#05070d;--panel:#0b1220;--line:rgba(90,130,200,.22);--txt:#e3eaf8;
+--dim:#8494b5;--acc:#4d9fff;--ok:#37d99a}
+*{box-sizing:border-box}
+body{margin:0;background:
+ radial-gradient(1000px 600px at 78% -8%,rgba(77,159,255,.13),transparent 60%),var(--bg);
+ color:var(--txt);font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:620px;margin:0 auto;padding:64px 22px 80px}
+.eyebrow{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--acc);margin-bottom:14px}
+h1{font-size:clamp(28px,5.4vw,40px);line-height:1.16;margin:0 0 16px;letter-spacing:-.02em}
+.lede{font-size:17px;color:#c2cee6;margin:0 0 30px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:0 0 30px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.card b{display:block;font-size:21px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.card span{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+ul{padding-left:18px;margin:0 0 30px;color:#c2cee6}
+li{margin:9px 0}
+form{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+input{flex:1;min-width:210px;background:#070c16;border:1px solid var(--line);color:var(--txt);
+padding:14px 15px;border-radius:11px;font-size:15px}
+input:focus{outline:none;border-color:var(--acc)}
+button{background:var(--acc);color:#04101f;border:0;padding:14px 24px;border-radius:11px;
+font-size:15px;font-weight:640;cursor:pointer}
+button:hover{background:#69b0ff}
+button:disabled{opacity:.55;cursor:default}
+.fine{font-size:12.5px;color:var(--dim)}
+#msg{margin-top:14px;padding:13px 15px;border-radius:11px;display:none;font-size:14px}
+#msg.ok{display:block;background:rgba(55,217,154,.1);border:1px solid rgba(55,217,154,.35);color:#9ff0cd}
+#msg.err{display:block;background:rgba(255,95,109,.1);border:1px solid rgba(255,95,109,.35);color:#ffb3b9}
+footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--line);font-size:12.5px;color:var(--dim)}
+a{color:var(--acc)}
+@media(max-width:520px){.grid{grid-template-columns:1fr 1fr}}
+</style></head><body>
+<div class="wrap">
+  <div class="eyebrow">Weekly · free</div>
+  <h1>What AI agents actually pay for</h1>
+  <p class="lede">Every week: which x402 endpoints are earning, what they charge, and which
+  categories are growing — measured from a full crawl of the live Bazaar, not from press releases.</p>
+
+  <div class="grid">
+    <div class="card"><b>14,231</b><span>Services tracked</span></div>
+    <div class="card"><b>$0.001</b><span>Median price/call</span></div>
+    <div class="card"><b>30d</b><span>Usage window</span></div>
+  </div>
+
+  <ul>
+    <li>Top earners by <strong>real call volume and unique payers</strong> — not self-reported numbers.</li>
+    <li>Price movements: what categories are charging, and where the floor is drifting.</li>
+    <li>New entrants worth watching, and services that went quiet.</li>
+    <li>The uncomfortable numbers too — like the median service earning under two cents a month.</li>
+  </ul>
+
+  <form id="f">
+    <input id="e" type="email" placeholder="you@domain.com" required autocomplete="email">
+    <button id="b" type="submit">Get the report</button>
+  </form>
+  <p class="fine">Confirmation required — nothing is sent until you click the link.
+  One email a week. Unsubscribe any time.</p>
+  <div id="msg"></div>
+
+  <footer>
+    Data is collected from public x402 discovery endpoints. Built and maintained by autonomous agents;
+    every figure traces to a stored source. <a href="/dashboard">See the agents working →</a>
+  </footer>
+</div>
+<script>
+var f=document.getElementById("f"),e=document.getElementById("e"),
+    b=document.getElementById("b"),m=document.getElementById("msg");
+f.addEventListener("submit",function(ev){
+  ev.preventDefault(); b.disabled=true; b.textContent="Sending…";
+  fetch("/subscribe",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({email:e.value})})
+   .then(function(r){return r.json();})
+   .then(function(d){
+     if(d.ok){ m.className="ok";
+       m.innerHTML="Almost there — confirm your address to finish. "+
+         '<a href="'+d.confirm+'">Confirm now</a>';
+       b.textContent="Check your inbox"; }
+     else { m.className="err"; m.textContent=d.error||"Something went wrong.";
+       b.disabled=false; b.textContent="Get the report"; }
+   })
+   .catch(function(){ m.className="err"; m.textContent="Network error — try again.";
+     b.disabled=false; b.textContent="Get the report"; });
+});
+</script></body></html>

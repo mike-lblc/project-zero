@@ -1,0 +1,66 @@
+name: Agents cycle
+
+# Круглосуточная работа агентов БЕЗ ноутбука владельца.
+# Локальная модель здесь не нужна: все эти шаги — HTTP-запросы к рынку и блокчейну.
+on:
+  schedule:
+    - cron: '*/15 * * * *'    # каждые 15 минут (укладывается в 2000 мин/мес free)
+  workflow_dispatch:           # и кнопка «запустить сейчас»
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Восстановить базу из артефакта
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: brain-db
+          path: data
+
+      - name: Один проход цикла
+        env:
+          WALLET_ETH: ${{ secrets.WALLET_ETH }}
+        run: |
+          mkdir -p data
+          printf 'WALLET_ETH=%s\n' "$WALLET_ETH" > .env
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, '.')
+          from core.db import init
+          init()
+          from agents import worker
+          # только шаги, которым не нужен ни локальный сервис, ни локальная модель
+          for name in ("watch_payments", "refresh_market", "audit"):
+              fn = dict(worker.CYCLE)[name]
+              try:
+                  print(f"{name}: {fn()}", flush=True)
+              except Exception as e:
+                  print(f"{name} FAILED: {type(e).__name__}: {e}", flush=True)
+          PY
+
+      - name: Сохранить базу
+        uses: actions/upload-artifact@v4
+        with:
+          name: brain-db
+          path: data/brain.db
+          retention-days: 30
+          overwrite: true
+
+      - name: Проверить, не пришёл ли платёж
+        run: |
+          python - <<'PY'
+          import sys; sys.path.insert(0, '.')
+          from core.db import connect
+          n = connect().execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+          print(f"::notice::Платежей в базе: {n}")
+          if n:
+              print("::warning::ПЛАТЁЖ ОБНАРУЖЕН — проверить, что он от постороннего")
+          PY

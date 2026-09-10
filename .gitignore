@@ -1,0 +1,31 @@
+# ============ СЕКРЕТЫ — НИКОГДА НЕ КОММИТИТЬ ============
+.env
+.env.*
+*.key
+*.pem
+secrets*
+config.local.*
+
+# ============ ДАННЫЕ (регенерируются краулом, не хранить в git) ============
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/backups/
+# 49 МБ, пересоздаётся краулом рынка:
+data/bazaar_index.json
+
+# ============ БИНАРНИКИ И ЗАВИСИМОСТИ ============
+# cloudflared.exe 53 МБ — качается одной командой:
+bin/
+node_modules/
+service/node_modules/
+
+# ============ PYTHON ============
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ============ ПРОЧЕЕ ============
+reports/*.raw
+*.log

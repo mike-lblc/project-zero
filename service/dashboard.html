@@ -1,0 +1,371 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>P0 Agent Floor</title>
+<style>
+:root{--bg:#05070d;--panel:rgba(10,16,28,.9);--line:rgba(90,130,200,.22);
+--txt:#dfe8fb;--dim:#7d8db0;--ok:#37d99a;--warn:#ffb454;--bad:#ff5f6d;--acc:#4d9fff;--vio:#a78bfa}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;display:block}
+.hud{position:fixed;z-index:5;background:var(--panel);border:1px solid var(--line);
+border-radius:14px;backdrop-filter:blur(16px)}
+#top{top:12px;left:12px;right:12px;display:flex;gap:10px;align-items:center;
+flex-wrap:wrap;padding:11px 14px}
+.brand{font-weight:650;letter-spacing:.3px;margin-right:6px}
+.brand small{display:block;color:var(--dim);font-weight:400;font-size:10.5px}
+.stat{display:flex;flex-direction:column;min-width:66px;padding:5px 9px;border-radius:9px;
+cursor:pointer;border:1px solid transparent;transition:.15s}
+.stat:hover{background:rgba(77,159,255,.09);border-color:var(--line)}
+.stat.on{background:rgba(77,159,255,.15);border-color:var(--acc)}
+.stat b{font-size:18px;font-variant-numeric:tabular-nums;line-height:1.1}
+.stat span{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+.pill{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--dim)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok);
+animation:p 1.9s ease-in-out infinite}
+@keyframes p{50%{opacity:.35}}
+
+#panel{top:78px;right:12px;bottom:12px;width:392px;display:flex;flex-direction:column;overflow:hidden}
+.tabs{display:flex;gap:4px;padding:9px 9px 0;border-bottom:1px solid var(--line)}
+.tab{flex:1;text-align:center;padding:8px 6px;font-size:11.5px;letter-spacing:.5px;
+text-transform:uppercase;color:var(--dim);cursor:pointer;border-radius:9px 9px 0 0;border:1px solid transparent;border-bottom:0}
+.tab.on{color:var(--txt);background:rgba(77,159,255,.12);border-color:var(--line)}
+.tab .badge{display:inline-block;min-width:16px;padding:0 4px;margin-left:4px;border-radius:9px;
+background:var(--bad);color:#fff;font-size:9.5px;line-height:15px}
+.body{flex:1;overflow:auto;padding:12px 13px}
+h3{margin:0 0 9px;font-size:10.5px;letter-spacing:1.1px;color:var(--dim);text-transform:uppercase}
+.item{border:1px solid var(--line);border-radius:11px;padding:11px;margin-bottom:9px;
+background:rgba(7,12,22,.6)}
+.item .t{font-size:12.5px;margin-bottom:4px}
+.item .m{font-size:11px;color:var(--dim);margin-bottom:8px}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+button{font:inherit;font-size:11.5px;padding:6px 11px;border-radius:8px;cursor:pointer;
+border:1px solid var(--line);background:rgba(77,159,255,.1);color:var(--txt);transition:.15s}
+button:hover{background:rgba(77,159,255,.24)}
+button.ok{background:rgba(55,217,154,.14);border-color:rgba(55,217,154,.4);color:#9ff0cd}
+button.ok:hover{background:rgba(55,217,154,.28)}
+button.bad{background:rgba(255,95,109,.13);border-color:rgba(255,95,109,.4);color:#ffb3b9}
+button.bad:hover{background:rgba(255,95,109,.26)}
+button.run{background:rgba(167,139,250,.15);border-color:rgba(167,139,250,.42);color:#d3c4ff}
+button:disabled{opacity:.45;cursor:default}
+.tag{display:inline-block;font-size:9px;letter-spacing:.7px;text-transform:uppercase;
+padding:2px 7px;border-radius:20px;margin-right:5px}
+.tag.evidence{background:rgba(77,159,255,.16);color:#8cc2ff}
+.tag.objection{background:rgba(255,95,109,.16);color:#ff9aa3}
+.tag.proposal{background:rgba(55,217,154,.16);color:#7ee9c1}
+.tag.blk{background:rgba(255,95,109,.2);color:#ff9aa3}
+.tag.cls{background:rgba(255,180,84,.16);color:#ffd39a}
+.ev{padding:8px 0;border-top:1px solid var(--line);font-size:12px}
+.ev:first-of-type{border-top:0}
+.ev p{margin:4px 0 0;color:#b9c6e0;font-size:11.5px}
+.agent{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:11px;
+padding:9px 11px;margin-bottom:7px;background:rgba(7,12,22,.6)}
+.agent .sw{width:9px;height:9px;border-radius:50%;flex:none}
+.agent .n{flex:1;font-size:12.5px}
+.agent .n em{display:block;font-style:normal;font-size:10.5px;color:var(--dim)}
+.agent .w{font-variant-numeric:tabular-nums;font-size:12px;color:var(--dim)}
+#log{position:fixed;left:12px;bottom:12px;z-index:5;width:min(430px,calc(100vw - 24px));
+max-height:190px;overflow:auto;padding:11px 13px;font-size:11.5px}
+#log pre{margin:5px 0 0;white-space:pre-wrap;color:#9fb2d4;font-size:10.5px;
+font-family:ui-monospace,Menlo,Consolas,monospace}
+.mission{font-size:11.5px;color:var(--dim);margin-top:7px;padding-top:7px;border-top:1px solid var(--line)}
+.mission b{color:var(--warn)}
+.empty{color:var(--dim);font-size:12px;padding:14px 2px}
+@media(max-width:900px){#panel{left:12px;width:auto;top:auto;height:52vh;bottom:12px}
+#log{display:none}#top{padding:9px}.stat b{font-size:15px}}
+</style></head><body>
+<canvas id="c"></canvas>
+
+<div id="top" class="hud">
+  <div class="brand">P0 &middot; AGENT FLOOR<small>живой поток из brain.db</small></div>
+  <div class="stat" data-tab="feed"><b id="s-ev">&ndash;</b><span>Находки</span></div>
+  <div class="stat" data-tab="feed"><b id="s-src">&ndash;</b><span>Источники</span></div>
+  <div class="stat" data-tab="queue"><b id="s-obj" style="color:var(--bad)">&ndash;</b><span>Блокеры</span></div>
+  <div class="stat" data-tab="queue"><b id="s-hum" style="color:var(--warn)">&ndash;</b><span>Твоя помощь</span></div>
+  <div class="stat" data-tab="queue"><b id="s-sub" style="color:var(--vio)">&ndash;</b><span>Подписчики</span></div>
+  <div class="stat"><b id="s-spend" style="color:var(--ok)">&ndash;</b><span>Потрачено</span></div>
+  <div class="stat"><b id="s-pay" style="color:var(--acc)">&ndash;</b><span>Платежи</span></div>
+  <div class="pill"><span class="dot"></span><span id="live">подключаюсь…</span></div>
+</div>
+
+<div id="panel" class="hud">
+  <div class="tabs">
+    <div class="tab on" data-t="queue">Очередь<span class="badge" id="b-queue">0</span></div>
+    <div class="tab" data-t="agents">Агенты</div>
+    <div class="tab" data-t="chat">Чат агентов</div>
+    <div class="tab" data-t="feed">Находки</div>
+  </div>
+  <div class="body">
+    <div id="v-queue"></div>
+    <div id="v-agents" hidden></div>
+    <div id="v-chat" hidden></div>
+    <div id="v-feed" hidden></div>
+  </div>
+</div>
+
+<div id="log" class="hud">
+  <div><b id="svc">&ndash;</b></div>
+  <div style="color:var(--dim);font-size:11px;word-break:break-all" id="payto">&ndash;</div>
+  <pre id="out">агенты работают сами, по кругу — кнопки не нужны</pre>
+  <div class="mission">МИССИЯ: доказать, что агенты зарабатывают с нуля. Засчитывается, только пока
+    <b>Потрачено = 0</b> и платёж пришёл от <b>постороннего</b>, а не от владельца.</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+<script>
+/* ---------------- 3D floor ---------------- */
+var AGENTS=[
+ {id:"scout",label:"РАЗВЕДЧИК",color:0x4d9fff,shape:"ico"},
+ {id:"proposer",label:"ПРЕДЛАГАЮЩИЙ",color:0x37d99a,shape:"oct"},
+ {id:"verifier",label:"ПРОВЕРЯЮЩИЙ",color:0x8be9fd,shape:"dodec"},
+ {id:"adversary",label:"ОППОНЕНТ",color:0xff5f6d,shape:"tetra"},
+ {id:"judge",label:"СУДЬЯ",color:0xffb454,shape:"box"},
+ {id:"orchestrator",label:"ОРКЕСТРАТОР",color:0xa78bfa,shape:"sphere"},
+ {id:"explorer",label:"ИССЛЕДОВАТЕЛЬ",color:0x2dd4bf,shape:"ico"},
+ {id:"critic",label:"КРИТИК",color:0xf472b6,shape:"oct"},
+ {id:"optimizer",label:"ОПТИМИЗАТОР",color:0xfacc15,shape:"dodec"},
+ {id:"merchant",label:"КОММЕРСАНТ",color:0x34d399,shape:"box"},
+ {id:"distributor",label:"ДИСТРИБЬЮТОР",color:0x60a5fa,shape:"tetra"},
+ {id:"scribe",label:"ПИСАРЬ",color:0xfb923c,shape:"sphere"},
+ {id:"watchdog",label:"СТОРОЖ",color:0xe879f9,shape:"ico"}
+];
+var scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x05070d,0.021);
+var camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,220);
+var renderer=new THREE.WebGLRenderer({canvas:document.getElementById("c"),antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight);
+scene.add(new THREE.AmbientLight(0x5570aa,0.55));
+var k=new THREE.PointLight(0x88bbff,150,95); k.position.set(9,14,11); scene.add(k);
+var rm=new THREE.PointLight(0xff8899,70,80); rm.position.set(-11,-6,-9); scene.add(rm);
+var grid=new THREE.GridHelper(52,34,0x1d3a63,0x11203a); grid.position.y=-4.6; scene.add(grid);
+var sg=new THREE.BufferGeometry(),sp=[];
+for(var i=0;i<900;i++){sp.push((Math.random()-.5)*170,(Math.random()-.5)*170,(Math.random()-.5)*170);}
+sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3));
+scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x4a6a9e,size:.33,transparent:true,opacity:.5})));
+function geom(s){
+  if(s==="ico")return new THREE.IcosahedronGeometry(1.15,0);
+  if(s==="oct")return new THREE.OctahedronGeometry(1.25,0);
+  if(s==="dodec")return new THREE.DodecahedronGeometry(1.1,0);
+  if(s==="tetra")return new THREE.TetrahedronGeometry(1.4,0);
+  if(s==="box")return new THREE.BoxGeometry(1.7,1.7,1.7);
+  return new THREE.SphereGeometry(1.2,32,24);
+}
+function hx(c){var s=c.toString(16);while(s.length<6)s="0"+s;return "#"+s;}
+function mkLabel(t,c){var cv=document.createElement("canvas");cv.width=340;cv.height=76;
+  var x=cv.getContext("2d"),tx=new THREE.CanvasTexture(cv);
+  var s=new THREE.Sprite(new THREE.SpriteMaterial({map:tx,transparent:true}));
+  s.scale.set(4.4,1,1); s.userData={cv:cv,x:x,text:t,color:c,tex:tx}; return s;}
+function draw(n,sub){var u=n.label.userData;u.x.clearRect(0,0,u.cv.width,u.cv.height);
+  u.x.textAlign="center";u.x.font="600 30px ui-sans-serif,system-ui,sans-serif";
+  u.x.fillStyle=hx(u.color);u.x.fillText(u.text,170,34);
+  u.x.font="400 20px ui-sans-serif,system-ui,sans-serif";u.x.fillStyle="#8496b8";
+  u.x.fillText(sub,170,62);u.tex.needsUpdate=true;}
+var nodes=[],R=8.2,ring=AGENTS.filter(function(a){return a.id!=="orchestrator";});
+AGENTS.forEach(function(a){
+  var g=new THREE.Group(),hub=(a.id==="orchestrator");
+  var j=ring.indexOf(a),ang=(j/ring.length)*Math.PI*2;
+  if(hub)g.position.set(0,1.6,0); else g.position.set(Math.cos(ang)*R,Math.sin(ang*2)*.7-.6,Math.sin(ang)*R);
+  var mesh=new THREE.Mesh(geom(a.shape),new THREE.MeshStandardMaterial({color:a.color,emissive:a.color,
+    emissiveIntensity:.42,metalness:.55,roughness:.28,transparent:true,opacity:.94}));
+  var cage=new THREE.Mesh(geom(a.shape),new THREE.MeshBasicMaterial({color:a.color,wireframe:true,
+    transparent:true,opacity:.3})); cage.scale.setScalar(1.45);
+  var halo=new THREE.Mesh(new THREE.SphereGeometry(1.9,24,18),
+    new THREE.MeshBasicMaterial({color:a.color,transparent:true,opacity:.06}));
+  var lab=mkLabel(a.label,a.color); lab.position.y=2.5;
+  g.add(mesh);g.add(cage);g.add(halo);g.add(lab);scene.add(g);
+  var n={id:a.id,color:a.color,group:g,mesh:mesh,cage:cage,halo:halo,label:lab,
+         work:0,active:false,busy:false,phase:Math.random()*6.28};
+  draw(n,"—"); nodes.push(n);
+});
+var hub=nodes.filter(function(n){return n.id==="orchestrator";})[0];
+nodes.forEach(function(n){ if(n.id==="orchestrator")return;
+  var gg=new THREE.BufferGeometry().setFromPoints([hub.group.position,n.group.position]);
+  scene.add(new THREE.Line(gg,new THREE.LineBasicMaterial({color:n.color,transparent:true,opacity:.16})));});
+var pulses=[];
+function pulse(to){var m=new THREE.Mesh(new THREE.SphereGeometry(.18,12,10),
+   new THREE.MeshBasicMaterial({color:to.color,transparent:true}));
+  m.position.copy(hub.group.position);scene.add(m);
+  pulses.push({m:m,from:hub.group.position.clone(),to:to.group.position.clone(),t:0});}
+var camA=0;
+function loop(){requestAnimationFrame(loop);
+  var now=performance.now()/1000; camA+=0.0015;
+  var d=innerWidth<900?31:24;
+  camera.position.set(Math.cos(camA)*d,9.5+Math.sin(now*.35)*1.1,Math.sin(camA)*d);
+  camera.lookAt(0,.5,0);
+  nodes.forEach(function(n){
+    var hot=n.busy||n.active, s=n.busy?2.6:(n.active?1.5:.42);
+    n.mesh.rotation.x+=.0042*s;n.mesh.rotation.y+=.0061*s;
+    n.cage.rotation.x-=.0031*s;n.cage.rotation.y-=.0044*s;
+    var pz=1+Math.sin(now*(hot?3.1:1.15)+n.phase)*(hot?.12:.045);
+    n.mesh.scale.setScalar(pz); n.halo.scale.setScalar(pz*(hot?1.2:1));
+    n.halo.material.opacity=hot?.15+Math.sin(now*2.6+n.phase)*.07:.05;
+    n.mesh.material.emissiveIntensity=n.busy?1.25:(n.active?.85:.36);
+  });
+  for(var i=pulses.length-1;i>=0;i--){var p=pulses[i];p.t+=.021;
+    p.m.position.lerpVectors(p.from,p.to,p.t);p.m.material.opacity=1-p.t;
+    if(p.t>=1){scene.remove(p.m);pulses.splice(i,1);}}
+  renderer.render(scene,camera);}
+loop();
+addEventListener("resize",function(){camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+
+/* ---------------- console ---------------- */
+var RECENT=1000*60*45, TAB="queue", STATE={}, QUEUE={}, CHAT=[];
+function $(id){return document.getElementById(id);}
+function txt(id,v){$(id).textContent=v;}
+function esc(t){return String(t==null?"":t).replace(/[<>&]/g,function(c){
+  return c==="<"?"&lt;":c===">"?"&gt;":"&amp;";});}
+function log(m){$("out").textContent=m;}
+
+document.querySelectorAll(".tab").forEach(function(el){
+  el.onclick=function(){ TAB=el.dataset.t;
+    document.querySelectorAll(".tab").forEach(function(x){x.classList.toggle("on",x.dataset.t===TAB);});
+    ["queue","agents","chat","feed"].forEach(function(v){ $("v-"+v).hidden=(v!==TAB); });
+    render(); };
+});
+document.querySelectorAll(".stat[data-tab]").forEach(function(el){
+  el.onclick=function(){ var t=el.dataset.tab;
+    document.querySelectorAll(".tab").forEach(function(x){x.classList.toggle("on",x.dataset.t===t);});
+    TAB=t; ["queue","agents","chat","feed"].forEach(function(v){ $("v-"+v).hidden=(v!==t); }); render(); };
+});
+
+function post(url,body){ return fetch(url,{method:"POST",
+  headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})})
+  .then(function(r){return r.json();}); }
+
+window.decide=function(id,d){
+  log("ruling "+d+" on proposal #"+id+"…");
+  post("/api/decide",{proposal_id:id,decision:d}).then(function(r){
+    log(r.ok?("proposal #"+id+" → "+d):("failed: "+(r.error||"?"))); refresh(); });
+};
+window.unblock=function(id){
+  log("downgrading objection #"+id+"…");
+  post("/api/objection/"+id+"/resolve",{note:"owner override from dashboard"})
+    .then(function(){ log("objection #"+id+" downgraded to concern"); refresh(); });
+};
+window.approveAll=function(){
+  var ps=(QUEUE.open_proposals||[]).filter(function(p){return p.status==="proposed";});
+  if(!ps.length){ log("nothing pending to approve"); return; }
+  log("approving "+ps.length+" proposal(s)…");
+  Promise.all(ps.map(function(p){return post("/api/decide",{proposal_id:p.id,decision:"approve",
+    note:"bulk approve from dashboard"});})).then(function(){ log("approved "+ps.length); refresh(); });
+};
+window.runAgent=function(a,btn){
+  var n=nodes.filter(function(x){return x.id===a;})[0]; if(n){n.busy=true;pulse(n);}
+  if(btn){btn.disabled=true;btn.textContent="Running…";}
+  log(a+": starting job…");
+  post("/api/run/"+a,{query:"x402 paid api pricing agents"}).then(function(r){
+    if(!r.ok){ log(a+": "+(r.error||"failed")); if(n)n.busy=false;
+      if(btn){btn.disabled=false;btn.textContent="Run";} return; }
+    var poll=setInterval(function(){
+      fetch("/api/job/"+r.job).then(function(x){return x.json();}).then(function(j){
+        log(a+" job "+r.job+(j.done?" — finished":" — working…")+"\\n"+(j.out||"").slice(-700));
+        if(j.done){ clearInterval(poll); if(n)n.busy=false;
+          if(btn){btn.disabled=false;btn.textContent="Run";} refresh(); }
+      });},1500);
+  });
+};
+
+function renderQueue(){
+  var q=QUEUE, h="";
+  var pending=(q.open_proposals||[]).filter(function(p){return p.status==="proposed";});
+  h+='<h3>Решения, которые ждут тебя</h3>'+'<div class="item" style="background:rgba(77,159,255,.06)"><div class="m" style="margin:0">'+'<b style="color:#9ff0cd">Одобрить</b> — ты согласен. Агенты берут предложение в работу.<br>'+'<b style="color:#ffb3b9">Отклонить</b> — предложение закрывается насовсем, агенты к нему не вернутся.<br>'+'<b>Отложить</b> — решение НЕ принято. Предложение остаётся в очереди и придёт снова: '+'ничего не одобрено и ничего не отклонено. Это для случая, когда данных пока не хватает.<br>'+'<b>Понизить блокер</b> — возражение перестаёт блокировать работу, но остаётся в истории как замечание.'+'</div></div>';
+  if(!pending.length && !(q.blocking||[]).length) h+='<div class="empty">Ничего не заблокировано — агенты работают свободно.</div>';
+  if(pending.length>1) h+='<div class="row" style="margin-bottom:9px"><button class="ok" onclick="approveAll()">Approve all '+pending.length+'</button></div>';
+  pending.forEach(function(p){
+    h+='<div class="item"><div class="t"><span class="tag cls">'+esc(p.action_class)+'</span>'+
+       (p.blocking?'<span class="tag blk">'+p.blocking+' blocking</span>':'')+
+       '#'+p.id+' '+esc(p.summary)+'</div>'+
+       '<div class="m">Falsifier: '+esc(p.falsifier)+'</div>'+
+       '<div class="row"><button class="ok" onclick="decide('+p.id+',\'approve\')">Одобрить</button>'+
+       '<button class="bad" onclick="decide('+p.id+',\'reject\')">Отклонить</button>'+
+       '<button onclick="decide('+p.id+',\'defer\')">Отложить</button></div></div>';
+  });
+  if((q.blocking||[]).length){
+    h+='<h3 style="margin-top:14px">Блокирующие возражения</h3>';
+    q.blocking.forEach(function(o){
+      h+='<div class="item"><div class="t"><span class="tag objection">blocking</span>#'+o.id+
+         ' → proposal #'+o.proposal_id+'</div><div class="m">'+esc(o.argument)+'</div>'+
+         '<div class="row"><button onclick="unblock('+o.id+')">Понизить блокер</button></div></div>';
+    });
+  }
+  h+='<h3 style="margin-top:14px">Что делал человек ('+((q.interventions||[]).length)+')</h3>';
+  (q.interventions||[]).forEach(function(x){
+    h+='<div class="item"><div class="t">'+esc(x.what)+'</div><div class="m">'+
+       esc(x.category)+' · '+esc(x.why)+'</div></div>';
+  });
+  if((q.subscribers||[]).length){
+    h+='<h3 style="margin-top:14px">Подписчики</h3>';
+    q.subscribers.forEach(function(s){
+      h+='<div class="item"><div class="t">'+esc(s.email)+'</div>'+
+         '<div class="m">'+esc(s.status)+' · '+esc((s.created_at||"").slice(0,16))+'</div></div>';});
+  }
+  $("v-queue").innerHTML=h;
+}
+function renderAgents(){
+  var h='<h3>Агенты работают непрерывно, сами</h3>'+'<div class="item" style="background:rgba(167,139,250,.06)"><div class="m" style="margin:0">'+'Цикл идёт по кругу без остановки: кошелёк → рынок → разведка темы → здоровье сервиса → '+'поиск свободных ниш → изучение рынка → самопроверка → аудит → оптимизация → пересмотр путей.<br>'+'Кнопка «Сейчас» — только если хочешь запустить шаг вне очереди.'+'</div></div>';
+  (STATE.agents||[]).forEach(function(a){
+    var n=nodes.filter(function(x){return x.id===a.id;})[0];
+    var col=n?hx(n.color):"#888";
+    var runnable=(a.id==="scout");
+    h+='<div class="agent"><span class="sw" style="background:'+col+
+       ';box-shadow:0 0 10px '+col+'"></span><div class="n">'+esc(a.role)+
+       '<em>'+esc(a.job)+'</em></div><span class="w">'+a.work+' ops</span>'+
+       (runnable?'<button class="run" onclick="runAgent(\''+a.id+'\',this)">Сейчас</button>':'')+'</div>';
+  });
+  h+='<div class="row" style="margin-top:10px"><button class="run" onclick="runAgent(\'crawl\',this)">Обновить рынок сейчас</button></div>';
+  $("v-agents").innerHTML=h;
+}
+function renderFeed(){
+  $("v-feed").innerHTML='<h3>Лента находок</h3>'+(STATE.feed||[]).map(function(f){
+    return '<div class="ev"><span class="tag '+f.k+'">'+f.k+'</span>'+
+      '<span style="color:#6f7f9f">#'+f.id+'</span><p>'+esc(f.t)+'&hellip;</p></div>';}).join("");
+}
+var NAMES={scout:"Разведчик",proposer:"Предлагающий",verifier:"Проверяющий",
+ adversary:"Оппонент",judge:"Судья",orchestrator:"Оркестратор",
+ explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",
+ merchant:"Коммерсант",distributor:"Дистрибьютор",scribe:"Писарь",watchdog:"Сторож"};
+function renderChat(){
+  var h='<h3>Агенты переговариваются вживую</h3>';
+  if(!(CHAT||[]).length){ h+='<div class="empty">Пока тихо — первые реплики появятся в течение минуты.</div>'; }
+  (CHAT||[]).slice().reverse().forEach(function(m){
+    var n=nodes.filter(function(x){return x.id===m.sender;})[0];
+    var col=n?hx(n.color):"#8494b5";
+    h+='<div class="item"><div class="t">'+
+       '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+col+
+       ';margin-right:7px"></span><b style="color:'+col+'">'+(NAMES[m.sender]||m.sender)+'</b> '+
+       '<span style="color:#6f7f9f;font-size:10.5px">'+String(m.created_at||"").slice(11,19)+'</span>'+
+       '</div><div class="m" style="margin:0;color:#c2cee6">'+esc(m.body)+'</div></div>';
+  });
+  $("v-chat").innerHTML=h;
+}
+function render(){ if(TAB==="queue"){renderQueue();} else if(TAB==="agents"){renderAgents();}
+  else if(TAB==="chat"){renderChat();} else {renderFeed();} }
+
+function refresh(){
+  fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
+    STATE=d; txt("live","live · "+new Date().toLocaleTimeString());
+    var m=d.mission;
+    txt("s-ev",m.evidence); txt("s-src",m.sources); txt("s-obj",m.blocking);
+    txt("s-hum",m.human); txt("s-spend",m.spend); txt("s-pay",m.payments);
+    d.agents.forEach(function(a){
+      var arr=nodes.filter(function(x){return x.id===a.id;}); if(!arr.length)return;
+      var n=arr[0], fresh=a.last&&(Date.now()-new Date(a.last).getTime())<RECENT;
+      if(a.work>n.work) pulse(n);
+      n.work=a.work; n.active=!!fresh; draw(n,a.work+" ops");
+    });
+    txt("svc","LIVE · "+d.service.catalog+" services · $"+d.service.priceUsd+"/call");
+    txt("payto",d.service.payTo);
+    render();
+  }).catch(function(){ txt("live","reconnecting…"); });
+  fetch("/api/chat",{cache:"no-store"}).then(function(r){return r.json();}).then(function(d){
+    CHAT=d.messages||[]; if(TAB==="chat"){renderChat();} }).catch(function(){});
+  fetch("/api/queue",{cache:"no-store"}).then(function(r){return r.json();}).then(function(q){
+    QUEUE=q; txt("s-sub",(q.subscribers||[]).length);
+    var n=(q.open_proposals||[]).filter(function(p){return p.status==="proposed";}).length
+          +(q.blocking||[]).length;
+    $("b-queue").textContent=n; $("b-queue").style.display=n?"inline-block":"none";
+    if(TAB==="queue")renderQueue();
+  }).catch(function(){});
+}
+refresh(); setInterval(refresh,4000);
+</script></body></html>
