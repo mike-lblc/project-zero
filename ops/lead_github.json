@@ -1,0 +1,39 @@
+{
+ "agent402.tools": [
+  "MikeyPetrillo/Agent402|8|1|true",
+  "Adaptive-Liquidity/agent402|0|0|true"
+ ],
+ "api.agentstools.dev": [
+  "Zacnels25/Agentstools|0|0|true",
+  "BobFett3185/AgentsToolsMCPDemo|0|0|true"
+ ],
+ "api.loyalspark.online": [
+  "aspekt19/LoyalSparkERC20|10|0|true"
+ ],
+ "api.nansen.ai": [
+  "VervaekeLab/NANSEN|23|50|true",
+  "nansen-ai/nansen-cli|135|26|true"
+ ],
+ "api.onesource.io": [
+  "TW-RF54732/onesource|6|0|true",
+  "18F/military-onesource-federalist|0|1|true"
+ ],
+ "api.x402node.dev": [
+  "x402node/x402-mcp|1|7|true"
+ ],
+ "blockrun.ai": [
+  "BlockRunAI/blockrun-mcp|395|1|true",
+  "BlockRunAI/awesome-blockrun|13|10|true"
+ ],
+ "stableenrich.dev": [
+  "Br0ski777/x402-agent-tools|24|8|true"
+ ],
+ "tick.hugen.tokyo": [
+  "mediatoreditor/hugenerator|73|0|true",
+  "Thimoteus/purescript-hugenums|7|3|true"
+ ],
+ "x402.ottoai.services": [
+  "Tejas-Solanki3/OttoAi|2|0|true",
+  "Mohammedsami001/OttoAi|1|0|true"
+ ]
+}

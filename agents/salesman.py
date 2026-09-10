@@ -73,21 +73,35 @@ def _index():
         return []
 
 
-def _mcp_registry_domains():
-    """Кто уже есть в реестре MCP. Их этим предложением беспокоить не нужно."""
-    doms = set()
-    try:
-        r = urllib.request.urlopen(urllib.request.Request(
-            "https://registry.modelcontextprotocol.io/v0/servers?limit=100",
-            headers={"User-Agent": "P0-salesman/0.1", "Accept": "application/json"}), timeout=25)
-        for s in json.loads(r.read().decode()).get("servers", []):
-            for rem in (s.get("server", {}).get("remotes") or []):
-                u = rem.get("url", "")
-                if "://" in u:
-                    doms.add(u.split("://")[1].split("/")[0].lower())
-    except Exception:
-        pass
-    return doms
+def in_mcp_registry(domain):
+    """Есть ли компания в реестре MCP. ПОИСКОМ по имени, а не сканом первых 100 записей.
+
+    Прошлая версия тянула ?limit=100 и искала домен в адресе remotes. Она врала:
+    реестр гораздо больше сотни, а записи именуются io.github.<кто>/<что>, поэтому
+    домен там может не встречаться вовсе. Из-за этого диагноз «вас нет в реестре»
+    оказался ЛОЖНЫМ для 4 компаний из 5 — включая ту, которой готовилось письмо.
+    Ошибочное утверждение в первой строке письма убивает доверие мгновенно.
+
+    Возвращает True / False / None. None = реестр не ответил, и тогда мы
+    НЕ УТВЕРЖДАЕМ ничего.
+    """
+    import time
+    base = domain.split(".")[-2] if domain.count(".") >= 2 else domain.split(".")[0]
+    for q in {base, domain.split(".")[0], domain.replace(".", "-")}:
+        for attempt in range(2):
+            try:
+                r = urllib.request.urlopen(urllib.request.Request(
+                    "https://registry.modelcontextprotocol.io/v0/servers?search=" + q,
+                    headers={"User-Agent": "P0-salesman/0.1", "Accept": "application/json"}),
+                    timeout=25)
+                if json.loads(r.read().decode()).get("servers"):
+                    return True
+                break
+            except Exception:
+                time.sleep(1.5)
+        else:
+            return None
+    return False
 
 
 def diagnose(limit_domains=12):
@@ -111,7 +125,7 @@ def diagnose(limit_domains=12):
             cat_prices.setdefault(t, []).append(p)
     cat_med = {t: statistics.median(v) for t, v in cat_prices.items() if len(v) >= 5}
 
-    in_registry = _mcp_registry_domains()
+    # проверяется по каждому домену отдельно, ниже
     by_domain = {}
     for it in items:
         d = _domain(it.get("resource"))
@@ -125,10 +139,13 @@ def diagnose(limit_domains=12):
         svc = by_domain.get(domain, [])
         problems = []
 
-        if domain not in in_registry:
+        reg = in_mcp_registry(domain)
+        if reg is False:
             problems.append(("MISSING_MCP",
-                             f"{len(svc)} эндпоинтов, ни одного в реестре MCP — "
+                             f"{len(svc)} эндпоинтов, в реестре MCP не найдены — "
                              f"канал обнаружения не используется", 4))
+        # reg is True  -> они там есть, беспокоить нечем
+        # reg is None  -> реестр не ответил, НЕ УТВЕРЖДАЕМ
 
         dead = [s for s in svc if (s.get("quality") or {}).get("l30DaysTotalCalls", 0) > 20
                 and not (s.get("quality") or {}).get("l30DaysUniquePayers")]
