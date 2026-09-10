@@ -9,7 +9,7 @@
   seen_claim()   — было ли уже такое утверждение
   next_focus()   — если нового нет, ЧТО копать дальше (а не повторять)
 """
-import sys, hashlib, json
+import sys, hashlib
 from pathlib import Path
 from datetime import datetime, timezone
 
