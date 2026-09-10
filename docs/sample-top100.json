@@ -1,0 +1,1235 @@
+[
+ {
+  "resource": "https://api.onesource.io/api/chain/erc20-balance",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 1079,
+  "payers_30d": 1072,
+  "last_called": "2026-09-10T12:58:16.618Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/ens/:input",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 1041,
+  "payers_30d": 1038,
+  "last_called": "2026-09-10T12:58:05.318Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/block-number",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 1249,
+  "payers_30d": 969,
+  "last_called": "2026-09-10T12:58:47.423Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/live-balance",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 938,
+  "payers_30d": 930,
+  "last_called": "2026-09-10T12:58:33.749Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/tx/:hash",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.008,
+  "network": "eip155:8453",
+  "calls_30d": 887,
+  "payers_30d": 871,
+  "last_called": "2026-09-10T12:58:12.066Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/contract/:address",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 696,
+  "payers_30d": 696,
+  "last_called": "2026-09-10T12:56:03.847Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/block/:number",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 693,
+  "payers_30d": 692,
+  "last_called": "2026-09-10T12:56:10.5Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/erc721-tokens",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.008,
+  "network": "eip155:8453",
+  "calls_30d": 694,
+  "payers_30d": 690,
+  "last_called": "2026-09-10T12:54:25.608Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/nonce/:address",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 688,
+  "payers_30d": 684,
+  "last_called": "2026-09-10T12:53:14.117Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/nft-metadata",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.008,
+  "network": "eip155:8453",
+  "calls_30d": 686,
+  "payers_30d": 682,
+  "last_called": "2026-09-10T09:44:27.869Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/total-supply",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 685,
+  "payers_30d": 681,
+  "last_called": "2026-09-10T12:56:19.932Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/erc20-transfers",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 688,
+  "payers_30d": 680,
+  "last_called": "2026-09-10T12:58:53.234Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/receipt/:hash",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 680,
+  "payers_30d": 680,
+  "last_called": "2026-09-10T12:59:03.775Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/nft-owner",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 426,
+  "payers_30d": 426,
+  "last_called": "2026-09-10T12:54:05.233Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/chain-id",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 466,
+  "payers_30d": 425,
+  "last_called": "2026-09-10T12:58:22.618Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/events",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 420,
+  "payers_30d": 419,
+  "last_called": "2026-09-10T12:58:49.838Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/network-info",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 427,
+  "payers_30d": 402,
+  "last_called": "2026-09-10T12:17:32.625Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/call",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 402,
+  "payers_30d": 402,
+  "last_called": "2026-09-10T12:53:48.504Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/estimate-gas",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.004,
+  "network": "eip155:8453",
+  "calls_30d": 401,
+  "payers_30d": 401,
+  "last_called": "2026-09-10T12:58:40.799Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/erc1155-balance",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 401,
+  "payers_30d": 401,
+  "last_called": "2026-09-10T12:54:11.397Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/allowance",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 396,
+  "payers_30d": 396,
+  "last_called": "2026-09-10T09:42:14.618Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/code/:address",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 384,
+  "payers_30d": 382,
+  "last_called": "2026-09-10T12:53:19.361Z"
+ },
+ {
+  "resource": "https://www.ax1.vc/api/dashboard/q-verdict/resource",
+  "name": "AX1 Console",
+  "tags": [
+   "agents",
+   "token",
+   "verdict"
+  ],
+  "price_usd": 0.02,
+  "network": "eip155:8453",
+  "calls_30d": 2499,
+  "payers_30d": 236,
+  "last_called": "2026-09-10T12:59:45.285Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/pending",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 226,
+  "payers_30d": 224,
+  "last_called": "2026-09-10T06:57:58.81Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/storage",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 220,
+  "payers_30d": 220,
+  "last_called": "2026-09-10T09:49:17.409Z"
+ },
+ {
+  "resource": "https://api.onesource.io/api/chain/proxy/:address",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 217,
+  "payers_30d": 217,
+  "last_called": "2026-09-10T12:58:27.466Z"
+ },
+ {
+  "resource": "https://stableenrich.dev/api/exa/search",
+  "name": "StableEnrich",
+  "tags": [
+   "Exa"
+  ],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 43236,
+  "payers_30d": 213,
+  "last_called": "2026-09-10T12:58:53.474Z"
+ },
+ {
+  "resource": "https://tick.hugen.tokyo/tick/all",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 188,
+  "payers_30d": 154,
+  "last_called": "2026-09-10T06:35:59.054Z"
+ },
+ {
+  "resource": "https://tick.hugen.tokyo/tick/latest",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 580,
+  "payers_30d": 146,
+  "last_called": "2026-09-10T12:00:29.45Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/crypto-news",
+  "name": "Otto AI",
+  "tags": [
+   "crypto news",
+   "market news",
+   "sentiment analysis",
+   "breaking headlines"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 821,
+  "payers_30d": 119,
+  "last_called": "2026-09-10T12:01:23.244Z"
+ },
+ {
+  "resource": "https://tick.hugen.tokyo/tick/symbols",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 138,
+  "payers_30d": 110,
+  "last_called": "2026-09-10T10:36:30.2Z"
+ },
+ {
+  "resource": "https://stableenrich.dev/api/exa/contents",
+  "name": "StableEnrich",
+  "tags": [
+   "Exa"
+  ],
+  "price_usd": 0.002,
+  "network": "eip155:8453",
+  "calls_30d": 5012,
+  "payers_30d": 93,
+  "last_called": "2026-09-10T09:43:39.799Z"
+ },
+ {
+  "resource": "https://x402.tavily.com/search",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 1629,
+  "payers_30d": 87,
+  "last_called": "2026-09-10T11:11:07.504Z"
+ },
+ {
+  "resource": "https://api.exa.ai/search",
+  "name": "Exa",
+  "tags": [
+   "search",
+   "ai",
+   "web",
+   "research"
+  ],
+  "price_usd": 0.007,
+  "network": "eip155:8453",
+  "calls_30d": 5991,
+  "payers_30d": 86,
+  "last_called": "2026-09-10T10:17:09.134Z"
+ },
+ {
+  "resource": "https://topagentx402.vercel.app/api/report",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:84532",
+  "calls_30d": 102,
+  "payers_30d": 85,
+  "last_called": "2026-09-10T08:33:20.133Z"
+ },
+ {
+  "resource": "https://stableenrich.dev/api/fullenrich/people-search",
+  "name": "StableEnrich",
+  "tags": [
+   "Fullenrich"
+  ],
+  "price_usd": 0.15,
+  "network": "eip155:8453",
+  "calls_30d": 1152,
+  "payers_30d": 76,
+  "last_called": "2026-09-09T14:21:25.346Z"
+ },
+ {
+  "resource": "https://coinflip402.vercel.app/api/coinflip",
+  "name": "Coin Flip",
+  "tags": [
+   "game",
+   "random",
+   "fun"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 173,
+  "payers_30d": 72,
+  "last_called": "2026-09-09T20:53:31.287Z"
+ },
+ {
+  "resource": "https://memegeneratorx402.vercel.app/api/generate-meme",
+  "name": "Meme Generator",
+  "tags": [
+   "meme",
+   "image",
+   "generator",
+   "fun"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 158,
+  "payers_30d": 72,
+  "last_called": "2026-09-10T01:27:51.432Z"
+ },
+ {
+  "resource": "https://x402lifeadvice.vercel.app/api/life-advice",
+  "name": "Life Advice",
+  "tags": [
+   "advice",
+   "life",
+   "wisdom",
+   "text"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 175,
+  "payers_30d": 71,
+  "last_called": "2026-09-09T20:53:35.265Z"
+ },
+ {
+  "resource": "https://x402uselessfacts.vercel.app/api/useless-fact",
+  "name": "Useless Fact",
+  "tags": [
+   "facts",
+   "trivia",
+   "fun",
+   "useless"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 172,
+  "payers_30d": 71,
+  "last_called": "2026-09-09T21:57:16.678Z"
+ },
+ {
+  "resource": "https://ladyfortunalx402.vercel.app/api/fortune",
+  "name": "Fortune Generator",
+  "tags": [
+   "fortune",
+   "prediction",
+   "entertainment"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 167,
+  "payers_30d": 69,
+  "last_called": "2026-09-09T21:43:07.582Z"
+ },
+ {
+  "resource": "https://dicex402.vercel.app/api/dice",
+  "name": "Dice Roller",
+  "tags": [
+   "dice",
+   "random",
+   "game",
+   "utility"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 165,
+  "payers_30d": 69,
+  "last_called": "2026-09-09T20:53:31.135Z"
+ },
+ {
+  "resource": "https://roastx402endpoint.vercel.app/api/roast",
+  "name": "Roast Generator",
+  "tags": [
+   "roast",
+   "humor",
+   "developer",
+   "fun"
+  ],
+  "price_usd": 0.0017,
+  "network": "eip155:8453",
+  "calls_30d": 139,
+  "payers_30d": 69,
+  "last_called": "2026-09-09T21:57:16.793Z"
+ },
+ {
+  "resource": "https://riddlex402.vercel.app/api/riddle",
+  "name": "Riddle Oracle",
+  "tags": [
+   "riddle",
+   "puzzle",
+   "fun",
+   "text"
+  ],
+  "price_usd": 0.002,
+  "network": "eip155:8453",
+  "calls_30d": 158,
+  "payers_30d": 68,
+  "last_called": "2026-09-09T20:53:33.306Z"
+ },
+ {
+  "resource": "https://randomfactsx402.vercel.app/api/random-fact",
+  "name": "Random Fact",
+  "tags": [
+   "facts",
+   "trivia",
+   "random",
+   "json"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 137,
+  "payers_30d": 65,
+  "last_called": "2026-09-09T20:53:33.474Z"
+ },
+ {
+  "resource": "https://topagentx402.vercel.app/api/send-token",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:84532",
+  "calls_30d": 99,
+  "payers_30d": 65,
+  "last_called": "2026-09-10T10:01:04.125Z"
+ },
+ {
+  "resource": "https://horrorstoryapi.vercel.app/api/horror-story",
+  "name": "Horror Story API",
+  "tags": [
+   "horror",
+   "stories",
+   "fiction",
+   "entertainment"
+  ],
+  "price_usd": 0.0013,
+  "network": "eip155:8453",
+  "calls_30d": 144,
+  "payers_30d": 64,
+  "last_called": "2026-09-09T20:53:31.443Z"
+ },
+ {
+  "resource": "https://jokes-endpoint.vercel.app/api/jokes",
+  "name": "Random Joke API",
+  "tags": [
+   "jokes",
+   "entertainment",
+   "fun",
+   "humor"
+  ],
+  "price_usd": 0.002,
+  "network": "eip155:8453",
+  "calls_30d": 125,
+  "payers_30d": 64,
+  "last_called": "2026-09-09T20:53:46.248Z"
+ },
+ {
+  "resource": "https://stableenrich.dev/api/pdl/people-enrich",
+  "name": "StableEnrich",
+  "tags": [
+   "Pdl"
+  ],
+  "price_usd": 0.28,
+  "network": "eip155:8453",
+  "calls_30d": 1585,
+  "payers_30d": 63,
+  "last_called": "2026-09-10T11:03:54.054Z"
+ },
+ {
+  "resource": "https://402timezones.vercel.app/api/convert-timezone",
+  "name": "Timezone Converter",
+  "tags": [
+   "time",
+   "timezone",
+   "utility",
+   "datetime",
+   "converter"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 135,
+  "payers_30d": 62,
+  "last_called": "2026-09-09T21:10:52.289Z"
+ },
+ {
+  "resource": "https://x402wordoftheday.vercel.app/api/word-of-the-day",
+  "name": "Word of the Day",
+  "tags": [
+   "words",
+   "vocabulary",
+   "dictionary",
+   "daily"
+  ],
+  "price_usd": 0.0015,
+  "network": "eip155:8453",
+  "calls_30d": 134,
+  "payers_30d": 62,
+  "last_called": "2026-09-09T20:53:35.213Z"
+ },
+ {
+  "resource": "https://weight402endpoint.vercel.app/api/convert-weight",
+  "name": "Weight Converter API",
+  "tags": [
+   "weight",
+   "mass",
+   "conversion",
+   "units",
+   "converter"
+  ],
+  "price_usd": 0.0025,
+  "network": "eip155:8453",
+  "calls_30d": 108,
+  "payers_30d": 60,
+  "last_called": "2026-09-09T20:53:34.655Z"
+ },
+ {
+  "resource": "https://cars2026.vercel.app/api/cars",
+  "name": "Latest Cars 2026",
+  "tags": [
+   "cars",
+   "automotive",
+   "2026",
+   "ev",
+   "research"
+  ],
+  "price_usd": 0.0011,
+  "network": "eip155:8453",
+  "calls_30d": 103,
+  "payers_30d": 60,
+  "last_called": "2026-09-09T20:53:34.753Z"
+ },
+ {
+  "resource": "https://stableenrich.dev/api/firecrawl/search",
+  "name": "StableEnrich",
+  "tags": [
+   "Firecrawl"
+  ],
+  "price_usd": 0.0252,
+  "network": "eip155:8453",
+  "calls_30d": 3460,
+  "payers_30d": 59,
+  "last_called": "2026-09-10T09:43:33.81Z"
+ },
+ {
+  "resource": "https://api.loyalspark.online/x402-gateway/recipient-api/offers",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 1228,
+  "payers_30d": 52,
+  "last_called": "2026-09-10T12:42:31.548Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/hyperliquid-market",
+  "name": "Otto AI",
+  "tags": [
+   "hyperliquid market",
+   "perps market data",
+   "funding rate",
+   "open interest"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 99,
+  "payers_30d": 50,
+  "last_called": "2026-09-08T22:55:45.099Z"
+ },
+ {
+  "resource": "https://stableenrich.dev/api/reddit/search",
+  "name": "StableEnrich",
+  "tags": [
+   "Reddit"
+  ],
+  "price_usd": 0.02,
+  "network": "eip155:8453",
+  "calls_30d": 434,
+  "payers_30d": 47,
+  "last_called": "2026-09-10T11:30:58.778Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/weather",
+  "name": "Otto AI",
+  "tags": [
+   "weather",
+   "weather forecast",
+   "weather api",
+   "meteorology",
+   "current weather"
+  ],
+  "price_usd": 0.002,
+  "network": "eip155:8453",
+  "calls_30d": 111,
+  "payers_30d": 43,
+  "last_called": "2026-09-09T14:48:44.535Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/funding-rates",
+  "name": "Otto AI",
+  "tags": [
+   "funding rates",
+   "funding arbitrage",
+   "open interest",
+   "long short ratio",
+   "liquidations"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 70,
+  "payers_30d": 43,
+  "last_called": "2026-09-09T21:32:28.778Z"
+ },
+ {
+  "resource": "https://stableenrich.dev/api/clado/contacts-enrich",
+  "name": "StableEnrich",
+  "tags": [
+   "Clado"
+  ],
+  "price_usd": 0.2,
+  "network": "eip155:8453",
+  "calls_30d": 899,
+  "payers_30d": 41,
+  "last_called": "2026-09-10T00:02:21.568Z"
+ },
+ {
+  "resource": "https://api.bitrefill.com/x402/gift-cards/search",
+  "name": "Bitrefill",
+  "tags": [
+   "gift-cards",
+   "vouchers",
+   "search",
+   "usdc",
+   "base"
+  ],
+  "price_usd": 0.002,
+  "network": "eip155:8453",
+  "calls_30d": 53,
+  "payers_30d": 40,
+  "last_called": "2026-09-09T21:14:20.744Z"
+ },
+ {
+  "resource": "https://kronossignals.com/api/v1/liquidations/btc",
+  "name": "Kronos Crypto Data & Forecasts",
+  "tags": [
+   "liquidations",
+   "liquidation-heatmap",
+   "squeeze",
+   "stop-hunt",
+   "derivatives"
+  ],
+  "price_usd": 0.02,
+  "network": "eip155:8453",
+  "calls_30d": 1404,
+  "payers_30d": 37,
+  "last_called": "2026-09-10T01:28:01.981Z"
+ },
+ {
+  "resource": "https://laso.finance/get-card",
+  "name": "Laso Finance",
+  "tags": [
+   "prepaid-card",
+   "usa",
+   "spending"
+  ],
+  "price_usd": 5.0,
+  "network": "eip155:8453",
+  "calls_30d": 55,
+  "payers_30d": 37,
+  "last_called": "2026-09-10T06:14:48.396Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/token-details",
+  "name": "Otto AI",
+  "tags": [
+   "token price",
+   "market cap",
+   "token metrics",
+   "token info",
+   "price data"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 92,
+  "payers_30d": 37,
+  "last_called": "2026-09-10T12:01:01.448Z"
+ },
+ {
+  "resource": "https://weather.payapi.market/current",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 73,
+  "payers_30d": 36,
+  "last_called": "2026-09-09T13:49:38.577Z"
+ },
+ {
+  "resource": "https://agi.apify.com/protocols/x402/prepaid-tokens",
+  "name": "Apify",
+  "tags": [
+   "automation",
+   "web-data",
+   "crawling",
+   "context",
+   "scraping"
+  ],
+  "price_usd": 1.0,
+  "network": "eip155:8453",
+  "calls_30d": 112,
+  "payers_30d": 35,
+  "last_called": "2026-09-10T07:09:22.525Z"
+ },
+ {
+  "resource": "https://api.loyalspark.online/x402-gateway/recipient-api/workflow/reward-status",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 556,
+  "payers_30d": 34,
+  "last_called": "2026-09-10T12:51:39.672Z"
+ },
+ {
+  "resource": "https://api.loyalspark.online/x402-gateway/recipient-api/vouchers",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 537,
+  "payers_30d": 34,
+  "last_called": "2026-09-10T12:11:19.311Z"
+ },
+ {
+  "resource": "https://stableupload.dev/api/upload",
+  "name": "StableUpload",
+  "tags": [
+   "Upload"
+  ],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 240,
+  "payers_30d": 33,
+  "last_called": "2026-09-10T01:50:28.344Z"
+ },
+ {
+  "resource": "https://api.loyalspark.online/x402-gateway/recipient-api/rewards",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 472,
+  "payers_30d": 33,
+  "last_called": "2026-09-10T11:08:04.992Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/twitter-summary",
+  "name": "Otto AI",
+  "tags": [
+   "crypto twitter",
+   "social sentiment",
+   "market pulse",
+   "tweet digest"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 47,
+  "payers_30d": 33,
+  "last_called": "2026-09-10T00:26:51.487Z"
+ },
+ {
+  "resource": "https://api.loyalspark.online/x402-gateway/recipient-api/balance",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 499,
+  "payers_30d": 32,
+  "last_called": "2026-09-10T08:49:18.751Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/yield-markets",
+  "name": "Otto AI",
+  "tags": [
+   "yield farming",
+   "stablecoin yield",
+   "defi yield",
+   "aave",
+   "morpho"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 174,
+  "payers_30d": 30,
+  "last_called": "2026-09-10T12:00:17.485Z"
+ },
+ {
+  "resource": "https://crypto.apitoll.cloud/v1/crypto/price",
+  "name": "ApiToll Crypto Prices",
+  "tags": [
+   "crypto",
+   "prices",
+   "token-price",
+   "defi",
+   "market-data"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 483,
+  "payers_30d": 29,
+  "last_called": "2026-09-10T12:01:32.854Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/fx-rates",
+  "name": "Otto AI",
+  "tags": [
+   "forex",
+   "fx rates",
+   "currency exchange",
+   "live fx",
+   "currency conversion"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 276,
+  "payers_30d": 29,
+  "last_called": "2026-09-10T12:00:04.343Z"
+ },
+ {
+  "resource": "https://api.run402.com/tiers/v1/prototype",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.1,
+  "network": "eip155:8453",
+  "calls_30d": 34,
+  "payers_30d": 29,
+  "last_called": "2026-09-09T09:26:22.324Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/tradfi-data",
+  "name": "Otto AI",
+  "tags": [
+   "stock quotes",
+   "macro data",
+   "vix",
+   "treasury yields",
+   "market indices"
+  ],
+  "price_usd": 0.003,
+  "network": "eip155:8453",
+  "calls_30d": 71,
+  "payers_30d": 28,
+  "last_called": "2026-09-07T05:22:58.779Z"
+ },
+ {
+  "resource": "https://api.loyalspark.online/x402-gateway/recipient-api/prepare-transfer",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 418,
+  "payers_30d": 28,
+  "last_called": "2026-09-10T10:27:07.883Z"
+ },
+ {
+  "resource": "https://api.loyalspark.online/x402-gateway/recipient-api/balances",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 363,
+  "payers_30d": 28,
+  "last_called": "2026-09-10T12:37:15.604Z"
+ },
+ {
+  "resource": "https://vaaya.ai/api/run/exa/search",
+  "name": "Vaaya",
+  "tags": [
+   "exa",
+   "ai-agents",
+   "pay-per-call"
+  ],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 380,
+  "payers_30d": 27,
+  "last_called": "2026-09-10T07:32:49.422Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/base-season",
+  "name": "Otto AI",
+  "tags": [
+   "base",
+   "kol sentiment",
+   "social signal",
+   "trending tokens",
+   "crypto twitter"
+  ],
+  "price_usd": 0.002,
+  "network": "eip155:8453",
+  "calls_30d": 344,
+  "payers_30d": 27,
+  "last_called": "2026-09-08T22:55:57.425Z"
+ },
+ {
+  "resource": "https://api.onesource.io/deepstate/v1/book/:book",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 46,
+  "payers_30d": 27,
+  "last_called": "2026-09-10T12:51:42.795Z"
+ },
+ {
+  "resource": "https://api.x402node.dev/chain/gas-compare",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 120,
+  "payers_30d": 27,
+  "last_called": "2026-09-10T06:11:28.259Z"
+ },
+ {
+  "resource": "https://blockrun.ai/api/v1/exa/search",
+  "name": "BlockRun.AI",
+  "tags": [
+   "ai",
+   "inference",
+   "llm",
+   "gateway"
+  ],
+  "price_usd": 0.011,
+  "network": "eip155:8453",
+  "calls_30d": 1909,
+  "payers_30d": 26,
+  "last_called": "2026-09-10T08:49:33.6Z"
+ },
+ {
+  "resource": "https://api.onesource.io/deepstate/v1/markets",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 26,
+  "payers_30d": 26,
+  "last_called": "2026-09-10T12:51:09.231Z"
+ },
+ {
+  "resource": "https://api.onesource.io/deepstate/v1/candles/:book",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 44,
+  "payers_30d": 26,
+  "last_called": "2026-09-10T12:51:33.81Z"
+ },
+ {
+  "resource": "https://api.onesource.io/deepstate/v1/stats/:book",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 45,
+  "payers_30d": 26,
+  "last_called": "2026-09-10T12:51:48.237Z"
+ },
+ {
+  "resource": "https://api.printmoneylab.com/api/v1/kr-prices",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.002,
+  "network": "eip155:8453",
+  "calls_30d": 50,
+  "payers_30d": 25,
+  "last_called": "2026-09-09T21:14:22.686Z"
+ },
+ {
+  "resource": "https://api.hergertsynthora.com/v1/defi-yields",
+  "name": "SYNTHORA",
+  "tags": [
+   "defi",
+   "yields",
+   "apy",
+   "risk",
+   "stablecoins"
+  ],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 36,
+  "payers_30d": 25,
+  "last_called": "2026-09-10T04:09:46.347Z"
+ },
+ {
+  "resource": "https://api.x402node.dev/forex/convert/cny/usd/cny-usd",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.004,
+  "network": "eip155:8453",
+  "calls_30d": 116,
+  "payers_30d": 25,
+  "last_called": "2026-09-10T07:45:15.481Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/token-price",
+  "name": "Otto AI",
+  "tags": [
+   "token price",
+   "crypto price",
+   "dex price",
+   "price feed",
+   "onchain price"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 262,
+  "payers_30d": 24,
+  "last_called": "2026-09-10T12:00:13.323Z"
+ },
+ {
+  "resource": "https://api.oblique.markets/api/v1/paid/time",
+  "name": "Oblique Markets",
+  "tags": [
+   "time",
+   "utility"
+  ],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 133,
+  "payers_30d": 24,
+  "last_called": "2026-09-10T08:03:07.38Z"
+ },
+ {
+  "resource": "https://x402.ottoai.services/defi-analytics",
+  "name": "Otto AI",
+  "tags": [
+   "defi tvl",
+   "protocol analytics",
+   "defi rankings",
+   "capital flows"
+  ],
+  "price_usd": 0.001,
+  "network": "eip155:8453",
+  "calls_30d": 41,
+  "payers_30d": 24,
+  "last_called": "2026-09-10T00:26:52.102Z"
+ },
+ {
+  "resource": "https://api.nansen.ai/api/v1/tgm/who-bought-sold",
+  "name": "Nansen",
+  "tags": [
+   "crypto",
+   "analytics",
+   "smart-money",
+   "on-chain"
+  ],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 185,
+  "payers_30d": 24,
+  "last_called": "2026-09-10T08:13:11.846Z"
+ },
+ {
+  "resource": "https://api.onesource.io/deepstate/v1/analytics/cost-to-quote",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.02,
+  "network": "eip155:8453",
+  "calls_30d": 24,
+  "payers_30d": 24,
+  "last_called": "2026-09-10T12:51:54.659Z"
+ },
+ {
+  "resource": "https://api.onesource.io/deepstate/v1/trades/:book",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 24,
+  "payers_30d": 24,
+  "last_called": "2026-09-10T12:51:06.271Z"
+ },
+ {
+  "resource": "https://api.x402node.dev/aviation/airport-status",
+  "name": "",
+  "tags": [],
+  "price_usd": 0.005,
+  "network": "eip155:8453",
+  "calls_30d": 113,
+  "payers_30d": 24,
+  "last_called": "2026-09-10T11:44:20.369Z"
+ },
+ {
+  "resource": "https://cheaptokens.ai/api/buy",
+  "name": "CheapTokens AI Inference",
+  "tags": [
+   "inference",
+   "llm",
+   "openai",
+   "chat-completions",
+   "ai"
+  ],
+  "price_usd": 1.0,
+  "network": "eip155:8453",
+  "calls_30d": 277,
+  "payers_30d": 23,
+  "last_called": "2026-09-10T11:57:52.585Z"
+ },
+ {
+  "resource": "https://www.x402scan.com/api/x402/merchants",
+  "name": "x402scan",
+  "tags": [
+   "X402"
+  ],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 524,
+  "payers_30d": 23,
+  "last_called": "2026-09-10T09:48:37.061Z"
+ },
+ {
+  "resource": "https://api.nansen.ai/api/v1/profiler/address/related-wallets",
+  "name": "Nansen",
+  "tags": [
+   "crypto",
+   "analytics",
+   "smart-money",
+   "on-chain"
+  ],
+  "price_usd": 0.01,
+  "network": "eip155:8453",
+  "calls_30d": 69,
+  "payers_30d": 23,
+  "last_called": "2026-09-09T13:12:53.335Z"
+ }
+]

@@ -1,0 +1,101 @@
+resource,name,tags,price_usd,network,calls_30d,payers_30d
+https://api.onesource.io/api/chain/erc20-balance,,,0.003,eip155:8453,1079,1072
+https://api.onesource.io/api/chain/ens/:input,,,0.005,eip155:8453,1041,1038
+https://api.onesource.io/api/chain/block-number,,,0.001,eip155:8453,1249,969
+https://api.onesource.io/api/chain/live-balance,,,0.003,eip155:8453,938,930
+https://api.onesource.io/api/chain/tx/:hash,,,0.008,eip155:8453,887,871
+https://api.onesource.io/api/chain/contract/:address,,,0.005,eip155:8453,696,696
+https://api.onesource.io/api/chain/block/:number,,,0.003,eip155:8453,693,692
+https://api.onesource.io/api/chain/erc721-tokens,,,0.008,eip155:8453,694,690
+https://api.onesource.io/api/chain/nonce/:address,,,0.003,eip155:8453,688,684
+https://api.onesource.io/api/chain/nft-metadata,,,0.008,eip155:8453,686,682
+https://api.onesource.io/api/chain/total-supply,,,0.003,eip155:8453,685,681
+https://api.onesource.io/api/chain/erc20-transfers,,,0.005,eip155:8453,688,680
+https://api.onesource.io/api/chain/receipt/:hash,,,0.005,eip155:8453,680,680
+https://api.onesource.io/api/chain/nft-owner,,,0.003,eip155:8453,426,426
+https://api.onesource.io/api/chain/chain-id,,,0.001,eip155:8453,466,425
+https://api.onesource.io/api/chain/events,,,0.005,eip155:8453,420,419
+https://api.onesource.io/api/chain/network-info,,,0.001,eip155:8453,427,402
+https://api.onesource.io/api/chain/call,,,0.005,eip155:8453,402,402
+https://api.onesource.io/api/chain/estimate-gas,,,0.004,eip155:8453,401,401
+https://api.onesource.io/api/chain/erc1155-balance,,,0.003,eip155:8453,401,401
+https://api.onesource.io/api/chain/allowance,,,0.003,eip155:8453,396,396
+https://api.onesource.io/api/chain/code/:address,,,0.003,eip155:8453,384,382
+https://www.ax1.vc/api/dashboard/q-verdict/resource,AX1 Console,agents;token;verdict,0.02,eip155:8453,2499,236
+https://api.onesource.io/api/chain/pending,,,0.01,eip155:8453,226,224
+https://api.onesource.io/api/chain/storage,,,0.005,eip155:8453,220,220
+https://api.onesource.io/api/chain/proxy/:address,,,0.005,eip155:8453,217,217
+https://stableenrich.dev/api/exa/search,StableEnrich,Exa,0.01,eip155:8453,43236,213
+https://tick.hugen.tokyo/tick/all,,,0.005,eip155:8453,188,154
+https://tick.hugen.tokyo/tick/latest,,,0.005,eip155:8453,580,146
+https://x402.ottoai.services/crypto-news,Otto AI,crypto news;market news;sentiment analysis;breaking headlines,0.001,eip155:8453,821,119
+https://tick.hugen.tokyo/tick/symbols,,,0.005,eip155:8453,138,110
+https://stableenrich.dev/api/exa/contents,StableEnrich,Exa,0.002,eip155:8453,5012,93
+https://x402.tavily.com/search,,,0.01,eip155:8453,1629,87
+https://api.exa.ai/search,Exa,search;ai;web;research,0.007,eip155:8453,5991,86
+https://topagentx402.vercel.app/api/report,,,0.001,eip155:84532,102,85
+https://stableenrich.dev/api/fullenrich/people-search,StableEnrich,Fullenrich,0.15,eip155:8453,1152,76
+https://coinflip402.vercel.app/api/coinflip,Coin Flip,game;random;fun,0.001,eip155:8453,173,72
+https://memegeneratorx402.vercel.app/api/generate-meme,Meme Generator,meme;image;generator;fun,0.001,eip155:8453,158,72
+https://x402lifeadvice.vercel.app/api/life-advice,Life Advice,advice;life;wisdom;text,0.001,eip155:8453,175,71
+https://x402uselessfacts.vercel.app/api/useless-fact,Useless Fact,facts;trivia;fun;useless,0.001,eip155:8453,172,71
+https://ladyfortunalx402.vercel.app/api/fortune,Fortune Generator,fortune;prediction;entertainment,0.001,eip155:8453,167,69
+https://dicex402.vercel.app/api/dice,Dice Roller,dice;random;game;utility,0.001,eip155:8453,165,69
+https://roastx402endpoint.vercel.app/api/roast,Roast Generator,roast;humor;developer;fun,0.0017,eip155:8453,139,69
+https://riddlex402.vercel.app/api/riddle,Riddle Oracle,riddle;puzzle;fun;text,0.002,eip155:8453,158,68
+https://randomfactsx402.vercel.app/api/random-fact,Random Fact,facts;trivia;random;json,0.001,eip155:8453,137,65
+https://topagentx402.vercel.app/api/send-token,,,0.001,eip155:84532,99,65
+https://horrorstoryapi.vercel.app/api/horror-story,Horror Story API,horror;stories;fiction;entertainment,0.0013,eip155:8453,144,64
+https://jokes-endpoint.vercel.app/api/jokes,Random Joke API,jokes;entertainment;fun;humor,0.002,eip155:8453,125,64
+https://stableenrich.dev/api/pdl/people-enrich,StableEnrich,Pdl,0.28,eip155:8453,1585,63
+https://402timezones.vercel.app/api/convert-timezone,Timezone Converter,time;timezone;utility;datetime;converter,0.001,eip155:8453,135,62
+https://x402wordoftheday.vercel.app/api/word-of-the-day,Word of the Day,words;vocabulary;dictionary;daily,0.0015,eip155:8453,134,62
+https://weight402endpoint.vercel.app/api/convert-weight,Weight Converter API,weight;mass;conversion;units;converter,0.0025,eip155:8453,108,60
+https://cars2026.vercel.app/api/cars,Latest Cars 2026,cars;automotive;2026;ev;research,0.0011,eip155:8453,103,60
+https://stableenrich.dev/api/firecrawl/search,StableEnrich,Firecrawl,0.0252,eip155:8453,3460,59
+https://api.loyalspark.online/x402-gateway/recipient-api/offers,,,0.001,eip155:8453,1228,52
+https://x402.ottoai.services/hyperliquid-market,Otto AI,hyperliquid market;perps market data;funding rate;open interest,0.001,eip155:8453,99,50
+https://stableenrich.dev/api/reddit/search,StableEnrich,Reddit,0.02,eip155:8453,434,47
+https://x402.ottoai.services/weather,Otto AI,weather;weather forecast;weather api;meteorology;current weather,0.002,eip155:8453,111,43
+https://x402.ottoai.services/funding-rates,Otto AI,funding rates;funding arbitrage;open interest;long short ratio;liquidations,0.001,eip155:8453,70,43
+https://stableenrich.dev/api/clado/contacts-enrich,StableEnrich,Clado,0.2,eip155:8453,899,41
+https://api.bitrefill.com/x402/gift-cards/search,Bitrefill,gift-cards;vouchers;search;usdc;base,0.002,eip155:8453,53,40
+https://kronossignals.com/api/v1/liquidations/btc,Kronos Crypto Data & Forecasts,liquidations;liquidation-heatmap;squeeze;stop-hunt;derivatives,0.02,eip155:8453,1404,37
+https://laso.finance/get-card,Laso Finance,prepaid-card;usa;spending,5.0,eip155:8453,55,37
+https://x402.ottoai.services/token-details,Otto AI,token price;market cap;token metrics;token info;price data,0.001,eip155:8453,92,37
+https://weather.payapi.market/current,,,0.001,eip155:8453,73,36
+https://agi.apify.com/protocols/x402/prepaid-tokens,Apify,automation;web-data;crawling;context;scraping,1.0,eip155:8453,112,35
+https://api.loyalspark.online/x402-gateway/recipient-api/workflow/reward-status,,,0.001,eip155:8453,556,34
+https://api.loyalspark.online/x402-gateway/recipient-api/vouchers,,,0.001,eip155:8453,537,34
+https://stableupload.dev/api/upload,StableUpload,Upload,0.005,eip155:8453,240,33
+https://api.loyalspark.online/x402-gateway/recipient-api/rewards,,,0.001,eip155:8453,472,33
+https://x402.ottoai.services/twitter-summary,Otto AI,crypto twitter;social sentiment;market pulse;tweet digest,0.001,eip155:8453,47,33
+https://api.loyalspark.online/x402-gateway/recipient-api/balance,,,0.001,eip155:8453,499,32
+https://x402.ottoai.services/yield-markets,Otto AI,yield farming;stablecoin yield;defi yield;aave;morpho,0.001,eip155:8453,174,30
+https://crypto.apitoll.cloud/v1/crypto/price,ApiToll Crypto Prices,crypto;prices;token-price;defi;market-data,0.001,eip155:8453,483,29
+https://x402.ottoai.services/fx-rates,Otto AI,forex;fx rates;currency exchange;live fx;currency conversion,0.001,eip155:8453,276,29
+https://api.run402.com/tiers/v1/prototype,,,0.1,eip155:8453,34,29
+https://x402.ottoai.services/tradfi-data,Otto AI,stock quotes;macro data;vix;treasury yields;market indices,0.003,eip155:8453,71,28
+https://api.loyalspark.online/x402-gateway/recipient-api/prepare-transfer,,,0.005,eip155:8453,418,28
+https://api.loyalspark.online/x402-gateway/recipient-api/balances,,,0.001,eip155:8453,363,28
+https://vaaya.ai/api/run/exa/search,Vaaya,exa;ai-agents;pay-per-call,0.01,eip155:8453,380,27
+https://x402.ottoai.services/base-season,Otto AI,base;kol sentiment;social signal;trending tokens;crypto twitter,0.002,eip155:8453,344,27
+https://api.onesource.io/deepstate/v1/book/:book,,,0.005,eip155:8453,46,27
+https://api.x402node.dev/chain/gas-compare,,,0.005,eip155:8453,120,27
+https://blockrun.ai/api/v1/exa/search,BlockRun.AI,ai;inference;llm;gateway,0.011,eip155:8453,1909,26
+https://api.onesource.io/deepstate/v1/markets,,,0.005,eip155:8453,26,26
+https://api.onesource.io/deepstate/v1/candles/:book,,,0.005,eip155:8453,44,26
+https://api.onesource.io/deepstate/v1/stats/:book,,,0.005,eip155:8453,45,26
+https://api.printmoneylab.com/api/v1/kr-prices,,,0.002,eip155:8453,50,25
+https://api.hergertsynthora.com/v1/defi-yields,SYNTHORA,defi;yields;apy;risk;stablecoins,0.01,eip155:8453,36,25
+https://api.x402node.dev/forex/convert/cny/usd/cny-usd,,,0.004,eip155:8453,116,25
+https://x402.ottoai.services/token-price,Otto AI,token price;crypto price;dex price;price feed;onchain price,0.001,eip155:8453,262,24
+https://api.oblique.markets/api/v1/paid/time,Oblique Markets,time;utility,0.01,eip155:8453,133,24
+https://x402.ottoai.services/defi-analytics,Otto AI,defi tvl;protocol analytics;defi rankings;capital flows,0.001,eip155:8453,41,24
+https://api.nansen.ai/api/v1/tgm/who-bought-sold,Nansen,crypto;analytics;smart-money;on-chain,0.01,eip155:8453,185,24
+https://api.onesource.io/deepstate/v1/analytics/cost-to-quote,,,0.02,eip155:8453,24,24
+https://api.onesource.io/deepstate/v1/trades/:book,,,0.005,eip155:8453,24,24
+https://api.x402node.dev/aviation/airport-status,,,0.005,eip155:8453,113,24
+https://cheaptokens.ai/api/buy,CheapTokens AI Inference,inference;llm;openai;chat-completions;ai,1.0,eip155:8453,277,23
+https://www.x402scan.com/api/x402/merchants,x402scan,X402,0.01,eip155:8453,524,23
+https://api.nansen.ai/api/v1/profiler/address/related-wallets,Nansen,crypto;analytics;smart-money;on-chain,0.01,eip155:8453,69,23
