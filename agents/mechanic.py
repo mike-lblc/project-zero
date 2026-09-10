@@ -195,23 +195,57 @@ def apply_fix(problem, dry_run=False):
     return {"outcome": outcome, "detail": detail, "diff": diff}
 
 
+def publish(files):
+    """Отправляет применённые правки в репозиторий.
+
+    Без этого шага починки живут только на этой машине, а в облаке
+    (GitHub Actions) продолжает крутиться старый код. Коммитим ИМЕННО
+    те файлы, которые механик изменил, — ничего лишнего под руку не
+    попадает. Ошибка git не срывает заход: работа уже сделана на диске.
+    """
+    files = [f for f in dict.fromkeys(files) if f not in UNTOUCHABLE]
+    if not files:
+        return "публиковать нечего"
+    try:
+        subprocess.run(["git", "add", "--"] + files, cwd=str(ROOT),
+                       capture_output=True, text=True, timeout=60, check=True)
+        msg = ("fix(mechanic): " + ", ".join(files[:3])
+               + (f" и ещё {len(files) - 3}" if len(files) > 3 else ""))
+        r = subprocess.run(["git", "commit", "-m", msg], cwd=str(ROOT),
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0 and "nothing to commit" not in (r.stdout or ""):
+            return f"коммит не прошёл: {(r.stderr or r.stdout).strip()[:120]}"
+        p = subprocess.run(["git", "push"], cwd=str(ROOT),
+                           capture_output=True, text=True, timeout=180)
+        if p.returncode != 0:
+            return f"запушить не удалось: {(p.stderr or '').strip()[:120]}"
+        bus.broadcast("mechanic", f"Правки отправлены в репозиторий: {', '.join(files)}. "
+                                  f"Теперь и облачный прогон работает с исправленным кодом.")
+        return f"опубликовано файлов: {len(files)}"
+    except (subprocess.SubprocessError, OSError) as e:
+        return f"git недоступен: {type(e).__name__}"
+
+
 def repair_round(limit=3):
-    """Один заход: находит проблемы и чинит самые серьёзные."""
+    """Один заход: находит проблемы, чинит самые серьёзные и публикует их."""
     probs = sorted(find_problems(), key=lambda p: -p["severity"])
     if not probs:
         bus.broadcast("mechanic", "Прошёл по коду: определимых дефектов нет.")
         return "дефектов нет"
     applied = rolled = skipped = 0
+    fixed_files = []
     for p in probs[:limit]:
         r = apply_fix(p)
         if r["outcome"] == "applied":
             applied += 1
+            fixed_files.append(p["file"])          # уже относительный путь
         elif r["outcome"] == "rolled_back":
             rolled += 1
         else:
             skipped += 1
+    tail = f"; {publish(fixed_files)}" if applied else ""
     return (f"найдено {len(probs)}, починено {applied}, откачено {rolled}, "
-            f"пропущено {skipped}")
+            f"пропущено {skipped}{tail}")
 
 
 def history(limit=15):
