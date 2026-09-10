@@ -1,0 +1,3 @@
+claim_url: https://www.moltbook.com/claim/moltbook_claim_luGlFNY31BEpajxL_IfaVIwVpMgMI170
+verification_code: rocky-WP22
+agent: projectzeromarket
