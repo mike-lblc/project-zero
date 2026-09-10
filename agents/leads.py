@@ -18,7 +18,7 @@
   best_niche()  — где спрос обгоняет предложение
   pitch()       — что именно им продавать и почему они купят
 """
-import sys, json, re
+import sys, json, re, time, urllib.request, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -41,7 +41,20 @@ CREATE TABLE IF NOT EXISTS leads (
   spend_signal REAL,
   status TEXT NOT NULL DEFAULT 'new',
   note TEXT,
+  channel TEXT,            -- публичный репозиторий, если владелец сам его указал
+  reachable INTEGER,       -- 1 законный канал есть, 0 нет, NULL не проверяли
   found_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lead_defects (
+  id INTEGER PRIMARY KEY,
+  domain TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  kind TEXT NOT NULL,        -- unreachable | server_error | broken_402 | slow
+  detail TEXT NOT NULL,      -- что именно мы увидели: код, время, тело ответа
+  reproducible INTEGER NOT NULL DEFAULT 0,
+  reported_url TEXT,
+  checked_at TEXT NOT NULL,
+  UNIQUE(domain, endpoint, kind)
 );
 """
 
@@ -203,7 +216,123 @@ def pitch():
     }
 
 
-CYCLE = [("find_leads", lambda: f"лидов: {len(hot_leads())}")]
+# ---------------------------------------------------------------- канал связи
+def find_channel(limit=10):
+    """Ищет ЗАКОННЫЙ канал связи: только то, что владелец сам выставил наружу.
+
+    Почему это отдельный шаг, а не «взять почту». Почты у нас нет и брать её
+    неоткуда: собирать личные адреса запрещено законом и договором ESP, а
+    заливать собранное в рассылку — спам, который мгновенно стоит аккаунта.
+    Единственный канал, который владелец открыл сам и который предназначен
+    для входящих сообщений, — публичный репозиторий с трекером задач.
+
+    Замер по первым двенадцати лидам: живы все двенадцать, репозиторий указан
+    у двух. То есть законно достучаться можно до одного из шести — и это
+    честное число, а не повод придумывать обходные пути.
+    """
+    guard.check_action("research", "GREEN")
+    con = _con()
+    rows = con.execute("SELECT domain FROM leads WHERE reachable IS NULL "
+                       "ORDER BY spend_signal DESC LIMIT ?", (limit,)).fetchall()
+    con.close()
+    if not rows:
+        return "все лиды уже проверены на наличие канала"
+
+    found = 0
+    for (domain,) in rows:
+        html, repo = None, None
+        try:
+            req = urllib.request.Request("https://" + domain, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; P0-lead-check/1.0)"})
+            html = urllib.request.urlopen(req, timeout=15).read(60000).decode("utf-8", "ignore")
+        except (urllib.error.URLError, OSError, ValueError):
+            html = None
+        if html:
+            hits = re.findall(r"github\.com/([\w.-]+/[\w.-]+)", html)
+            # отсекаем ссылки на чужие библиотеки и на сам стандарт
+            hits = [h for h in hits if not h.lower().startswith(
+                ("coinbase/", "modelcontextprotocol/", "x402/", "facebook/", "vercel/"))]
+            repo = hits[0] if hits else None
+        con = _con()
+        con.execute("UPDATE leads SET channel=?, reachable=? WHERE domain=?",
+                    (repo, 1 if repo else 0, domain))
+        con.commit(); con.close()
+        if repo:
+            found += 1
+
+    con = _con()
+    tot = con.execute("SELECT COUNT(*) FROM leads WHERE reachable=1").fetchone()[0]
+    checked = con.execute("SELECT COUNT(*) FROM leads WHERE reachable IS NOT NULL").fetchone()[0]
+    con.close()
+    bus.broadcast("leads", f"Проверено каналов связи: {checked} лидов, законный канал есть "
+                           f"у {tot}. Почты не собираем — только то, что владелец сам "
+                           f"выставил как место для входящих сообщений.")
+    return f"проверено {len(rows)}, каналов найдено {found}, всего с каналом {tot}"
+
+
+# ---------------------------------------------------------------- проверка сервиса
+def verify_service(limit=8):
+    """Проверяет сервисы лидов на НАСТОЯЩИЕ дефекты, а не на бизнес-догадки.
+
+    Зачем. Диагнозы вроде «падает спрос» или «цена выше медианы» — это наши
+    наблюдения о чужом бизнесе. Прийти с ними в чужой трекер и предложить
+    разбор за $60 — это питч, то есть спам, и он ничем не лучше рассылки по
+    собранным адресам.
+
+    А вот воспроизводимый дефект — другое дело. Если платный эндпоинт отдаёт
+    500 или отвечает не по стандарту 402, это сообщение по делу, которого
+    владелец сам ждёт в своём трекере. Такой повод для контакта законный, и
+    только он здесь и записывается. Никаких предложений купить в сообщении.
+    """
+    guard.check_action("research", "GREEN")
+    con = _con()
+    rows = con.execute("SELECT domain FROM leads WHERE reachable=1 "
+                       "ORDER BY spend_signal DESC LIMIT ?", (limit,)).fetchall()
+    con.close()
+    if not rows:
+        return "нет лидов с проверенным каналом — сперва find_channel"
+
+    defects = 0
+    for (domain,) in rows:
+        url = f"https://{domain}/"
+        kind = detail = None
+        started = time.monotonic()
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; P0-lead-check/1.0)"})
+            r = urllib.request.urlopen(req, timeout=20)
+            took = time.monotonic() - started
+            if took > 10:
+                kind, detail = "slow", f"главная отвечает {took:.1f} с"
+        except urllib.error.HTTPError as e:
+            if 500 <= e.code < 600:
+                kind, detail = "server_error", f"HTTP {e.code} на {url}"
+        except (urllib.error.URLError, OSError) as e:
+            kind, detail = "unreachable", f"{type(e).__name__} на {url}"
+        if not kind:
+            continue
+        con = _con()
+        con.execute("""INSERT INTO lead_defects(domain,endpoint,kind,detail,reproducible,
+                       checked_at) VALUES (?,?,?,?,0,?)
+                       ON CONFLICT(domain,endpoint,kind) DO UPDATE SET
+                       reproducible=1, detail=excluded.detail, checked_at=excluded.checked_at""",
+                    (domain, url, kind, detail, now()))
+        con.commit(); con.close()
+        defects += 1
+
+    con = _con()
+    solid = con.execute("SELECT COUNT(*) FROM lead_defects WHERE reproducible=1").fetchone()[0]
+    con.close()
+    if defects:
+        bus.broadcast("leads", f"Проверил сервисы лидов: замечено дефектов {defects}, "
+                               f"воспроизвелось повторно {solid}. Сообщать имеет смысл "
+                               f"только о воспроизводимых — разовый сбой сети это не дефект.")
+    return f"проверено {len(rows)}, дефектов {defects}, воспроизводимых {solid}"
+
+
+CYCLE = [("find_leads", lambda: f"лидов: {len(hot_leads())}"),
+         ("find_channel", lambda: find_channel(10)),
+         ("verify_service", lambda: verify_service(8))]
 
 
 if __name__ == "__main__":

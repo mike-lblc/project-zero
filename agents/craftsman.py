@@ -18,7 +18,7 @@
 Притворяться, что 9-миллиардная модель напишет документацию уровня слияния,
 было бы враньём.
 """
-import sys, re, json, base64, subprocess
+import sys, re, json, time, base64, subprocess
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -243,6 +243,222 @@ def find_doc_work():
     return f"найдено {len(rows)} задач по документации"
 
 
+# ---------------------------------------------------------------- 4. ЗАЯВКА НА ЗАДАЧУ
+US = "mike-lblc"                      # наш аккаунт на GitHub, под ним всё и делается
+CLAIMABLE = ("doc", "readme", "quickstart", "translat", "guide", "typo", "jsdoc",
+             "comment", "docstring", "i18n", "locale")
+
+
+def _log_action(kind, payload, result, dry_run):
+    c = connect()
+    c.execute("INSERT INTO actions(kind,action_class,dry_run,payload,result,created_at) "
+              "VALUES (?,?,?,?,?,?)",
+              (kind, "YELLOW", 1 if dry_run else 0, json.dumps(payload)[:900],
+               str(result)[:400], now()))
+    c.commit(); c.close()
+
+
+def we_can_do(title):
+    """Класс задачи, который мы способны закрыть механически проверяемо.
+
+    Граница честная и узкая. Перевод и документация проверяются построчно
+    сверкой с исходниками (verify_claims), поэтому за них можно браться. За
+    произвольную правку кода в чужом проекте — нет: доказать её правильность
+    без прогона чужих тестов мы не можем, а заявка без доказуемой работы
+    ровно тот шум, за который мы отбраковываем чужие заявки.
+    """
+    t = (title or "").lower()
+    return any(k in t for k in CLAIMABLE)
+
+
+def claim(url, plan, dry_run=True):
+    """Публично заявляет, что берём задачу. YELLOW: действие в чужом репозитории.
+
+    Заявка разрешена ТОЛЬКО когда одновременно верно всё:
+      * задача открыта и премия ещё не выплачена;
+      * заявок меньше четырёх — иначе мы просто добавляем шум в толпу;
+      * класс задачи нам по силам (we_can_do);
+      * план назван конкретными файлами, а не обещанием «сделаю».
+
+    Последнее условие важнее прочих. Мы намерили задачу, где 72 заявки и
+    считанные присланные работы. Заявка без готового плана — это тот самый
+    мусор; повторять его было бы лицемерием.
+    """
+    from agents import bounty
+    m = re.search(r"github\.com/([^/]+/[^/]+)/issues/(\d+)", url or "")
+    if not m:
+        return {"ok": False, "why": "не похоже на ссылку на задачу"}
+    repo, num = m.group(1), int(m.group(2))
+
+    if not plan or len(plan.strip()) < 40 or not re.search(r"[\w./-]+\.\w{2,4}", plan):
+        return {"ok": False, "why": "план не называет конкретных файлов — заявка была бы шумом"}
+
+    info = _gh(["issue", "view", str(num), "--repo", repo,
+                "--json", "state,title", "--jq", "{s:.state,t:.title}"])
+    try:
+        d = json.loads(info)
+    except (json.JSONDecodeError, TypeError):
+        return {"ok": False, "why": "не удалось прочитать задачу — молчание не значит «можно»"}
+    if d["s"] != "OPEN":
+        return {"ok": False, "why": f"задача {d['s']}, браться не за что"}
+    if not we_can_do(d["t"]):
+        return {"ok": False, "why": "класс задачи вне того, что мы можем доказуемо закрыть"}
+
+    rivals, paid = bounty.competition(repo, num, d["t"])
+    if paid:
+        return {"ok": False, "why": "премия уже выплачена другому"}
+    if rivals >= 4:
+        return {"ok": False, "why": f"заявок уже {rivals} — идти туда значит добавлять шум"}
+
+    body = (f"/attempt #{num}\n\n"
+            f"План работы:\n{plan.strip()}\n\n"
+            f"Все команды и флаги в тексте сверяются с исходниками репозитория "
+            f"построчно перед отправкой; несуществующих в PR не будет.")
+    guard.check_action("bounty_claim", "YELLOW")
+    if dry_run:
+        _log_action("bounty_claim", {"repo": repo, "issue": num}, "вхолостую", True)
+        return {"ok": True, "dry_run": True, "repo": repo, "issue": num,
+                "rivals": rivals, "body": body}
+
+    out = _gh(["issue", "comment", str(num), "--repo", repo, "--body", body], timeout=60)
+    ok = bool(out)
+    _log_action("bounty_claim", {"repo": repo, "issue": num}, "отправлено" if ok else "отказ", False)
+    if ok:
+        c = _con()
+        c.execute("UPDATE bounties SET status='attempted' WHERE url=?", (url,))
+        c.commit(); c.close()
+        bus.broadcast("craftsman", f"Заявка подана: {repo}#{num}, заявок до нас {rivals}. "
+                                   f"Теперь обязаны прислать работу — заявка без работы "
+                                   f"хуже, чем её отсутствие.")
+    return {"ok": ok, "repo": repo, "issue": num, "rivals": rivals}
+
+
+# ---------------------------------------------------------------- 5. ОТПРАВКА РАБОТЫ
+def deliver(repo, branch, files, title, body, base="main", dry_run=True):
+    """Форк, ветка, файлы, PR — общая способность вместо разового скрипта.
+
+    До этого отправка существовала как ops/omi/submit.py: захардкоженные пути
+    под одну конкретную задачу. Это была не способность, а один поступок.
+
+    files — {путь_в_репозитории: текст}. Работаем через API, а не клонированием:
+    репозитории бывают на гигабайты, а меняем мы два-три файла.
+    """
+    guard.check_action("pr_submit", "YELLOW")
+    if dry_run:
+        _log_action("pr_submit", {"repo": repo, "branch": branch,
+                                  "files": list(files)}, "вхолостую", True)
+        return {"ok": True, "dry_run": True, "files": list(files)}
+
+    fork = f"{US}/{repo.split('/')[1]}"
+    head = _gh(["api", f"repos/{repo}/git/ref/heads/{base}", "--jq", ".object.sha"])
+    if not head:
+        return {"ok": False, "why": f"не читается {base} в {repo}"}
+    head = head.strip()
+
+    if not _gh(["api", f"repos/{fork}"], timeout=60):
+        _gh(["api", "-X", "POST", f"repos/{repo}/forks"], timeout=120)
+        time.sleep(8)                       # форк создаётся не мгновенно
+    _gh(["api", "-X", "POST", f"repos/{fork}/merge-upstream", "-f", f"branch={base}"])
+
+    if not _gh(["api", f"repos/{fork}/git/ref/heads/{branch}"]):
+        _gh(["api", "-X", "POST", f"repos/{fork}/git/refs",
+             "-f", f"ref=refs/heads/{branch}", "-f", f"sha={head}"])
+
+    written = []
+    for path, text in files.items():
+        sha = None
+        cur = _gh(["api", f"repos/{fork}/contents/{path}?ref={branch}", "--jq", ".sha"])
+        if cur:
+            sha = cur.strip()
+        payload = {"message": f"{title} ({path})", "branch": branch,
+                   "content": base64.b64encode(text.encode("utf-8")).decode()}
+        if sha:
+            payload["sha"] = sha
+        r = subprocess.run(["gh", "api", "-X", "PUT", f"repos/{fork}/contents/{path}",
+                            "--input", "-"], input=json.dumps(payload),
+                           capture_output=True, text=True, timeout=120)
+        if r.returncode == 0:
+            written.append(path)
+    if not written:
+        return {"ok": False, "why": "ни один файл не записался"}
+
+    pr = _gh(["pr", "create", "--repo", repo, "--base", base,
+              "--head", f"{US}:{branch}", "--title", title, "--body", body], timeout=120)
+    url = (pr or "").strip().split("\n")[-1] if pr else ""
+    _log_action("pr_submit", {"repo": repo, "branch": branch, "files": written},
+                url or "PR не создан", False)
+    if url.startswith("http"):
+        track_pr(url)
+        bus.broadcast("craftsman", f"Работа отправлена: {url}. Файлов {len(written)}. "
+                                   f"Дальше — надзор за ревью, молчание не считаем успехом.")
+        return {"ok": True, "url": url, "files": written}
+    return {"ok": False, "why": "файлы записаны, но PR не создан", "files": written}
+
+
+# ---------------------------------------------------------------- 6. ПОЛУЧЕНИЕ ВЫПЛАТЫ
+def collect():
+    """Ищет объявления о выплате НАМ и доводит их до кошелька.
+
+    Что агент может сам: заметить, что площадка объявила выплату на наш
+    аккаунт, записать ожидаемую сумму и сверить её с приходом на кошелёк.
+
+    Чего агент НЕ может и не будет: проходить онбординг площадки. Это
+    создание аккаунта и подтверждение личности — класс BLACK. Поэтому шаг
+    остаётся за владельцем, и агент обязан назвать его вслух, а не тихо
+    считать задачу выполненной.
+    """
+    guard.check_action("research", "GREEN")
+    c = _con()
+    rows = c.execute("SELECT url,repo,number,bounty_usd FROM pull_requests").fetchall()
+    watched = [(r[1], r[2]) for r in rows]
+    extra = c.execute("SELECT url,repo FROM bounties WHERE status IN ('attempted','won')").fetchall()
+    c.close()
+    for url, repo in extra:
+        m = re.search(r"/issues/(\d+)", url or "")
+        if m:
+            watched.append((repo, int(m.group(1))))
+
+    awarded = []
+    for repo, num in dict.fromkeys(watched):
+        out = _gh(["api", f"repos/{repo}/issues/{num}/comments?per_page=100",
+                   "--jq", '[.[]|.body] | @json'], timeout=45)
+        if not out:
+            continue
+        try:
+            bodies = json.loads(out.strip().split("\n")[0])
+        except (json.JSONDecodeError, IndexError):
+            continue
+        for b in bodies:
+            low = (b or "").lower()
+            if "awarded" in low and US.lower() in low:
+                amt = re.search(r"\$\s?([\d,]+(?:\.\d+)?)", b)
+                awarded.append({"repo": repo, "issue": num,
+                                "usd": float(amt.group(1).replace(",", "")) if amt else None})
+                break
+
+    if not awarded:
+        return "объявлений о выплате нам пока нет"
+
+    total = sum(a["usd"] or 0 for a in awarded)
+    c = _con()
+    for a in awarded:
+        c.execute("UPDATE bounties SET status='won', note=? WHERE url LIKE ?",
+                  (f"площадка объявила выплату ${a['usd'] or 0:.0f}",
+                   f"%{a['repo']}/issues/{a['issue']}"))
+    c.execute("""INSERT INTO human_interventions(what,why,minutes,category,
+                 agent_could_have,occurred_at) VALUES (?,?,?,?,?,?)""",
+              (f"забрать объявленную выплату ${total:.0f} на площадке",
+               "получение требует аккаунта и подтверждения личности — класс BLACK, "
+               "агентам запрещён; без этого шага деньги до кошелька не дойдут",
+               10.0, "account_creation", 0, now()))
+    c.commit(); c.close()
+    bus.broadcast("craftsman", f"ВЫПЛАТА ОБЪЯВЛЕНА НАМ: ${total:.0f} по "
+                               f"{len(awarded)} задачам. Дальше нужен владелец: "
+                               f"забрать деньги можно только через аккаунт площадки, "
+                               f"а это запрещённый агентам класс действий.")
+    return f"объявлено выплат: {len(awarded)} на ${total:.0f} — требуется шаг владельца"
+
+
 def status():
     c = _con()
     q = lambda s: c.execute(s).fetchone()[0]
@@ -258,7 +474,8 @@ def status():
     return out
 
 
-CYCLE = [("watch_prs", watch_prs), ("find_doc_work", find_doc_work)]
+CYCLE = [("watch_prs", watch_prs), ("find_doc_work", find_doc_work),
+         ("collect_payouts", collect)]
 
 
 if __name__ == "__main__":

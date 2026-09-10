@@ -152,7 +152,8 @@ var AGENTS=[
  {id:"salesman",label:"ПРОДАВЕЦ",color:0x4ade80,shape:"box"},
  {id:"mechanic",label:"МЕХАНИК",color:0x94a3b8,shape:"box"},
  {id:"bounty",label:"ОХОТНИК ЗА БАУНТИ",color:0xfacc15,shape:"tetra"},
- {id:"craftsman",label:"МАСТЕРОВОЙ",color:0xf97316,shape:"box"}
+ {id:"craftsman",label:"МАСТЕРОВОЙ",color:0xf97316,shape:"box"},
+ {id:"prospector",label:"РАЗВЕДЧИК ЗАРАБОТКА",color:0xa78bfa,shape:"dodec"}
 ];
 var scene=new THREE.Scene(); scene.fog=new THREE.FogExp2(0x05070d,0.009);
 var camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,220);
@@ -574,7 +575,7 @@ function renderFeed(){
 }
 var NAMES={scout:"Разведчик",proposer:"Предлагающий",verifier:"Проверяющий",
  adversary:"Оппонент",judge:"Судья",orchestrator:"Оркестратор",
- explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",postman:"Почтальон",leads:"Разведка клиентов",salesman:"Продавец",mechanic:"Механик",bounty:"Охотник за баунти",craftsman:"Мастеровой",
+ explorer:"Исследователь",critic:"Критик",optimizer:"Оптимизатор",postman:"Почтальон",leads:"Разведка клиентов",salesman:"Продавец",mechanic:"Механик",bounty:"Охотник за баунти",craftsman:"Мастеровой",prospector:"Разведчик заработка",
  merchant:"Коммерсант",distributor:"Дистрибьютор",scribe:"Писарь",watchdog:"Сторож"};
 function chatBody(m){
   /* ask/answer/handoff лежат в базе как JSON — разворачиваем в человеческую фразу */
@@ -679,6 +680,32 @@ function renderExec(){
 
   /* ЧЕСТНЫЕ ПОДПИСИ. Слово «потенциал» вводило в заблуждение: это не деньги,
      а сумма прайса, ЕСЛИ бы все нашедшиеся компании купили. Никто не связывался. */
+  /* КАРТА ПУТЕЙ К ДЕНЬГАМ. Стоит ВЫШЕ баунти намеренно: баунти — это один
+     путь из многих, и держать его первым значит снова смотреть в одну точку. */
+  var ps=d.path_stats;
+  if(ps){
+    h+='<h3>Все пути к деньгам — что проверено</h3>';
+    h+='<div class="item"><div class="t">'+
+       '<b style="font-size:17px;color:'+(ps.open?'var(--ok)':'var(--dim)')+'">'+ps.open+'</b>'+
+       ' открыто · <span style="color:var(--bad)">'+ps.closed+'</span> закрыто стеной · '+
+       'всего проверено '+ps.total+'</div>'+
+       '<div class="m">Классов заработка в обходе: '+ps.categories+
+       (ps.blind_categories?', <span style="color:var(--warn)">ещё не размечено '+
+        ps.blind_categories+'</span> — это слепая зона, а не пустота':', размечены все')+
+       '. Путь считается открытым, только если страница площадки сама подтверждает, '+
+       'что платит исполнителю, и платит в крипте. Упоминания криптовалюты недостаточно: '+
+       'по этому признаку в список сначала попали витрина котировок и блог-платформа.'+
+       '</div></div>';
+    (d.money_paths||[]).slice(0,8).forEach(function(p){
+      var open=p.open_to_us===1, closed=p.open_to_us===0;
+      h+='<div class="item"><div class="t">'+
+         '<span style="color:'+(open?'var(--ok)':(closed?'var(--bad)':'var(--dim)'))+'">'+
+         (open?'ОТКРЫТ':(closed?'ЗАКРЫТ':'НЕЯСНО'))+'</span> · '+esc(p.platform)+
+         '<span style="color:var(--dim);font-size:10.5px"> · '+esc(p.category)+'</span></div>'+
+         '<div class="m">'+(p.wall?esc(p.wall):'платит '+esc(p.payout||'?')+
+         ', оценка '+(p.score||0))+'</div></div>';
+    });
+  }
   h+='<h3>Оплачиваемые задачи в открытых репозиториях</h3>';
   h+='<div class="item"><div class="t"><b style="font-size:17px;color:'+
      ((d.bounty_value||0)>0?'var(--ok)':'var(--dim)')+'">$'+(d.bounty_value||0)+

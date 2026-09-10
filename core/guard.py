@@ -7,7 +7,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
 
 KILL_SWITCH = Path(__file__).resolve().parent.parent / "data" / "KILL_SWITCH"
-CAPS = {"email_send": 200, "email_tag": 200, "page_publish": 20, "public_post": 10}
+CAPS = {"email_send": 200, "email_tag": 200, "page_publish": 20, "public_post": 10,
+        # Заявка на задачу — публичное действие в чужом репозитории. Предел низкий
+        # намеренно: на живом рынке мы намерили 72 заявки на одной задаче за $75,
+        # из которых работу прислали единицы. Заявка без готовой работы — это шум,
+        # который мы сами же и осуждаем, а не участие.
+        "bounty_claim": 3,
+        # Отправка PR в чужой репозиторий. Столько же: больше трёх за сутки мы
+        # физически не сделаем на уровне, который сольют.
+        "pr_submit": 3}
 CLASSES = {"GREEN","YELLOW","RED","BLACK"}
 
 # Что мы ПРОДАЁМ. Если это оказалось в открытом доступе — мы раздаём собственный товар.

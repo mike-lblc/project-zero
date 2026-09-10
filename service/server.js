@@ -305,6 +305,9 @@ function agentState() {
     { id: 'mechanic', role: 'Механик', job: 'чинит код, откатывает при провале аудита',
       work: n(`SELECT COUNT(*) c FROM code_fixes`),
       last: (one(`SELECT MAX(at) t FROM code_fixes`) || {}).t },
+    { id: 'prospector', role: 'Разведчик заработка', job: 'ищет ВСЕ способы заработать и щупает их о наши стены',
+      work: n(`SELECT COUNT(*) c FROM money_paths`),
+      last: (one(`SELECT MAX(checked_at) t FROM money_paths`) || {}).t },
     { id: 'watchdog', role: 'Сторож', job: 'следит за живостью агентов',
       work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='watchdog'`),
       last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='watchdog'`) || {}).t }
@@ -389,6 +392,18 @@ app.get('/api/execution', (_req, res) => {
       return db.prepare(`SELECT COALESCE(SUM(amount_usd),0) c FROM bounties
                          WHERE status='found'`).get().c; }
       catch { return 0; } })(),
+    money_paths: all(`SELECT platform,category,payout,score,wall,open_to_us
+                      FROM money_paths ORDER BY open_to_us DESC, score DESC LIMIT 12`),
+    path_stats: (() => { try {
+      const r = db.prepare(`SELECT COUNT(*) total,
+        SUM(CASE WHEN open_to_us=1 THEN 1 ELSE 0 END) open,
+        SUM(CASE WHEN open_to_us=0 THEN 1 ELSE 0 END) closed FROM money_paths`).get();
+      const blind = db.prepare(`SELECT COUNT(*) c FROM path_categories
+                                WHERE searched_at IS NULL`).get().c;
+      const cats = db.prepare(`SELECT COUNT(*) c FROM path_categories`).get().c;
+      return { total: r.total, open: r.open||0, closed: r.closed||0,
+               blind_categories: blind, categories: cats }; }
+      catch { return null; } })(),
     bounty_dropped: (() => { try {
       return db.prepare(`SELECT COUNT(*) c FROM bounties WHERE status='lost'`).get().c; }
       catch { return 0; } })(),

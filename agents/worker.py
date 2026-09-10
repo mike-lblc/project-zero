@@ -67,7 +67,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -363,6 +363,13 @@ def _craft(fn_name):
     return run
 
 
+def _prospect(fn_name):
+    def run():
+        from agents import prospector
+        return dict(prospector.CYCLE)[fn_name]()
+    return run
+
+
 def _bounty(fn_name):
     def run():
         from agents import bounty
@@ -441,6 +448,12 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("optimize", _growth("optimize")),
               ("economics", economic_review),
               ("briefing", daily_briefing),
+              ("prospect", _prospect("prospect")),          # ищет ВСЕ пути к деньгам
+              ("probe_paths", _prospect("probe_paths")),    # щупает их о наши стены
+              ("path_report", _prospect("path_report")),
+              ("find_channel", _leads("find_channel")),
+              ("verify_service", _leads("verify_service")),
+              ("collect_payouts", _craft("collect_payouts")),
               ("mtbx_audit", mtbx_audit)]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 
