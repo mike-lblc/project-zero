@@ -248,3 +248,15 @@ def repair_round(limit=3):
             f"пропущено {skipped}{tail}")
 
 
+
+
+CYCLE = [("mechanic", lambda: repair_round(2))]
+
+
+if __name__ == "__main__":
+    print("═══ ПОИСК ДЕФЕКТОВ ═══")
+    for p in sorted(find_problems(), key=lambda x: -x["severity"])[:12]:
+        print(f"  [{p['severity']}] {p['file']}: {p['detail']}")
+    print()
+    print("═══ ЗАХОД ПОЧИНКИ ═══")
+    print(" ", repair_round(2))

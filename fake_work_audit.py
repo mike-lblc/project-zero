@@ -138,8 +138,12 @@ print("\n── Агенты, выдающие один и тот же резу�
 # — правда. Преступление в том, чтобы повторять её каждые две минуты и
 # засчитывать себе работу.
 con = connect()
+# Считаем от последнего старта воркера. Тянуть счёт через перезапуски значит
+# судить исправленную систему по её прошлому поведению.
+mark = con.execute("SELECT MAX(id) FROM runs WHERE notes LIKE 'worker_start:%'").fetchone()[0]
 rows = con.execute("""SELECT agent, notes, started_at FROM runs
-                      ORDER BY id DESC LIMIT 400""").fetchall()
+                      WHERE id > COALESCE(?, 0) ORDER BY id DESC LIMIT 400""",
+                   (mark,)).fetchall()
 con.close()
 
 seq = {}
@@ -160,7 +164,7 @@ runaway = [f"{step}: {n} раз подряд «{body[:50]}»"
 
 check("повторяющийся шаг уходит на паузу",
       not runaway,
-      f"проверено шагов: {len(seq)} за последние {len(rows)} прогонов, "
+      f"проверено шагов: {len(seq)} за {len(rows)} прогонов текущего запуска, "
       f"ни один не повторился больше {SAME_LIMIT + 1} раз подряд" if not runaway
       else f"защита не сработала на {len(runaway)}: " + "; ".join(runaway[:4]))
 

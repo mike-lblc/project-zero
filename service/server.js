@@ -398,6 +398,13 @@ app.get('/api/execution', (_req, res) => {
       return db.prepare(`SELECT COALESCE(SUM(amount_usd),0) c FROM bounties
                          WHERE status='found'`).get().c; }
       catch { return 0; } })(),
+    // МАТРИЦА ГОТОВНОСТИ. Показывает не «сколько агентов», а сколько звеньев
+    // цепочки от нуля до выручки реально работают — проверенных вызовом.
+    matrix: all(`SELECT stage,owner_agent,verdict,detail,blocker FROM capability_matrix
+                 ORDER BY ord`),
+    matrix_ok: (() => { try {
+      return db.prepare(`SELECT COUNT(*) c FROM capability_matrix
+                         WHERE verdict='РАБОТАЕТ'`).get().c; } catch { return null; } })(),
     money_paths: all(`SELECT platform,category,payout,score,wall,open_to_us
                       FROM money_paths ORDER BY open_to_us DESC, score DESC LIMIT 12`),
     path_stats: (() => { try {

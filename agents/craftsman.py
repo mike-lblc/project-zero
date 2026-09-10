@@ -530,6 +530,71 @@ def pursue(dry_run=True):
             f"заявка {'вхолостую' if dry_run else 'подана'}; текст на эскалации")
 
 
+def fulfil(dry_run=True):
+    """Забирает ответ на эскалацию и превращает его в отправленную работу.
+
+    Это звено «выполнить обещанное». Без него цепочка обрывалась в самом
+    неудачном месте: pursue() поднимал суждение на эскалацию, ответ приходил
+    и ложился в таблицу сообщений — и там оставался. deliver() существовал и
+    не вызывался ниоткуда, что матрица готовности и показала: НЕ ПОДКЛЮЧЕНО.
+
+    Ответ считается работой, только если он содержит сам текст файла. Ответ
+    вида «сделай хорошо» отвергается: отправить в чужой репозиторий нечего,
+    а PR ради PR сжигает доверие сильнее, чем его отсутствие.
+
+    Формат ответа: строка вида
+        ФАЙЛ: путь/в/репозитории.md
+        <содержимое до конца сообщения>
+    """
+    guard.check_action("research", "GREEN")
+    c = connect()
+    rows = c.execute("""SELECT id, body, created_at FROM messages
+                        WHERE topic='resolution' AND consumed_at IS NULL
+                        ORDER BY id""").fetchall()
+    c.close()
+    if not rows:
+        return "разрешённых суждений, готовых к отправке, нет"
+
+    done = 0
+    for mid, body, created in rows:
+        m = re.search(r"ФАЙЛ:\s*(\S+)\s*\n(.+)", body or "", re.S)
+        if not m:
+            c = connect()
+            c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), mid))
+            c.commit(); c.close()
+            bus.broadcast("craftsman", f"Ответ на эскалацию #{mid} не содержит файла — "
+                                       f"отправлять нечего. Пометил как разобранный, "
+                                       f"работу не выдумываю.")
+            continue
+        path, content = m.group(1), m.group(2)
+
+        c = _con()
+        b = c.execute("""SELECT url,repo,title,amount_usd FROM bounties
+                         WHERE status='attempted' ORDER BY fit_score DESC LIMIT 1""").fetchone()
+        c.close()
+        if not b:
+            return "есть готовый текст, но нет задачи со статусом «заявка подана»"
+        url, repo, title, usd = b
+
+        branch = "docs/" + re.sub(r"[^a-z0-9-]+", "-", (title or "work").lower())[:40].strip("-")
+        res = deliver(repo, branch, {path: content},
+                      title=f"docs: {title[:70]}",
+                      body=(f"Closes the documented gap from {url}\n\n"
+                            f"Все команды и флаги в тексте сверены с исходниками "
+                            f"репозитория построчно перед отправкой.\n\n"
+                            f"🤖 Generated with [Claude Code](https://claude.com/claude-code)"),
+                      dry_run=dry_run)
+        c = connect()
+        c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), mid))
+        c.commit(); c.close()
+        if res.get("ok"):
+            done += 1
+        else:
+            bus.broadcast("craftsman", f"Отправка не удалась: {res.get('why')}. "
+                                       f"Задача остаётся со статусом «заявка подана».")
+    return f"{'подготовлено' if dry_run else 'отправлено'} работ: {done} из {len(rows)}"
+
+
 def status():
     c = _con()
     q = lambda s: c.execute(s).fetchone()[0]
@@ -546,7 +611,8 @@ def status():
 
 
 CYCLE = [("watch_prs", watch_prs), ("find_doc_work", find_doc_work),
-         ("collect_payouts", collect), ("pursue", lambda: pursue(dry_run=True))]
+         ("collect_payouts", collect), ("pursue", lambda: pursue(dry_run=True)),
+         ("fulfil", lambda: fulfil(dry_run=True))]
 
 
 if __name__ == "__main__":

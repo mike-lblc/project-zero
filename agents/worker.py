@@ -67,7 +67,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -564,6 +564,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("verify_service", _leads("verify_service")),
               ("collect_payouts", _craft("collect_payouts")),
               ("pursue", _craft("pursue")),
+              ("fulfil", _craft("fulfil")),
               ("housekeeping", housekeeping),
               ("escalation_watch", escalation_watch),
               ("mtbx_audit", mtbx_audit)]
@@ -617,6 +618,11 @@ def note_result(name, out, turn):
 
 def run_forever(interval=90):
     print(f"[worker] starting; cycle every {interval}s. KILL_SWITCH halts it.", flush=True)
+    # Отметка старта. Без неё счёт повторов тянется через перезапуски и наказывает
+    # за поведение, которое уже исправлено, — то есть превращается в цифру,
+    # которую хочется подкрутить вместо того, чтобы чинить систему.
+    record_run("worker_start", "orchestrator", True,
+               f"цикл {interval}с, шагов {len(CYCLE)}+{len(SLOW_CYCLE)}", now(), now())
     i = 0
     while True:
         try:
