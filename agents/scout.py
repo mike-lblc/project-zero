@@ -1,7 +1,7 @@
 """SCOUT — the first agent. Searches, fetches, extracts, and files evidence.
 Every claim it makes MUST carry a source row, per DECISION_PROTOCOL.md.
 Scout is a GREEN agent: research only, reversible, private, free."""
-import sys, os, re, json, hashlib, urllib.request, urllib.parse, urllib.error
+import sys, re, json, hashlib, urllib.request, urllib.parse, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

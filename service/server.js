@@ -296,6 +296,9 @@ function agentState() {
     { id: 'postman', role: 'Почтальон', job: 'подписчики, теги, запуск серии писем',
       work: n(`SELECT COUNT(*) c FROM subscribers`) + n(`SELECT COUNT(*) c FROM email_events`),
       last: (one(`SELECT MAX(created_at) t FROM messages WHERE sender='postman'`) || {}).t },
+    { id: 'bounty', role: 'Охотник за баунти', job: 'ищет оплачиваемые задачи в открытых репозиториях',
+      work: n(`SELECT COUNT(*) c FROM bounties`),
+      last: (one(`SELECT MAX(found_at) t FROM bounties`) || {}).t },
     { id: 'mechanic', role: 'Механик', job: 'чинит код, откатывает при провале аудита',
       work: n(`SELECT COUNT(*) c FROM code_fixes`),
       last: (one(`SELECT MAX(at) t FROM code_fixes`) || {}).t },
@@ -374,6 +377,11 @@ app.get('/api/execution', (_req, res) => {
                 ORDER BY spend_signal DESC LIMIT 15`),
     problems: all(`SELECT domain,problem,evidence,service_offer,price_usd FROM lead_problems
                    ORDER BY severity DESC LIMIT 20`),
+    bounties: all(`SELECT repo,title,amount_usd,stars,language,url FROM bounties
+                   ORDER BY fit_score DESC LIMIT 10`),
+    bounty_value: (() => { try {
+      return db.prepare(`SELECT COALESCE(SUM(amount_usd),0) c FROM bounties`).get().c; }
+      catch { return 0; } })(),
     pipeline_value: (() => { try {
       return db.prepare(`SELECT COALESCE(SUM(price_usd),0) c FROM lead_problems`).get().c; }
       catch { return 0; } })(),
@@ -434,6 +442,23 @@ app.get('/api/economics', (_req, res) => {
     opportunities: all(`SELECT name, score, verdict, gate_notes FROM opportunities
                         ORDER BY score DESC`)
   });
+});
+
+// ---- СИГНАЛЫ: настоящие сообщения между агентами ----
+// Дашборд рисует импульс на КАЖДОЕ реальное сообщение. Нет общения — нет импульсов.
+app.get('/api/signals', (req, res) => {
+  const since = Number(req.query.since || 0);
+  const db = new DatabaseSync(DB, { readOnly: true });
+  let rows = [];
+  try {
+    rows = db.prepare(`SELECT id,sender,recipient,topic,substr(body,1,120) body,created_at
+                       FROM messages WHERE id > ? AND topic IN ('ask','answer','handoff','chat')
+                       ORDER BY id LIMIT 60`).all(since);
+  } catch {}
+  let maxId = since;
+  try { maxId = db.prepare(`SELECT COALESCE(MAX(id),0) c FROM messages`).get().c; } catch {}
+  db.close();
+  res.json({ signals: rows, maxId });
 });
 
 // ---- AGENT CHAT (russian) ----

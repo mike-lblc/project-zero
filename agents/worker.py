@@ -67,7 +67,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -334,6 +334,13 @@ def daily_briefing():
     return f"{b['stage']}, выручка ${b['verified_revenue_usd']}"
 
 
+def _bounty(fn_name):
+    def run():
+        from agents import bounty
+        return dict(bounty.CYCLE)[fn_name]()
+    return run
+
+
 def _mech(fn_name):
     def run():
         from agents import mechanic
@@ -379,6 +386,7 @@ def _team(fn_name):
 # После разворота на услуги приоритет пересобран: сначала то, что ведёт к деньгам,
 # потом всё остальное. Разведка клиентов и диагноз — это выручка, они в ядре.
 CYCLE = [("watch_payments", watch_payments),        # миссия: первый платёж
+         ("hunt_bounties", _bounty("hunt_bounties")),
          ("find_leads", _leads("find_leads")),      # кто может заплатить
          ("diagnose_leads", _sales("diagnose_leads")),  # за что именно заплатит
          ("distributor", _team("distributor")),     # видно ли нас

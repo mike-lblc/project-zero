@@ -103,6 +103,7 @@ display:flex;align-items:center;justify-content:center;user-select:none;transiti
   <div class="stat" data-tab="queue"><b id="s-sub" style="color:var(--vio)">&ndash;</b><span>Подписчики</span></div>
   <div class="stat"><b id="s-spend" style="color:var(--ok)">&ndash;</b><span>Потрачено</span></div>
   <div class="stat"><b id="s-pay" style="color:var(--acc)">&ndash;</b><span>Платежи</span></div>
+  <div class="stat"><b id="sigcount" style="color:var(--acc)">0</b><span>сигналов в полёте</span></div>
   <div class="pill"><span class="dot"></span><span id="live">подключаюсь…</span></div>
 </div>
 
@@ -277,47 +278,61 @@ function nodeById(id){ return nodes.filter(function(n){return n.id===id;})[0]; }
    Штрихи БЕГУТ вдоль связи: каждый кадр сдвигаем dashOffset, поэтому линия
    не «прерывистая», а живая — видно направление, в котором идёт работа. */
 var beams=[];
-/* ЛЕТЯЩИЕ ИМПУЛЬСЫ. Бегущий пунктир через dashOffset сделать нельзя —
-   у LineDashedMaterial такого свойства нет. Поэтому вдоль каждой связи
-   летит цепочка светящихся точек: видно и направление, и что связь живая. */
-var dotGeo=new THREE.SphereGeometry(0.11,8,6);
-function beam(a,b,color,speed,op){
-  /* тусклая направляющая — чтобы читалась структура */
+var LINKMAP={};                     /* "a>b" -> геометрия связи, чтобы знать маршрут */
+var dotGeo=new THREE.SphereGeometry(0.13,8,6);
+
+/* Связь рисуется тускло и статично: она показывает, кто С КЕМ может говорить.
+   Движение по ней появляется только от НАСТОЯЩЕГО сообщения (см. fireSignal). */
+function beam(a,b,color,speed,op,ida,idb){
   var g=new THREE.BufferGeometry().setFromPoints([a,b]);
   scene.add(new THREE.Line(g,new THREE.LineBasicMaterial({
-    color:color,transparent:true,opacity:op*0.22})));
+    color:color,transparent:true,opacity:op*0.3})));
+  if(ida&&idb){ LINKMAP[ida+">"+idb]={a:a.clone(),b:b.clone(),c:color};
+                LINKMAP[idb+">"+ida]={a:b.clone(),b:a.clone(),c:color}; }
+}
 
-  var mat=new THREE.MeshBasicMaterial({color:color,transparent:true,opacity:op});
-  var dots=[],N=4;
-  for(var i=0;i<N;i++){
-    var d=new THREE.Mesh(dotGeo,mat);
-    scene.add(d);
-    dots.push({m:d,t:i/N});
+/* ЖИВЫЕ СИГНАЛЫ. Каждый импульс — одно реальное сообщение из brain.db.
+   Тип виден по размеру и цвету:
+     ask      — вопрос агенту          (голубой, быстрый)
+     answer   — ответ на вопрос        (зелёный)
+     handoff  — передача работы        (жёлтый, крупный)
+     chat     — объявление всем        (тусклый, к центру) */
+var SIGSTYLE={ask:{c:0x5b9dff,r:1.0,sp:0.020},
+               answer:{c:0x3ddc9a,r:1.0,sp:0.020},
+               handoff:{c:0xffb454,r:1.5,sp:0.014},
+               chat:{c:0x7d8ba8,r:0.7,sp:0.026}};
+var live=[];
+function fireSignal(from,to,topic){
+  var st=SIGSTYLE[topic]||SIGSTYLE.chat;
+  var route=LINKMAP[from+">"+to];
+  if(!route){
+    /* прямой связи нет — ведём через оркестратор, он и есть маршрутизатор */
+    var a=nodeById(from), b=nodeById(to);
+    if(!a) return;
+    route={a:a.group.position.clone(), b:(b?b.group.position:hub.group.position).clone(), c:st.c};
   }
-  beams.push({a:a.clone(),b:b.clone(),dots:dots,sp:speed});
+  var m=new THREE.Mesh(dotGeo,new THREE.MeshBasicMaterial({color:st.c,transparent:true}));
+  m.scale.setScalar(st.r);
+  m.position.copy(route.a); scene.add(m);
+  live.push({m:m,a:route.a,b:route.b,t:0,sp:st.sp});
 }
 function stepBeams(){
-  for(var i=0;i<beams.length;i++){
-    var bm=beams[i];
-    for(var j=0;j<bm.dots.length;j++){
-      var d=bm.dots[j];
-      d.t+=bm.sp;
-      if(d.t>1) d.t-=1;
-      d.m.position.lerpVectors(bm.a,bm.b,d.t);
-      /* импульс гаснет к концам — получается «выстрел», а не бусина на нитке */
-      d.m.material.opacity=0.9*Math.sin(d.t*Math.PI);
-    }
+  for(var i=live.length-1;i>=0;i--){
+    var s=live[i]; s.t+=s.sp;
+    s.m.position.lerpVectors(s.a,s.b,Math.min(s.t,1));
+    s.m.material.opacity=Math.sin(Math.min(s.t,1)*Math.PI);
+    if(s.t>=1){ scene.remove(s.m); live.splice(i,1); }
   }
 }
 LINKS.forEach(function(pair){
   var a=nodeById(pair[0]), b=nodeById(pair[1]);
   if(!a||!b) return;
   /* цвет берём у отправителя — по лучу видно, кто кому передаёт работу */
-  beam(a.group.position,b.group.position,a.color,0.0035+(pair[0].length%5)*0.0011,0.85);
+  beam(a.group.position,b.group.position,a.color,0,0.85,pair[0],pair[1]);
 });
 /* привязка к ступице — тусклее и медленнее, чтобы не спорила с рабочими связями */
 nodes.forEach(function(n){ if(n.id==="orchestrator")return;
-  beam(hub.group.position,n.group.position,0x4a7ab0,0.0018,0.35);});
+  beam(hub.group.position,n.group.position,0x4a7ab0,0,0.28,'orchestrator',n.id);});
 var pulses=[];
 function pulse(to){var m=new THREE.Mesh(new THREE.SphereGeometry(.18,12,10),
    new THREE.MeshBasicMaterial({color:to.color,transparent:true}));
@@ -656,7 +671,18 @@ function renderExec(){
 
   /* ЧЕСТНЫЕ ПОДПИСИ. Слово «потенциал» вводило в заблуждение: это не деньги,
      а сумма прайса, ЕСЛИ бы все нашедшиеся компании купили. Никто не связывался. */
-  h+='<h3>Найденные работы</h3>';
+  h+='<h3>Оплачиваемые задачи в открытых репозиториях</h3>';
+  h+='<div class="item"><div class="t"><b style="font-size:17px;color:var(--ok)">$'+
+     (d.bounty_value||0)+'</b> — суммарно по найденным задачам</div>'+
+     '<div class="m">Платят за решённую задачу при слиянии PR. Это чек за работу, '+
+     'а не центы за вызов. Фермы отсеяны: крупные суммы от репозиториев без репутации '+
+     'не засчитываются.</div></div>';
+  (d.bounties||[]).slice(0,5).forEach(function(b){
+    h+='<div class="item"><div class="t"><span style="color:var(--ok)">$'+b.amount_usd+
+       '</span> · '+esc(b.repo)+' <span style="color:var(--dim);font-size:10.5px">звёзд '+
+       b.stars+'</span></div><div class="m">'+esc(b.title)+'</div></div>';
+  });
+  h+='<h3>Найденные работы у клиентов</h3>';
   h+='<div class="item"><div class="t">'+
      '<b style="font-size:17px">$'+(d.pipeline_value||0)+'</b> — прайс найденных работ<br>'+
      '<b style="font-size:17px;color:var(--ok)">$0</b> — продано</div>'+
