@@ -22,7 +22,7 @@
 """
 import sys, re, json, subprocess
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect, ensure_schema
@@ -405,7 +405,76 @@ def shortlist(n=10):
             for r in rows]
 
 
+def fresh_bounties(max_age_hours=6, max_rivals=3):
+    """Перехват СВЕЖИХ премий — пока на них не набежала толпа.
+
+    Почему это отдельный инструмент, а не настройка охотника. Замер живого
+    рынка показал жёсткую картину: на задаче tscircuit#92 за $75 висит
+    72 заявки и два десятка присланных PR, и премия уже выплачена. Полный
+    обход рынка вернул НОЛЬ доступных задач из шестидесяти просмотренных.
+    Рынок не пустой — он разбирается за часы конкурирующими агентами.
+
+    Значит единственное доступное нам преимущество — не качество разбора
+    и не размер суммы, а СКОРОСТЬ. Задача, которой шесть часов и на которой
+    ещё нет трёх заявок, — единственная, где у нас есть шанс быть первыми.
+
+    Проверка идёт часто и стоит один запрос поиска: за квоту можно не бояться.
+    """
+    guard.check_action("research", "GREEN")
+    _API_TROUBLE.clear()
+    since = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    q = f"commenter:algora-pbc state:open is:issue created:>{since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    out = _gh(["api", "-X", "GET", "search/issues", "-f", f"q={q}",
+               "-f", "per_page=25", "-f", "sort=created", "-f", "order=desc",
+               "--jq", '.items[] | {u:.html_url, t:.title, b:(.body//""|.[0:900]), '
+                       'n:.number, cm:.comments, created:.created_at, '
+                       'r:(.repository_url|split("/")|.[-2:]|join("/")), '
+                       'l:[.labels[].name]} | @json'])
+    if not out:
+        if _API_TROUBLE:
+            return f"перехват не выполнен: {', '.join(sorted(set(_API_TROUBLE))[:2])}"
+        return f"свежих премий за {max_age_hours} ч нет"
+
+    hot = []
+    for line in out.strip().split("\n"):
+        if not line:
+            continue
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not looks_like_real_money(d.get("b", ""), d.get("l", [])):
+            continue
+        amount = parse_amount(d["t"] + " " + d.get("b", ""))
+        if not amount:
+            continue
+        rivals, paid = competition(d["r"], d["n"], d["t"])
+        if paid or rivals > max_rivals:
+            continue
+        hot.append({"url": d["u"], "repo": d["r"], "title": d["t"][:180],
+                    "amount": amount, "rivals": rivals, "created": d.get("created")})
+
+    if not hot:
+        return f"свежих премий за {max_age_hours} ч нет (проверено, толпа везде)"
+
+    hot.sort(key=lambda h: (h["rivals"], -h["amount"]))
+    c = _con()
+    for h in hot:
+        c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,rivals,
+                     status,note,found_at) VALUES (?,?,?,?,?,?,'found',?,?)
+                     ON CONFLICT(url) DO UPDATE SET rivals=?, status='found'""",
+                  (h["url"], h["repo"], h["title"], h["amount"], "USD", h["rivals"],
+                   f"перехвачена свежей: возраст до {max_age_hours} ч", now(), h["rivals"]))
+    c.commit(); c.close()
+    top = hot[0]
+    bus.broadcast("bounty", f"СВЕЖАЯ ПРЕМИЯ, толпы ещё нет: {top['repo']} за ${top['amount']:.0f}, "
+                            f"заявок {top['rivals']}. {top['title'][:70]}. "
+                            f"Здесь решает скорость — берём сейчас или не берём вовсе.")
+    return f"перехвачено свежих: {len(hot)}, лучшая ${top['amount']:.0f} при {top['rivals']} заявках"
+
+
 CYCLE = [("hunt_bounties", lambda: hunt(40))]
+FAST_CYCLE = [("fresh_bounties", lambda: fresh_bounties(6, 3))]
 
 
 if __name__ == "__main__":

@@ -67,7 +67,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -366,7 +366,7 @@ def _craft(fn_name):
 def _bounty(fn_name):
     def run():
         from agents import bounty
-        return dict(bounty.CYCLE)[fn_name]()
+        return dict(bounty.CYCLE + bounty.FAST_CYCLE)[fn_name]()
     return run
 
 
@@ -416,6 +416,7 @@ def _team(fn_name):
 # потом всё остальное. Разведка клиентов и диагноз — это выручка, они в ядре.
 CYCLE = [("watch_payments", watch_payments),        # миссия: первый платёж
          ("watch_prs", _craft("watch_prs")),
+         ("fresh_bounties", _bounty("fresh_bounties")),  # скорость = единственное преимущество
          ("hunt_bounties", _bounty("hunt_bounties")),
          ("find_leads", _leads("find_leads")),      # кто может заплатить
          ("diagnose_leads", _sales("diagnose_leads")),  # за что именно заплатит

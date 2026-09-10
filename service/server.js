@@ -380,10 +380,17 @@ app.get('/api/execution', (_req, res) => {
                 ORDER BY spend_signal DESC LIMIT 15`),
     problems: all(`SELECT domain,problem,evidence,service_offer,price_usd FROM lead_problems
                    ORDER BY severity DESC LIMIT 20`),
-    bounties: all(`SELECT repo,title,amount_usd,stars,language,url FROM bounties
-                   ORDER BY fit_score DESC LIMIT 10`),
+    // ТОЛЬКО ДОСТУПНЫЕ. Суммировать все подряд — значит показывать деньгами
+    // задачи, которые уже выплачены другим или разобраны толпой. Поймано на
+    // tscircuit#92: $75 в базе, а на деле 72 заявки и премия уже выдана.
+    bounties: all(`SELECT repo,title,amount_usd,stars,language,url,rivals FROM bounties
+                   WHERE status='found' ORDER BY fit_score DESC LIMIT 10`),
     bounty_value: (() => { try {
-      return db.prepare(`SELECT COALESCE(SUM(amount_usd),0) c FROM bounties`).get().c; }
+      return db.prepare(`SELECT COALESCE(SUM(amount_usd),0) c FROM bounties
+                         WHERE status='found'`).get().c; }
+      catch { return 0; } })(),
+    bounty_dropped: (() => { try {
+      return db.prepare(`SELECT COUNT(*) c FROM bounties WHERE status='lost'`).get().c; }
       catch { return 0; } })(),
     pipeline_value: (() => { try {
       return db.prepare(`SELECT COALESCE(SUM(price_usd),0) c FROM lead_problems`).get().c; }

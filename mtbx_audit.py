@@ -128,11 +128,37 @@ check("у каждого агента заявлено назначение", ag
 # ───────────────────────────────── §12/13 гейты
 sec("§12-13 Страж завершения и настоящие блокеры")
 
+# Проверки гейтов создают настоящие задачи — иначе они не проверяли бы гейт.
+# Но эти задачи ПРОБНЫЕ, и оставлять их на доске нельзя: аудит крутится в
+# цикле воркера, и за сутки доска забилась бы фантомами «в работе», которые
+# никто не делает. Раздел 60 требует отличать проверочное от настоящего,
+# поэтому пробные задачи помечены и стираются сразу после проверки.
+PROBE_TAG = "[ПРОБА АУДИТА] "
+_probes = []
+
+
+def _probe(objective, next_action):
+    from core import execution as ex
+    t = ex.create(PROBE_TAG + objective, next_action, "audit", 5)
+    _probes.append(t)
+    ex.start(t)
+    return t
+
+
+def _clear_probes():
+    c = connect()
+    c.execute("DELETE FROM task_events WHERE task_id IN "
+              "(SELECT id FROM tasks WHERE objective LIKE ?)", (PROBE_TAG + "%",))
+    c.execute("DELETE FROM proof_of_work WHERE task_id IN "
+              "(SELECT id FROM tasks WHERE objective LIKE ?)", (PROBE_TAG + "%",))
+    n = c.execute("DELETE FROM tasks WHERE objective LIKE ?", (PROBE_TAG + "%",)).rowcount
+    c.commit(); c.close()
+    return n
+
 
 def completion_guard():
     from core import execution as ex
-    t = ex.create("проверка стража", "закрыть без доказательства", "audit", 5)
-    ex.start(t)
+    t = _probe("страж завершения", "закрыть без доказательства")
     try:
         ex.complete(t)
         return False, "задача закрыта БЕЗ доказательства работы"
@@ -142,8 +168,7 @@ def completion_guard():
 
 def fake_blocker_rejected():
     from core import execution as ex
-    t = ex.create("проверка блокера", "объявить ложный блокер", "audit", 5)
-    ex.start(t)
+    t = _probe("ложный блокер", "объявить ложный блокер")
     try:
         ex.block(t, "need_to_think", "надо подумать")
         return False, "ложный блокер ПРИНЯТ"
@@ -153,8 +178,7 @@ def fake_blocker_rejected():
 
 def blocker_needs_capability_scan():
     from core import execution as ex
-    t = ex.create("проверка обхода", "блокер без перебора возможностей", "audit", 5)
-    ex.start(t)
+    t = _probe("обход возможностей", "блокер без перебора возможностей")
     try:
         ex.block(t, "missing_api_credentials", "нет ключа", capability_check=["собственные инструменты"])
         return False, "блокер принят БЕЗ перебора возможностей"
@@ -165,6 +189,8 @@ def blocker_needs_capability_scan():
 check("нельзя закрыть задачу без доказательства", completion_guard)
 check("ложный блокер отклоняется", fake_blocker_rejected)
 check("блокер требует обхода возможностей", blocker_needs_capability_scan)
+check("проверочные задачи убраны с доски",
+      lambda: (True, f"стёрто пробных задач: {_clear_probes()}"))
 
 # ───────────────────────────────── §16 связь агентов
 sec("§16 Связь между агентами")
