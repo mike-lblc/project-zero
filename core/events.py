@@ -147,7 +147,7 @@ def stale(minutes=30):
     c = _con()
     rows = c.execute("""SELECT id,kind,claimed_by,claimed_at FROM events
                         WHERE done_at IS NULL AND claimed_at IS NOT NULL
-                          AND claimed_at < datetime('now', ?)""",
+                          AND claimed_at < strftime('%Y-%m-%dT%H:%M:%S','now', ?)""",
                      (f"-{minutes} minutes",)).fetchall()
     c.close()
     return [dict(zip(("id", "kind", "by", "at"), r)) for r in rows]

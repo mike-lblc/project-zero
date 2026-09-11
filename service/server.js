@@ -551,7 +551,11 @@ app.get('/metrics', (_req, res) => {
   try {
     rows = db.prepare(
       "SELECT kind, name, COUNT(*) c, SUM(1-ok) bad, AVG(ms) avg FROM spans " +
-      "WHERE at > datetime('now','-24 hours') GROUP BY kind, name").all();
+      // Метка хранится с T и смещением, а datetime('now') отдаёт её с пробелом:
+      // сравнение строк тогда истинно всегда, и «за сутки» означает «за всё
+      // время». strftime даёт тот же формат, в котором метка записана.
+      "WHERE at > strftime('%Y-%m-%dT%H:%M:%S','now','-24 hours') " +
+      "GROUP BY kind, name").all();
   } catch { /* таблицы ещё нет — цикл не проходил */ }
   db.close();
 

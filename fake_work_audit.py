@@ -247,7 +247,8 @@ from agents import worker  # noqa: E402
 declared = [n for n, _ in worker.CYCLE + worker.SLOW_CYCLE]
 con = connect()
 seen = {r[0] for r in con.execute(
-    "SELECT DISTINCT notes FROM runs WHERE started_at > datetime('now','-2 days')")
+    "SELECT DISTINCT notes FROM runs WHERE started_at > "
+    "strftime('%Y-%m-%dT%H:%M:%S','now','-2 days')")
     if r[0]}
 con.close()
 ran = {d for d in declared if any(s.startswith(d + ":") for s in seen)}

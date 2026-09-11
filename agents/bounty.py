@@ -164,6 +164,69 @@ PAYOUT_OK = ("algora", "crypto", "usdc", "usdt", "eth", "wallet", "onchain",
 PAYOUT_BLOCKED = ("paypal", "venmo", "zelle", "cashapp", "ach ", "wire transfer")
 
 
+# Кто в проекте имеет право объявлять награду. GitHub отдаёт это в поле
+# author_association: посторонний помечен как NONE или CONTRIBUTOR.
+AUTHORITY = {"OWNER", "MEMBER", "COLLABORATOR"}
+
+
+def declared_by_project(repo, issue_number):
+    """Объявил ли награду САМ ПРОЕКТ. Возвращает (да/нет/неизвестно, чем доказано).
+
+    ЗАЧЕМ ЭТА ПРОВЕРКА ПОЯВИЛАСЬ — на нашей же ошибке, стоившей дня работы.
+    Мы написали руководство и сочли его работой на $25. Сумма стояла в
+    заголовке задачи, и этого показалось достаточно. На деле задачу завёл
+    такой же соискатель, а её текст был ВОПРОСОМ к мейнтейнерам: «подойдёт ли
+    награда в $25?» — и ответа не последовало ни разу. Меток награды у задачи
+    не было вовсе, а последняя задача с такой меткой заведена за восемь с
+    половиной месяцев до того дня.
+
+    Различение простое и проверяемое: награду объявляет проект — меткой или
+    словами человека с правами в репозитории. Сумма, написанная посторонним,
+    это ПРЕДЛОЖЕНИЕ цены, а не цена. Работать по ней можно, но называть это
+    оплачиваемой работой нельзя: тогда мы обманываем себя о собственной
+    выручке, а это дороже любого потерянного дня.
+
+    Возвращает None, если выяснить не удалось. Неизвестность — не отказ:
+    отсутствие ответа API мы уже однажды доложили как отсутствие работы.
+    """
+    raw = _gh(["api", f"/repos/{repo}/issues/{issue_number}"])
+    if not raw:
+        return None, "задача не прочиталась — это незнание, а не отказ"
+    try:
+        issue = json.loads(raw)
+    except ValueError:
+        return None, "ответ по задаче не разобрался"
+
+    labels = [str(l.get("name", "")).lower() for l in (issue.get("labels") or [])]
+    money = [l for l in labels
+             if "bounty" in l or "reward" in l or "\U0001f4b0" in l or "\U0001f48e" in l]
+    if money:
+        return True, f"метка проекта: {money[0]}"
+
+    opener = (issue.get("author_association") or "").upper()
+    if opener in AUTHORITY:
+        return True, f"задачу завёл человек с правами: {opener}"
+
+    # Меток нет и завёл посторонний — остаётся слово мейнтейнера в обсуждении.
+    # Именно его у нас и не было: на шестнадцати таких же задачах ноль ответов.
+    raw_c = _gh(["api", f"/repos/{repo}/issues/{issue_number}/comments?per_page=100"])
+    if not raw_c:
+        return None, "обсуждение не прочиталось"
+    try:
+        comments = json.loads(raw_c)
+    except ValueError:
+        return None, "обсуждение не разобралось"
+    for c in comments:
+        if (c.get("author_association") or "").upper() in AUTHORITY:
+            who = (c.get("user") or {}).get("login")
+            body = " ".join((c.get("body") or "")[:130].split())
+            return True, f"подтвердил {who}: {body}"
+
+    return False, (f"НАГРАДУ НИКТО НЕ ОБЪЯВЛЯЛ: меток нет, задачу завёл "
+                   f"{opener or 'посторонний'}, мейнтейнеры не отвечали "
+                   f"({len(comments)} комментариев)")
+
+
 def payout_reachable(repo, body):
     """Дойдут ли деньги. True / False / None (неизвестно).
 
@@ -347,6 +410,13 @@ def enrich_and_score(rows):
         if pay is False:
             continue          # платят способом, недоступным владельцу
 
+        # КТО НАЗНАЧИЛ СУММУ. Сумма в заголовке — ещё не награда: её мог
+        # написать такой же соискатель. Мы на этом потеряли день, приняв за
+        # работу на $25 задачу, где цену предложил посторонний, а мейнтейнеры
+        # не ответили. Это не повод отбрасывать — это повод не врать себе
+        # про ожидаемую выручку, поэтому вес задачи режется, а не обнуляется.
+        declared, proof = declared_by_project(repo, d.get("n"))
+
         # ЗАНЯТОСТЬ: сколько уже делают то же самое и не выплачено ли уже
         rivals, paid = competition(repo, d.get("n"))
         if paid:
@@ -361,10 +431,17 @@ def enrich_and_score(rows):
         crowd = 1.0 / (1 + rivals * 0.8 + (d.get("cm", 0) or 0) * 0.02)
         # неизвестный способ выплаты — не запрет, но и не повод вкладываться
         pay_factor = 1.0 if pay is True else 0.35
-        fit = round(amount * stack_fit * (0.35 + 0.65 * trust) * crowd * pay_factor, 1)
+        # Необъявленная награда — самый тяжёлый множитель из всех. Работа по
+        # ней не запрещена (вклад в открытый проект имеет смысл сам по себе),
+        # но считать её выручкой нельзя, и в очередь она идёт последней.
+        declared_factor = 1.0 if declared is True else (0.5 if declared is None else 0.08)
+        fit = round(amount * stack_fit * (0.35 + 0.65 * trust) * crowd
+                    * pay_factor * declared_factor, 1)
         out.append({"url": d["u"], "repo": repo, "title": d["t"][:180],
                     "amount": amount, "stars": stars, "language": lang, "rivals": rivals,
                     "payout": ("крипта/Algora" if pay is True else "неизвестно"),
+                    "declared": declared,
+                    "declared_proof": proof[:160],
                     "labels": ",".join(d.get("l", []))[:120], "fit": fit})
     out.sort(key=lambda r: -r["fit"])
     # Не больше MAX_PER_REPO задач из одного репозитория: ферма иначе забьёт

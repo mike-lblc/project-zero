@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
-from core import guard, memory, economics
+from core import guard, memory, economics, telemetry
 
 # НИ ОДИН ДОЧЕРНИЙ ПРОЦЕСС НЕ ОТКРЫВАЕТ ОКНО.
 # Окна выскакивали не из запуска воркера, а из КАЖДОГО вызова gh, git, node и

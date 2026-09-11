@@ -157,11 +157,11 @@ def measure():
         "leads_reachable": q("SELECT COUNT(*) FROM leads WHERE reachable=1"),
         "escalations": q("SELECT COUNT(*) FROM messages WHERE recipient='ESCALATION' "
                          "AND consumed_at IS NULL"),
-        "stalled": q("SELECT COUNT(*) FROM tasks WHERE state='in_progress' "
-                     "AND updated_at < datetime('now','-6 hours')"),
-        "runs_1h": q("SELECT COUNT(*) FROM runs WHERE started_at > datetime('now','-1 hour')"),
+        "stalled": q("SELECT COUNT(*) FROM tasks WHERE state='running' "
+                     "AND updated_at < strftime('%Y-%m-%dT%H:%M:%S','now','-6 hours')"),
+        "runs_1h": q("SELECT COUNT(*) FROM runs WHERE started_at > strftime('%Y-%m-%dT%H:%M:%S','now','-1 hour')"),
         "errors_1h": q("SELECT COUNT(*) FROM runs WHERE status='error' "
-                       "AND started_at > datetime('now','-1 hour')"),
+                       "AND started_at > strftime('%Y-%m-%dT%H:%M:%S','now','-1 hour')"),
         "matrix_ok": q("SELECT COUNT(*) FROM capability_matrix WHERE verdict='РАБОТАЕТ'"),
         "matrix_total": q("SELECT COUNT(*) FROM capability_matrix"),
     }
@@ -272,7 +272,7 @@ def repair(st):
         found += 1
         c = connect()
         top = c.execute("""SELECT notes, COUNT(*) n FROM runs
-                           WHERE status='error' AND started_at > datetime('now','-1 hour')
+                           WHERE status='error' AND started_at > strftime('%Y-%m-%dT%H:%M:%S','now','-1 hour')
                            GROUP BY substr(notes,1,40) ORDER BY n DESC LIMIT 1""").fetchone()
         c.close()
         issue = f"повторяющийся сбой шага: {(top[0] or '')[:60]}"

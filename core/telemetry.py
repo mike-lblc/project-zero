@@ -99,7 +99,11 @@ def summary(hours=24, kind=None):
     c = _con()
     sql = ("SELECT kind, name, COUNT(*), SUM(1-ok), "
            "       AVG(ms), MAX(ms) FROM spans "
-           "WHERE at > datetime('now', ?) ")
+           # Метки хранятся как 2026-09-11T20:52:49+00:00, а datetime('now') отдаёт
+           # ту же секунду с ПРОБЕЛОМ вместо T. Сравнение строк тогда истинно
+           # всегда ('T' больше пробела), и окно возвращает всю историю вместо
+           # суток. strftime даёт ровно тот формат, в котором метка записана.
+           "WHERE at > strftime('%Y-%m-%dT%H:%M:%S','now', ?) ")
     args = [f"-{int(hours)} hours"]
     if kind:
         sql += "AND kind=? "
