@@ -176,6 +176,9 @@ CREATE INDEX IF NOT EXISTS idx_msg_unconsumed ON messages(recipient, consumed_at
 CREATE INDEX IF NOT EXISTS idx_ev_source ON evidence(source_id);
 """
 
+_WAL_SET = False
+
+
 def connect():
     """Соединение с базой.
 
@@ -184,14 +187,35 @@ def connect():
     системе — охотник за баунти не смог записать находки, пока воркер крутил цикл.
     """
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB_PATH, timeout=30)
-    con.execute("PRAGMA busy_timeout=30000")
-    con.execute("PRAGMA journal_mode=WAL")
+    con = sqlite3.connect(DB_PATH, timeout=60)
+    con.execute("PRAGMA busy_timeout=60000")
+    # Режим журнала переключается ОДИН РАЗ на процесс. Смена journal_mode берёт
+    # исключительную блокировку, а выполнялась она при каждом открытии — десятки
+    # раз в минуту. Пока воркер писал, любой параллельный аудит получал
+    # «database is locked» на ровном месте, и один такой отказ убивал воркер.
+    global _WAL_SET
+    if not _WAL_SET:
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+            _WAL_SET = True
+        except sqlite3.OperationalError:
+            pass          # уже WAL или кто-то пишет — не повод падать
     con.row_factory = sqlite3.Row
     return con
 
+_SCHEMA_DONE = set()
+
+
 def ensure_schema(con, schema_sql):
     """Создаёт таблицы И ДОБАВЛЯЕТ недостающие колонки в уже существующие.
+
+    ВЫПОЛНЯЕТСЯ ОДИН РАЗ НА ПРОЦЕСС для каждой схемы. Это не оптимизация, а
+    исправление того, что роняло всю экосистему: executescript с CREATE TABLE
+    берёт в SQLite пишущую блокировку, и он вызывался при КАЖДОМ открытии
+    соединения — сотни раз в минуту у полутора десятков агентов. Достаточно
+    было параллельно запустить аудит, чтобы воркер получил «database is locked»
+    и умер целиком. Схема за время работы процесса не меняется, поэтому
+    проверять её каждый раз не нужно.
 
     Зачем это отдельно от executescript. `CREATE TABLE IF NOT EXISTS` на
     существующей таблице не делает НИЧЕГО — включая случай, когда в схему
@@ -203,6 +227,9 @@ def ensure_schema(con, schema_sql):
     пропускаются молча: они есть только в свежих таблицах, а это уже не
     молчаливая потеря данных, а разница в ограничениях.
     """
+    key = hash(schema_sql)
+    if key in _SCHEMA_DONE:
+        return con
     con.executescript(schema_sql)
     for m in re.finditer(r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\((.*?)\n\);",
                          schema_sql, re.S):
@@ -220,6 +247,7 @@ def ensure_schema(con, schema_sql):
                 continue
             con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     con.commit()
+    _SCHEMA_DONE.add(key)
     return con
 
 

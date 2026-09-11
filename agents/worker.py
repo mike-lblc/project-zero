@@ -7,7 +7,7 @@ no assigned work, agents do self-directed work rather than sit still.
 All work here is GREEN (reversible, private, free). Judgment still escalates -
 this loop never decides anything, it gathers and measures.
 """
-import sys, re, json, time, subprocess, urllib.request, urllib.error
+import sys, re, json, time, sqlite3, subprocess, urllib.request, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -76,18 +76,48 @@ AGENT_OF = {"fulfil":"craftsman","deep_check":"prospector","escalation_watch":"o
 
 
 def _iso(t):
-    """Приводит метку времени к виду с часовым поясом.
+    """Приводит метку времени к UTC с поясом.
 
     Разные вызывающие писали в runs то наивное время, то с поясом, и сравнение
-    падало с TypeError прямо внутри аудита живости. Журнал, по которому нельзя
-    посчитать возраст записи, journal только на вид.
+    падало с TypeError прямо внутри проверки живости.
+
+    Наивная метка считается МЕСТНЫМ временем и переводится в UTC. Прежняя
+    версия просто дописывала «+00:00», то есть объявляла местное время
+    всемирным — и записи уезжали в будущее на разницу поясов. Ошибка тем
+    хуже, что данные выглядят исправными.
     """
+    from datetime import datetime as _dt
     t = str(t)
-    return t if ("+" in t[10:] or t.endswith("Z")) else t + "+00:00"
+    if "+" in t[10:] or t.endswith("Z"):
+        return t
+    try:
+        return _dt.fromisoformat(t).astimezone(timezone.utc).isoformat()
+    except ValueError:
+        return t + "+00:00"
 
 
-def record_run(step, agent, ok, detail, started, ended):
-    """Каждый шаг цикла попадает в журнал. Без этого 'агенты работают' - слова."""
+def record_run(step, agent, ok, detail, started, ended, _retry=3):
+    """Каждый шаг цикла попадает в журнал. Без этого 'агенты работают' - слова.
+
+    ЗАПИСЬ В ЖУРНАЛ НЕ ИМЕЕТ ПРАВА УРОНИТЬ ЦИКЛ. Именно это и произошло:
+    воркер поймал ошибку шага, пошёл записать её в журнал, получил
+    «database is locked» — и упал целиком, потому что падение случилось
+    внутри обработчика ошибок. Экосистема простояла мёртвой, а снаружи
+    это выглядело просто как отсутствие свежих записей.
+    """
+    try:
+        return _record_run(step, agent, ok, detail, started, ended)
+    except sqlite3.OperationalError as e:
+        if _retry > 0 and "locked" in str(e).lower():
+            time.sleep(1.5)
+            return record_run(step, agent, ok, detail, started, ended, _retry - 1)
+        # журнал потерян, но цикл продолжается: работа важнее записи о работе
+        print(f"[worker] запись в журнал не удалась ({e}); шаг «{step}» продолжается",
+              flush=True)
+        return None
+
+
+def _record_run(step, agent, ok, detail, started, ended):
     con = connect()
     con.execute("INSERT INTO runs(agent,started_at,ended_at,status,notes) VALUES (?,?,?,?,?)",
                 (agent, _iso(started), _iso(ended), "ok" if ok else "error",
@@ -636,32 +666,51 @@ def run_forever(interval=90):
         else:
             name, fn = CYCLE[i % len(CYCLE)]
         agent = AGENT_OF.get(name, "orchestrator")
-        if not should_run(name, i):
-            i += 1
-            time.sleep(interval / len(CYCLE) / 8)   # пропуск дешёвый, не ждём полный такт
-            continue
-        started = now()
+        ran = True
         try:
-            out = fn()
-            paused = note_result(name, out, i)
-            record_run(name, agent, True, str(out), started, now())
-            if paused:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out} "
-                      f"— то же самое {SAME_LIMIT} раза подряд, пауза на {paused} оборотов",
-                      flush=True)
-                say(agent, f"Шаг «{name}» {SAME_LIMIT} раза подряд дал один и тот же "
-                           f"результат: «{str(out)[:70]}». Нового он сейчас не приносит, "
-                           f"ухожу с ним на паузу — повторять одно и то же не работа.")
-            else:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out}", flush=True)
+            ran = _turn(name, fn, agent, i)
         except Exception as e:
-            detail = f"{type(e).__name__}: {e}"
-            record_run(name, agent, False, detail, started, now())
-            say(agent, f"⚠ Шаг «{name}» упал: {detail[:130]}. Записал в журнал, "
-                       f"чтобы это не потерялось и попало в мою репутацию.")
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] {name} FAILED: {detail}", flush=True)
+            # ПОСЛЕДНИЙ РУБЕЖ. Что бы ни случилось на обороте — цикл живёт.
+            # Ровно здесь экосистема и умирала: шаг упал, воркер пошёл записать
+            # это в журнал, получил «database is locked» прямо в обработчике
+            # ошибок и завершился целиком. Снаружи это выглядело как тишина.
+            # Агент, которого убивает одна ошибка, — не автономный агент.
+            print(f"[worker] оборот «{name}» сорвался целиком: "
+                  f"{type(e).__name__}: {str(e)[:120]}", flush=True)
         i += 1
-        time.sleep(interval / len(CYCLE))
+        # пропущенный по паузе шаг не стоит полного такта
+        time.sleep(interval / len(CYCLE) if ran else interval / len(CYCLE) / 8)
+
+
+def _turn(name, fn, agent, i):
+    """Один оборот: выполнить шаг, записать исход, при повторе увести на паузу.
+
+    Возвращает True, если шаг действительно выполнялся, и False, если он был
+    пропущен по паузе — вызывающий по этому решает, ждать полный такт или нет.
+    """
+    if not should_run(name, i):
+        return False
+    started = now()
+    try:
+        out = fn()
+        paused = note_result(name, out, i)
+        record_run(name, agent, True, str(out), started, now())
+        if paused:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out} "
+                  f"— то же самое {SAME_LIMIT} раза подряд, пауза на {paused} оборотов",
+                  flush=True)
+            say(agent, f"Шаг «{name}» {SAME_LIMIT} раза подряд дал один и тот же "
+                       f"результат: «{str(out)[:70]}». Нового он сейчас не приносит, "
+                       f"ухожу с ним на паузу — повторять одно и то же не работа.")
+        else:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out}", flush=True)
+    except Exception as e:
+        detail = f"{type(e).__name__}: {e}"
+        record_run(name, agent, False, detail, started, now())
+        say(agent, f"⚠ Шаг «{name}» упал: {detail[:130]}. Записал в журнал, "
+                   f"чтобы это не потерялось и попало в мою репутацию.")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {name} FAILED: {detail}", flush=True)
+    return True
 
 
 if __name__ == "__main__":
