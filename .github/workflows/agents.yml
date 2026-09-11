@@ -170,6 +170,21 @@ jobs:
           python ops/build_snapshot.py docs/floor.html
           echo "дашборд собран для публикации"
 
+      # Дашборд со сценой живёт на машине владельца и по сети недоступен. Здесь
+      # снимается та же выдача, которой он питается дома, — ТЕМ ЖЕ сервером, а
+      # не второй реализацией тех же запросов: две реализации расходятся всегда,
+      # и в какой-то день облако начинает показывать другое число, чем дом.
+      - name: Node для снятия выдачи
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Снять выдачу для облачного дашборда
+        run: |
+          npm --prefix service ci --omit=dev --no-audit --no-fund || npm --prefix service install --omit=dev --no-audit --no-fund
+          cp service/dashboard.html docs/dashboard.html
+          python ops/export_api.py docs/api 8402 || echo "снимок выдачи не снят — страница покажет прошлый"
+
       - name: Сохранить базу до следующего прогона
         uses: actions/upload-artifact@v4
         with:
@@ -182,7 +197,7 @@ jobs:
         run: |
           git config user.name  "p0-agents"
           git config user.email "agents@project-zero.local"
-          git add -f docs/floor.html || true
+          git add -f docs/floor.html docs/dashboard.html docs/api || true
           if git diff --cached --quiet; then
             echo "состояние не изменилось — публиковать нечего"
           else
