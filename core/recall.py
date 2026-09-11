@@ -24,6 +24,7 @@
 """
 import json
 import math
+import re
 import struct
 import sys
 import urllib.error
@@ -177,11 +178,127 @@ def index_existing(limit=400):
                         WHERE m.id IS NULL ORDER BY e.id DESC LIMIT ?""",
                      (limit,)).fetchall()
     c.close()
+    pref = routine_prefixes()
     n = 0
     for eid, claim, agent in todo:
+        # Дежурный отчёт в память не кладётся: он не знание, а след работы.
+        if claim and _shape(claim) in pref:
+            continue
         if remember(claim, kind="evidence", ref_id=eid, agent=agent):
             n += 1
     return n
+
+
+def index_knowledge(limit=400):
+    """Кладёт в память то, ради чего память вообще нужна: наши поражения.
+
+    ЧТО БЫЛО НЕ ТАК. Память работала механически исправно и при этом помнила
+    не то: двести векторов, и все — дежурная отчётность вроде «задачи зависли»
+    и «обновление рынка». На вопрос «почему источник молчит» она отвечала
+    строкой про зависшие задачи с похожестью 0.53 — то есть находила
+    ближайший мусор и выглядела работающей.
+
+    Между тем в базе лежит ровно то, что агенту надо вспомнить ПЕРЕД тем, как
+    повторить ошибку: происхождение каждого инварианта (описание настоящего
+    дефекта, который уже стоил работы), сделанные починки, возражения и стены,
+    о которые разбились площадки. Это знание, купленное потерями, и оно не
+    попадало в память вообще.
+
+    Похожесть — не истина: две близкие записи могут утверждать
+    противоположное. Поэтому сюда кладётся текст с ПРИЧИНОЙ, а не вывод без
+    неё: вспомнить «так делать нельзя» без «потому что» бесполезно.
+    """
+    c = _con()
+    batches = []
+
+    # 1. Инварианты: имя + происхождение. Происхождение здесь главное —
+    #    это описание настоящей поломки, а не формулировка правила.
+    for r in c.execute("SELECT id, name, origin FROM invariants ORDER BY id DESC LIMIT ?",
+                       (limit,)):
+        batches.append(("урок", r[0], f"{r[1]}. Почему так: {r[2]}", None))
+
+    # 2. Починки: что было сломано и чем кончилось.
+    for r in c.execute("SELECT id, file, problem, outcome FROM code_fixes "
+                       "ORDER BY id DESC LIMIT ?", (limit,)):
+        batches.append(("починка", r[0],
+                        f"В {r[1]} было: {r[2]}. Чем кончилось: {r[3] or 'не записано'}",
+                        "mechanic"))
+
+    # 3. Возражения: почему предложение сочли негодным.
+    for r in c.execute("SELECT id, agent, severity, argument FROM objections "
+                       "ORDER BY id DESC LIMIT ?", (limit,)):
+        batches.append(("возражение", r[0],
+                        f"[{r[2]}] {r[3]}", r[1]))
+
+    # 4. Стены площадок: обо что разбился путь к деньгам. Без этого разведка
+    #    заново приходит к платформе, которая требует паспорт.
+    for r in c.execute("SELECT id, platform, category, wall FROM money_paths "
+                       "WHERE wall IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,)):
+        batches.append(("стена", r[0],
+                        f"{r[1]} ({r[2]}): путь закрыт — {r[3]}", "prospector"))
+    c.close()
+
+    n = 0
+    for kind, ref, text, agent in batches:
+        if text and remember(text, kind=kind, ref_id=ref, agent=agent):
+            n += 1
+    return n
+
+
+def routine_prefixes(min_repeats=2):
+    """Какие записи — дежурная отчётность, а не знание. Считается, не задаётся.
+
+    ЗАЧЕМ. Память набралась на двести строк вида «задачи зависли», «обновление
+    рынка», «аптайм 100%» — и они перебивали настоящие уроки: на вопрос
+    «почему источник молчит» находилась строка про зависшие задачи. Логи и
+    знание — разные вещи, и смешивать их в одном хранилище значит хоронить
+    второе под первым.
+
+    Список шаблонов НЕ ЗАДАЁТСЯ РУКАМИ. Заданный руками список устаревает
+    молча: появится новый дежурный отчёт — и он снова засорит память, а
+    заметит это в лучшем случае человек. Признак дежурности объективен:
+    сообщение, начало которого повторяется много раз, — это шаблон отчёта.
+    Вывод, сделанный один раз, так не выглядит.
+    """
+    # Порог именно два, и это проверено на живой памяти: при двух уходит ровно
+    # отчётность («задач N зависло», «цены рынка p50/p90»), а все шесть
+    # настоящих находок — вехи, измерения потолка рынка, разведка индекса —
+    # остаются. При трёх отчётность выживала и перебивала уроки в выдаче.
+    c = _con()
+    rows = c.execute("SELECT claim FROM evidence WHERE claim IS NOT NULL").fetchall()
+    c.close()
+    seen = {}
+    for (claim,) in rows:
+        k = _shape(claim)
+        seen[k] = seen.get(k, 0) + 1
+    return {k for k, n in seen.items() if n >= min_repeats}
+
+
+def _shape(text):
+    """Форма сообщения без чисел: «задач 1» и «задач 2» — это ОДИН отчёт.
+
+    Первая версия сравнивала первые двадцать два знака как есть, и семейство
+    «STALLED TASKS: 1 in progress» / «STALLED TASKS: 2 in progress» считалось
+    двумя разными выводами, потому что различалось цифрой. Это ровно тот
+    приём, за который мы уже уличали оптимизатора: одна и та же фраза с
+    меняющимся счётчиком, выдаваемая за новую работу.
+    """
+    return re.sub(r"\d+", "#", (text or "")[:40]).strip()
+
+
+def forget_routine():
+    """Убирает из памяти то, что оказалось отчётностью. Возвращает число."""
+    pref = routine_prefixes()
+    if not pref:
+        return 0
+    c = _con()
+    gone = 0
+    for r in c.execute("SELECT id, text FROM memory_vectors WHERE kind='evidence'").fetchall():
+        if _shape(r[1]) in pref:
+            c.execute("DELETE FROM memory_vectors WHERE id=?", (r[0],))
+            gone += 1
+    c.commit(); c.close()
+    return gone
 
 
 def stats():
