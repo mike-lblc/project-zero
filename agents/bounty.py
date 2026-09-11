@@ -611,6 +611,9 @@ def fresh_bounties(max_age_hours=6, max_rivals=3):
         return f"свежих премий за {max_age_hours} ч нет (проверено, толпа везде)"
 
     hot.sort(key=lambda h: (h["rivals"], -h["amount"]))
+    from core import events
+    for h in hot[:3]:
+        events.publish("fresh_bounty", h, source="bounty")
     c = _con()
     for h in hot:
         c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,rivals,

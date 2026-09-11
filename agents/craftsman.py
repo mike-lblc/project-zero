@@ -284,6 +284,12 @@ def watch_prs():
             changed.append(f"{repo}#{num} закрыт без слияния")
         elif prev and d["c"] > (prev[1] or 0):
             changed.append(f"{repo}#{num}: новых комментариев {d['c'] - (prev[1] or 0)}")
+            # СОБЫТИЕ, А НЕ ЗАПИСЬ В ЖУРНАЛ. Ревью, дожидающееся своей очереди
+            # сорок минут, — это отчёт задним числом, а не реакция.
+            from core import events
+            events.publish("pr_review_arrived",
+                           {"repo": repo, "number": num, "comments": d["c"]},
+                           source="craftsman")
             bus.broadcast("craftsman", f"На PR {repo}#{num} появились замечания "
                                        f"({d['c']} комментариев). Нужен ответ — молчание "
                                        f"на ревью закрывает задачу.")
@@ -511,6 +517,9 @@ def collect():
     if not awarded:
         return "объявлений о выплате нам пока нет"
 
+    from core import events
+    for a in awarded:
+        events.publish("payout_announced", a, source="craftsman")
     total = sum(a["usd"] or 0 for a in awarded)
     c = _con()
     for a in awarded:

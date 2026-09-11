@@ -217,6 +217,16 @@ def _explore():
     return growth.explore()
 
 
+@tool("recall_memory", "GREEN",
+      "вспомнить по СМЫСЛУ, что система уже выясняла — включая выводы, "
+      "сформулированные другими словами")
+def _recall():
+    from core import recall
+    n = recall.index_existing(60)
+    st = recall.stats()
+    return f"в семантическую память добавлено {n}, всего записей {st['всего']}"
+
+
 # ═══════════════════════════════════════════════ ОБЩИЕ ПРАВИЛА
 # Этот кусок входит в промпт КАЖДОГО агента. Каждый запрет здесь оплачен
 # конкретной ошибкой, а не выведен из общих соображений.
@@ -350,7 +360,7 @@ register(Agent(
     role="Противник: ищет, где система врёт себе",
     kpi="число НАЙДЕННЫХ расхождений между тем, что система о себе сообщает, "
         "и тем, что показывают данные; отсутствие находок — тоже результат",
-    tools=("check_invariants", "housekeeping"),
+    tools=("check_invariants", "housekeeping", "recall_memory"),
     system=COMMON + """
 ТЫ — ПРОТИВНИК.
 
@@ -496,7 +506,7 @@ register(Agent(
     role="Критик: проверяет работу остальных агентов",
     kpi="число найденных утверждений без источника, брошенных предложений "
         "и противоречий между тем, что агенты говорят и что делают",
-    tools=("critique_system", "check_invariants", "check_distribution"),
+    tools=("critique_system", "check_invariants", "recall_memory"),
     system=COMMON + """
 ТЫ — КРИТИК.
 

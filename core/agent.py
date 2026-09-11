@@ -130,9 +130,21 @@ class Agent:
                 "AND consumed_at IS NULL ORDER BY id DESC LIMIT 4", (self.name,))]
         finally:
             c.close()
+        # ЧТО МЫ УЖЕ ВЫЯСНЯЛИ ПО ЭТОЙ РОЛИ. Точное совпадение строк этого не
+        # находит: тот же вывод, сформулированный иначе, для него новый. Без
+        # смыслового поиска агент заново приходит к заключениям, которые
+        # система уже сделала, и засчитывает это себе как работу.
+        lessons = []
+        try:
+            from core import recall as _r
+            lessons = [f"{h['similarity']}: {h['text'][:120]}"
+                       for h in _r.recall(self.kpi, top=3, min_sim=0.55)]
+        except Exception:
+            lessons = []
+
         return {"последние прогоны": recent, "что уже срабатывало": tried,
                 "что не сработало": failed, "мои задачи": tasks,
-                "входящие": inbox}
+                "входящие": inbox, "что мы уже выясняли": lessons}
 
     # ---------------------------------------------------------- рассуждение
     def _prompt(self, state):

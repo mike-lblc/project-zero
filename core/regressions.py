@@ -167,6 +167,15 @@ def run(verbose=True):
         else:
             bad += 1
             fails.append((inv["name"], detail, inv["origin"]))
+            # Нарушенный инвариант — это срочное: проверка выведена из поломки,
+            # которая уже случалась, значит она случилась снова.
+            try:
+                from core import events
+                events.publish("invariant_broken",
+                               {"name": inv["name"], "detail": detail},
+                               source="regressions")
+            except Exception:
+                pass
             c.execute("UPDATE invariants SET last_fail=?, fails=fails+1 WHERE id=?",
                       (now(), inv["id"]))
         c.commit(); c.close()

@@ -60,9 +60,22 @@ def say(agent, text, topic="chat"):
 
 
 def note(agent, claim, source_id=None, conf=None):
-    """След оставляется только для НОВОГО вывода. Дубли не пишутся."""
+    """След оставляется только для НОВОГО вывода. Дубли не пишутся.
+
+    Проверка идёт в два слоя, и второй важнее. Точное совпадение ловит
+    дословный повтор, а СМЫСЛОВОЕ — тот же вывод, сформулированный иначе.
+    Без второго слоя система заново приходит к собственным заключениям
+    другими словами и засчитывает это себе как новую находку.
+    """
     if memory.seen_claim(claim):
         return
+    try:
+        from core import recall as _rc
+        known = _rc.already_known(claim)
+        if known:
+            return          # к этому выводу уже приходили, пусть и иначе
+    except Exception:
+        pass
     con = connect()
     if source_id is None:
         source_id = con.execute(
@@ -198,6 +211,9 @@ def watch_payments():
     con.commit()
     con.close()
     if new:
+        from core import events
+        events.publish("payment_received", {"count": new, "address": addr},
+                       source="worker")
         say("orchestrator", f"🎉 ПЛАТЁЖ! Пришло {new} входящих перевода. Если платил не владелец — "
                             f"миссия доказана: агенты заработали с нуля.")
         note("orchestrator", f"*** PAYMENT DETECTED *** {new} incoming transfer(s) to {addr}. "
@@ -330,6 +346,53 @@ def audit():
 _REASON_I = [0]
 
 
+# Какое событие чьим шагом отрабатывается. Событие без обработчика будет
+# честно висеть в очереди, а не считаться разобранным.
+EVENT_HANDLER = {
+    "pr_review_arrived": "watch_prs",
+    "payout_announced": "collect_payouts",
+    "payment_received": "watch_payments",
+    "fresh_bounty": "pursue",
+    "invariant_broken": "mechanic",
+    "worker_down": "watchdog",
+    "new_open_path": "probe_paths",
+    "lead_defect_found": "verify_service",
+    "escalation_answered": "fulfil",
+    "market_changed": "refresh_market",
+}
+
+
+def _take_event():
+    """Берёт самое срочное ждущее событие и возвращает шаг, который его закроет.
+
+    Возвращает (имя_шага, функция, агент) или None. Событие помечается
+    выполненным ТОЛЬКО после отработки шага — брошенное посреди работы
+    вернётся в очередь следующему, а не пропадёт молча.
+    """
+    try:
+        from core import events
+        todo = events.pending(limit=1)
+    except Exception:
+        return None
+    if not todo:
+        return None
+    e = todo[0]
+    step = EVENT_HANDLER.get(e["kind"])
+    steps = dict(CYCLE + SLOW_CYCLE)
+    if not step or step not in steps:
+        return None
+    agent = AGENT_OF.get(step, "orchestrator")
+    if not events.claim(e["id"], agent):
+        return None
+    _PENDING_EVENT[0] = e["id"]
+    print(f"[worker] СОБЫТИЕ {e['kind']} (срочность {e['priority']}) "
+          f"-> вне очереди «{step}»", flush=True)
+    return step, steps[step], agent
+
+
+_PENDING_EVENT = [None]
+
+
 def reason_and_act():
     """Оборот РАССУЖДАЮЩЕГО агента: он сам выбирает, что делать дальше.
 
@@ -376,6 +439,19 @@ def housekeeping():
     """
     from core import execution, memory as mem, bus, router
     lines = []
+
+    # БРОШЕННЫЕ СОБЫТИЯ. Событие, взятое в работу и не подтверждённое, — это
+    # тишина, неотличимая от «всё сделано». Возвращаем их в очередь, иначе
+    # срочное пропадает молча, а именно ради срочного шина и заводилась.
+    try:
+        from core import events as _ev
+        lost = _ev.stale(minutes=30)
+        for e in lost:
+            _ev.release(e["id"])
+        if lost:
+            lines.append(f"возвращено брошенных событий: {len(lost)}")
+    except Exception:
+        pass
 
     # ЛОКАЛЬНАЯ МОДЕЛЬ. Она лежала, и этого не заметил ни один аудит: шаги,
     # ходящие через неё, просто падали по одному, а картина в целом выглядела
@@ -754,7 +830,14 @@ def run_forever(interval=90):
             name, fn = SLOW_CYCLE[(i // SLOW_EVERY - 1) % len(SLOW_CYCLE)]
         else:
             name, fn = CYCLE[i % len(CYCLE)]
-        agent = AGENT_OF.get(name, "orchestrator")
+        # СРОЧНОЕ ИДЁТ ВНЕ ОЧЕРЕДИ. До этого цикл крутил тридцать девять шагов
+        # по кругу, и появившаяся работа — пришло ревью, найдена свежая премия,
+        # нарушен инвариант — ждала своего оборота. Агент, узнающий о срочном
+        # через сорок минут, не реагирует, а отчитывается задним числом.
+        urgent = _take_event()
+        if urgent:
+            name, fn, agent = urgent
+        agent = AGENT_OF.get(name, "orchestrator") if not urgent else agent
         ran = True
         try:
             ran = _turn(name, fn, agent, i)
@@ -766,6 +849,15 @@ def run_forever(interval=90):
             # Агент, которого убивает одна ошибка, — не автономный агент.
             print(f"[worker] оборот «{name}» сорвался целиком: "
                   f"{type(e).__name__}: {str(e)[:120]}", flush=True)
+        # Событие подтверждается ТОЛЬКО после того, как шаг отработал.
+        if _PENDING_EVENT[0] is not None:
+            try:
+                from core import events
+                events.complete(_PENDING_EVENT[0], f"{name}: отработано")
+            except Exception:
+                pass
+            _PENDING_EVENT[0] = None
+            continue          # срочное отработано — сразу смотрим, нет ли ещё
         i += 1
         # пропущенный по паузе шаг не стоит полного такта
         time.sleep(interval / len(CYCLE) if ran else interval / len(CYCLE) / 8)
