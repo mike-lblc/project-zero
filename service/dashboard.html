@@ -190,6 +190,7 @@ const AGENTS = [
   {id:"prospector",   label:"РАЗВЕДЧИК ДЕНЕГ",  color:0xa78bfa, form:"probe"},
   {id:"browser_scout",label:"БРАУЗЕРНЫЙ",       color:0x60a5fa, form:"eye"},
   {id:"proposer",     label:"ПРЕДЛАГАЮЩИЙ",     color:0x7dd3fc, form:"prism"},
+  {id:"executor", label:"ИСПОЛНИТЕЛЬ", color:0x59ccaa, form:"ring"},
   {id:"supplier",     label:"СНАБЖЕНЕЦ",        color:0x2dd4bf, form:"ring"},
 ];
 
@@ -519,7 +520,7 @@ async function tick(){
   const runs = (pulse?.runs || []).length;
   const errs = (pulse?.runs || []).filter(r => r.status === "error").length;
   kpi("k-runs", num(st.runs_24h ?? runs));
-  kpi("k-err", num(st.errors_24h ?? errs), errs ? "alert" : "good");
+  kpi("k-err", num(st.errors_24h ?? errs), (st.errors_24h ?? errs) ? "alert" : "good");
 
   const you = (q?.interventions || []).length + (q?.escalations || []).length;
   kpi("k-you", num(you), you ? "hold" : "good");
@@ -541,6 +542,7 @@ function renderMoney(){
            "заявление «с нуля» действительно, пока здесь ноль",
            (st.spend ?? 0) ? "bad" : "ok");
 
+  if(ex.restricted){ h += `<div class="empty">Подробности работ доступны в основном журнале. Здесь показана публичная телеметрия облачного цикла.</div>`; $("v-money").innerHTML=h; return; }
   h += "<h3>Открытые пути к деньгам</h3>";
   const open = (ex.money_paths || []).filter(p => p.open_to_us === 1);
   if (!open.length) h += `<div class="empty">открытых путей сейчас нет</div>`;
@@ -571,6 +573,7 @@ function renderMoney(){
 }
 
 function renderChain(){
+  if(state.ex?.restricted){ $("v-chain").innerHTML = `<div class="empty">Детали задач не публикуются в открытом доступе.</div>`; return; }
   const m = (state.ex || {}).matrix || [];
   if (!m.length) { $("v-chain").innerHTML = `<div class="empty">матрица не построена</div>`; return; }
   let h = "<h3>От нуля до выручки</h3>";
