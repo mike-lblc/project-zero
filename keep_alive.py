@@ -32,17 +32,32 @@ PY = ["py", "-3.13", "-X", "utf8"]
 STALE_SECONDS = 300          # журнал старше пяти минут — воркер не работает
 SERVICE_URL = "http://127.0.0.1:8402/health"
 
-# Windows: отвязать потомка от родителя, иначе он умрёт вместе с нами —
-# ровно та причина, по которой воркер не переживал закрытие оболочки.
-DETACHED = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0
+from core.launch import background      # один способ запуска на всю систему
+
+# НИ ОДИН ДОЧЕРНИЙ ПРОЦЕСС НЕ ОТКРЫВАЕТ ОКНО.
+# Окна выскакивали не из запуска воркера, а из КАЖДОГО вызова gh, git, node и
+# powershell: процесс без собственной консоли заводит новое окно на каждый
+# такой вызов. Их двадцать, и правка по местам гарантировала бы двадцать
+# первый. Флаг ставится один раз на весь процесс.
+try:
+    from core.launch import silence as _silence
+    _silence()
+except Exception:
+    pass
+
 
 
 def running(needle):
     """Сколько процессов python содержат в командной строке эту подстроку."""
     r = subprocess.run(
         ["powershell", "-NoProfile", "-Command",
-         "(Get-CimInstance Win32_Process -Filter \"Name='py.exe' OR Name='python.exe' "
-         "OR Name='node.exe'\" | Where-Object { $_.CommandLine -like '*" + needle + "*' } "
+         # Считаем ТОЛЬКО интерпретаторы. py.exe и pyw.exe — запускатели: они
+         # порождают python.exe/pythonw.exe и живут рядом, поэтому один воркер
+         # виден как два процесса. Именно на этом сторож и решал, что есть
+         # дубль, убивал «лишнего» и запускал нового — по кругу.
+         "(Get-CimInstance Win32_Process -Filter \"Name='python.exe' "
+         "OR Name='pythonw.exe' OR Name='node.exe'\" | "
+         "Where-Object { $_.CommandLine -like '*" + needle + "*' } "
          "| Measure-Object).Count"],
         capture_output=True, text=True, timeout=90)
     try:
@@ -68,17 +83,13 @@ def log_age():
 
 
 def start_worker(interval=60):
-    log = open(ROOT / "data" / "worker.log", "a", encoding="utf-8")
-    subprocess.Popen(PY + ["agents/worker.py", str(interval)], cwd=str(ROOT),
-                     stdout=log, stderr=subprocess.STDOUT,
-                     creationflags=DETACHED, close_fds=True)
+    background(["python", "agents/worker.py", str(interval)],
+               cwd=ROOT, log=ROOT / "data" / "worker.log")
 
 
 def start_service():
-    log = open(ROOT / "data" / "server.log", "a", encoding="utf-8")
-    subprocess.Popen(["node", "server.js"], cwd=str(ROOT / "service"),
-                     stdout=log, stderr=subprocess.STDOUT,
-                     creationflags=DETACHED, close_fds=True)
+    background(["node", "server.js"], cwd=ROOT / "service",
+               log=ROOT / "data" / "server.log")
 
 
 def service_alive():
@@ -106,10 +117,10 @@ def check():
         # Процесс висит, но следов не оставляет — это хуже, чем мёртвый:
         # снаружи выглядит живым. Снимаем и поднимаем заново.
         subprocess.run(["powershell", "-NoProfile", "-Command",
-                        "Get-CimInstance Win32_Process -Filter \"Name='py.exe' OR "
-                        "Name='python.exe'\" | Where-Object { $_.CommandLine -like "
-                        "'*worker.py*' } | ForEach-Object { Stop-Process -Id "
-                        "$_.ProcessId -Force }"], capture_output=True, timeout=90)
+                        "Get-CimInstance Win32_Process -Filter \"Name='py.exe' OR Name='pyw.exe' "
+                        "OR Name='python.exe' OR Name='pythonw.exe'\" | "
+                        "Where-Object { $_.CommandLine -like '*worker.py*' } | "
+                        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True, timeout=90)
         start_worker()
         acted.append(f"воркер перезапущен (процесс висел, но журнал молчал "
                      f"{int(age) if age else '—'} сек)")
@@ -118,11 +129,11 @@ def check():
         # и создают ровно те блокировки, от которых система умирала. Оставляем
         # один, лишние снимаем.
         subprocess.run(["powershell", "-NoProfile", "-Command",
-                        "Get-CimInstance Win32_Process -Filter \"Name='py.exe' OR "
-                        "Name='python.exe'\" | Where-Object { $_.CommandLine -like "
-                        "'*worker.py*' } | Sort-Object CreationDate | "
-                        "Select-Object -Skip 1 | ForEach-Object { Stop-Process -Id "
-                        "$_.ProcessId -Force }"], capture_output=True, timeout=90)
+                        "Get-CimInstance Win32_Process -Filter \"Name='py.exe' OR Name='pyw.exe' "
+                        "OR Name='python.exe' OR Name='pythonw.exe'\" | "
+                        "Where-Object { $_.CommandLine -like '*worker.py*' } | "
+                        "Sort-Object CreationDate | Select-Object -Skip 1 | "
+                        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True, timeout=90)
         acted.append(f"лишних воркеров снято: {procs - 1} (двойная запись в базу "
                      f"создаёт те самые блокировки)")
 

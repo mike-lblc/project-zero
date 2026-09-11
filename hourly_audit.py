@@ -30,6 +30,18 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from core.db import connect, ensure_schema  # noqa: E402
 
+# НИ ОДИН ДОЧЕРНИЙ ПРОЦЕСС НЕ ОТКРЫВАЕТ ОКНО.
+# Окна выскакивали не из запуска воркера, а из КАЖДОГО вызова gh, git, node и
+# powershell: процесс без собственной консоли заводит новое окно на каждый
+# такой вызов. Их двадцать, и правка по местам гарантировала бы двадцать
+# первый. Флаг ставится один раз на весь процесс.
+try:
+    from core.launch import silence as _silence
+    _silence()
+except Exception:
+    pass
+
+
 PY = ["py", "-3.13", "-X", "utf8"]
 
 SCHEMA = """
@@ -191,9 +203,10 @@ def repair(st):
         issue = "локальная модель не отвечает"
         if not tried_before(issue) or True:      # перезапуск можно повторять
             try:
-                subprocess.Popen(
-                    [str(Path.home() / "AppData/Local/Programs/Ollama/ollama.exe"), "serve"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                from core.launch import background
+                background([str(Path.home()
+                                / "AppData/Local/Programs/Ollama/ollama.exe"), "serve"],
+                           log=ROOT / "data" / "ollama.log")
                 import time
                 time.sleep(12)
                 ok2, d2 = router.health()
@@ -214,8 +227,9 @@ def repair(st):
                            capture_output=True, text=True, timeout=60)
         alive = (r.stdout or "0").strip()
         if alive in ("", "0"):
-            subprocess.Popen(PY + ["agents/worker.py", "60"], cwd=str(ROOT),
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            from core.launch import background
+            background(["python", "agents/worker.py", "60"], cwd=ROOT,
+                       log=ROOT / "data" / "worker.log")
             record(issue, "процесс воркера отсутствует", "перезапуск воркера",
                    "agents/worker.py", "0 шагов за час", "перезапущен", "fixed", 1)
             fixed += 1

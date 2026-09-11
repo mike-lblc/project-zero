@@ -30,6 +30,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+
+# НИ ОДИН ДОЧЕРНИЙ ПРОЦЕСС НЕ ОТКРЫВАЕТ ОКНО.
+# Окна выскакивали не из запуска воркера, а из КАЖДОГО вызова gh, git, node и
+# powershell: процесс без собственной консоли заводит новое окно на каждый
+# такой вызов. Их двадцать, и правка по местам гарантировала бы двадцать
+# первый. Флаг ставится один раз на весь процесс.
+try:
+    from core.launch import silence as _silence
+    _silence()
+except Exception:
+    pass
+
 from core.db import connect, ensure_schema  # noqa: E402
 
 SCHEMA = """

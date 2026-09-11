@@ -15,6 +15,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
 from core import guard, memory, economics
 
+# НИ ОДИН ДОЧЕРНИЙ ПРОЦЕСС НЕ ОТКРЫВАЕТ ОКНО.
+# Окна выскакивали не из запуска воркера, а из КАЖДОГО вызова gh, git, node и
+# powershell: процесс без собственной консоли заводит новое окно на каждый
+# такой вызов. Их двадцать, и правка по местам гарантировала бы двадцать
+# первый. Флаг ставится один раз на весь процесс.
+try:
+    from core.launch import silence as _silence
+    _silence()
+except Exception:
+    pass
+
+
 UA = "Mozilla/5.0 (compatible; P0-worker/0.1)"
 ROOT = Path(__file__).resolve().parent.parent
 IDX = ROOT / "data" / "bazaar_index.json"
@@ -811,7 +823,44 @@ def note_result(name, out, turn):
     return None
 
 
+LOCK = ROOT / "data" / "worker.pid"
+
+
+def _claim_slot():
+    """Единственность воркера обеспечивает ОН САМ, а не тот, кто его запускает.
+
+    Сторож проверял число процессов снаружи и проигрывал гонке: он запускается
+    по расписанию и вручную одновременно, а новый воркер стартует не мгновенно,
+    поэтому проверка успевала увидеть ноль там, где процесс уже поднимался. За
+    час так накопилось восемь воркеров, писавших в одну базу.
+
+    Замок с номером процесса снимает гонку целиком: сколько бы раз воркер ни
+    запустили, второй экземпляр увидит живого первого и молча уйдёт.
+    """
+    import os
+    if LOCK.exists():
+        try:
+            pid = int(LOCK.read_text(encoding="utf-8").strip())
+        except (ValueError, OSError):
+            pid = None
+        if pid and pid != os.getpid():
+            alive = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue | "
+                 f"Measure-Object).Count"],
+                capture_output=True, text=True, timeout=60)
+            if (alive.stdout or "0").strip() not in ("", "0"):
+                print(f"[worker] уже работает процесс {pid} — второй экземпляр не нужен",
+                      flush=True)
+                return False
+    LOCK.parent.mkdir(parents=True, exist_ok=True)
+    LOCK.write_text(str(os.getpid()), encoding="utf-8")
+    return True
+
+
 def run_forever(interval=90):
+    if not _claim_slot():
+        return
     print(f"[worker] starting; cycle every {interval}s. KILL_SWITCH halts it.", flush=True)
     # Отметка старта. Без неё счёт повторов тянется через перезапуски и наказывает
     # за поведение, которое уже исправлено, — то есть превращается в цифру,
