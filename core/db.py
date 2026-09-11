@@ -252,17 +252,34 @@ def ensure_schema(con, schema_sql):
                  if ln.strip() and not ln.strip().startswith("--")]
         return "\n".join(lines).strip()
 
+    def _exec(stmt, tries=5):
+        """Создание таблицы ждёт освобождения базы, а не падает.
+
+        busy_timeout действует на обычные запросы, но создание таблицы при
+        занятой базе всё равно может отказать сразу. Агент, который не смог
+        завести себе таблицу решений только потому, что воркер в этот момент
+        писал строку, выглядит как сломанный агент. Ждём и повторяем.
+        """
+        for i in range(tries):
+            try:
+                con.execute(stmt)
+                return
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e).lower() or i == tries - 1:
+                    raise
+                time.sleep(1 + i)
+
     buf = ""
     for line in schema_sql.splitlines(keepends=True):
         buf += line
         if sqlite3.complete_statement(buf):
             stmt = _strip_comments(buf)
             if stmt:
-                con.execute(stmt)
+                _exec(stmt)
             buf = ""
     tail = _strip_comments(buf)
     if tail:
-        con.execute(tail)
+        _exec(tail)
     con.commit()
     for m in re.finditer(r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\((.*?)\n\);",
                          schema_sql, re.S):

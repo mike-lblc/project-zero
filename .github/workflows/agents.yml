@@ -117,7 +117,19 @@ jobs:
           sys.path.insert(0, '.')
           from core.db import connect
           c = connect()
-          q = lambda s: (c.execute(s).fetchone() or [0])[0]
+          # Отсутствующая таблица — не повод ронять сборку: в облачной базе нет
+          # того, что создаётся только локальным часовым аудитом. Ноль здесь
+          # значит «этого тут не ведут», и это честнее, чем падение.
+          def q(sql):
+              try:
+                  return (c.execute(sql).fetchone() or [0])[0]
+              except Exception:
+                  return 0
+          def rows(sql):
+              try:
+                  return list(c.execute(sql))
+              except Exception:
+                  return []
           d = {
             'payments': q('SELECT COUNT(*) FROM payments'),
             'revenue': q('SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments'),
@@ -138,17 +150,17 @@ jobs:
             'fixes': q("SELECT COUNT(*) FROM code_fixes WHERE outcome='applied'"),
           }
           d['matrix'] = [dict(zip(('stage','owner','verdict','blocker'), r)) for r in
-                         c.execute('SELECT stage,owner_agent,verdict,blocker FROM capability_matrix ORDER BY ord')]
+                         rows('SELECT stage,owner_agent,verdict,blocker FROM capability_matrix ORDER BY ord')]
           d['agents'] = [dict(zip(('agent','runs','errors'), r)) for r in
-                         c.execute("SELECT agent,COUNT(*),SUM(status='error') FROM runs "
-                                   "WHERE started_at>datetime('now','-1 day') GROUP BY agent "
-                                   "ORDER BY COUNT(*) DESC")]
+                         rows("SELECT agent,COUNT(*),SUM(status='error') FROM runs "
+                              "WHERE started_at>datetime('now','-1 day') GROUP BY agent "
+                              "ORDER BY COUNT(*) DESC")]
           d['open_paths'] = [dict(zip(('platform','category','score'), r)) for r in
-                             c.execute('SELECT platform,category,score FROM money_paths '
-                                       'WHERE open_to_us=1 ORDER BY score DESC LIMIT 10')]
+                             rows('SELECT platform,category,score FROM money_paths '
+                              'WHERE open_to_us=1 ORDER BY score DESC LIMIT 10')]
           d['walls'] = [dict(zip(('wall','n'), r)) for r in
-                        c.execute('SELECT wall,COUNT(*) FROM money_paths WHERE wall IS NOT NULL '
-                                  'GROUP BY wall ORDER BY COUNT(*) DESC')]
+                        rows('SELECT wall,COUNT(*) FROM money_paths WHERE wall IS NOT NULL '
+                             'GROUP BY wall ORDER BY COUNT(*) DESC')]
           d['msgs'] = {t: q(f"SELECT COUNT(*) FROM messages WHERE topic='{t}'")
                        for t in ('ask','answer','handoff','chat')}
           c.close()

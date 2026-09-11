@@ -74,7 +74,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -325,6 +325,37 @@ def audit():
         say("adversary", f"Аудит чистый: потрачено 0, платежей {pays}, "
                          f"утверждений без источника нет. Придраться не к чему — пока.")
     return f"audit: spend={spend} payments={pays} orphan_evidence={orphan}"
+
+
+_REASON_I = [0]
+
+
+def reason_and_act():
+    """Оборот РАССУЖДАЮЩЕГО агента: он сам выбирает, что делать дальше.
+
+    Чем это отличается от остальных шагов цикла. Все прочие шаги — жёсткая
+    последовательность: седьмой идёт после шестого, всегда. Здесь агент
+    смотрит на своё состояние — что он уже пробовал, что не сработало, что
+    висит у него в очереди — и выбирает следующее действие сам, объясняя
+    выбор своими словами.
+
+    Граница честная: выбирает он ТОЛЬКО из своего белого списка обратимых
+    действий класса GREEN. Публикация, отправка наружу, трата — по-прежнему
+    через эскалацию. Это выбор внутри одобренного меню, а не свобода.
+
+    Агенты берутся по очереди, чтобы каждый получал слово.
+    """
+    from core import roster, agent      # noqa: F401  (импорт регистрирует состав)
+    names = sorted(agent.REGISTRY)
+    if not names:
+        return "рассуждающих агентов нет"
+    name = names[_REASON_I[0] % len(names)]
+    _REASON_I[0] += 1
+    a = agent.get(name)
+    r = a.act()
+    if r.get("ok"):
+        say(name, f"Решил сам: беру «{r['chose']}». Почему: {r.get('why','')[:160]}")
+    return f"{name} -> {r.get('chose')}: {str(r.get('detail'))[:80]}"
 
 
 def housekeeping():
@@ -606,6 +637,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("collect_payouts", _craft("collect_payouts")),
               ("pursue", _craft("pursue")),
               ("fulfil", _craft("fulfil")),
+              ("reason_and_act", reason_and_act),
               ("housekeeping", housekeeping),
               ("escalation_watch", escalation_watch),
               ("mtbx_audit", mtbx_audit)]
@@ -647,6 +679,7 @@ CLOUD_STEPS = [
 
 # Чего в облаке нет и почему — без умолчаний:
 CLOUD_CANNOT = {
+    "reason_and_act": "рассуждение агентов идёт через локальную модель",
     "health_check": "проверяет локальный сервис на 127.0.0.1",
     "scout_research": "идёт через локальную языковую модель",
     "deep_check": "тоже через локальную модель",
