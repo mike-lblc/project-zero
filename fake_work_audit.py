@@ -22,6 +22,7 @@
 """
 import ast
 import sys
+from datetime import datetime
 from collections import Counter
 from pathlib import Path
 
@@ -164,26 +165,60 @@ rows = con.execute("""SELECT agent, notes, started_at FROM runs
                    (mark,)).fetchall()
 con.close()
 
-seq = {}
-for agent, notes, _ in reversed(rows):
+# ЧТО ИМЕННО МЫ ПРОВЕРЯЕМ. Не «сколько раз повторился ответ» — это неверная
+# мера. Пауза растёт (5, 10, 20, 40 минут), поэтому за несколько часов шаг
+# законно даст пять-шесть одинаковых ответов, будучи при этом разрежен в
+# десятки раз. Считать это поломкой значит ругать защиту за то, что она
+# работает, и первая версия проверки ровно это и делала.
+#
+# Настоящая мера — ПРОМЕЖУТОК между двумя последними одинаковыми прогонами:
+# если защита жива, он близок к назначенной паузе; если мертва, шаг бежит
+# каждый цикл.
+from agents.worker import PAUSE_CAP_MIN, BACKOFF_MAX_MIN, SAME_LIMIT  # noqa: E402
+
+hist = {}
+for agent, notes, started in reversed(rows):
     if not notes:
         continue
     step = notes.split(":", 1)[0].strip()
     body = notes.split(":", 1)[1].strip() if ":" in notes else notes.strip()
-    prev = seq.get(step)
-    if prev and prev[0] == body:
-        seq[step] = (body, prev[1] + 1)
-    else:
-        seq[step] = (body, 1)
+    hist.setdefault(step, []).append((body, started))
 
-SAME_LIMIT = 3
-runaway = [f"{step}: {n} раз подряд «{body[:50]}»"
-           for step, (body, n) in sorted(seq.items()) if n > SAME_LIMIT + 1]
+
+def _moment(text):
+    try:
+        return datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+
+
+runaway = []
+for step, items in sorted(hist.items()):
+    body = items[-1][0]
+    tail = []
+    for b, t in reversed(items):
+        if b != body:
+            break
+        tail.append(t)
+    n = len(tail)
+    if n <= SAME_LIMIT + 1:
+        continue
+    a, b_ = _moment(tail[1]), _moment(tail[0])
+    if not a or not b_:
+        continue
+    gap_min = abs((b_ - a).total_seconds()) / 60
+    cap = PAUSE_CAP_MIN.get(step, BACKOFF_MAX_MIN)
+    expected = min(cap, 5 * 2 ** (n - 1 - SAME_LIMIT))
+    # Допуск: цикл дискретен, шаг просыпается не ровно в назначенную минуту.
+    if gap_min < expected * 0.7:
+        runaway.append(f"{step}: {n} раз подряд «{body[:40]}», "
+                       f"между последними {gap_min:.0f} мин "
+                       f"вместо назначенных {expected}")
 
 check("повторяющийся шаг уходит на паузу",
       not runaway,
-      f"проверено шагов: {len(seq)} за {len(rows)} прогонов текущего запуска, "
-      f"ни один не повторился больше {SAME_LIMIT + 1} раз подряд" if not runaway
+      f"проверено шагов: {len(hist)} за {len(rows)} прогонов текущего запуска, "
+      f"повторяющиеся разрежены паузой как назначено" if not runaway
       else f"защита не сработала на {len(runaway)}: " + "; ".join(runaway[:4]))
 
 # ─────────────────────────────────── 3. находки без источника
