@@ -583,8 +583,21 @@ app.get('/api/chat', (_req, res) => {
     rows = db.prepare(`SELECT id,sender,recipient,topic,body,created_at FROM messages
                        WHERE topic IN ('chat','ask','answer','handoff') ORDER BY id DESC LIMIT 60`).all();
   } catch {}
+  // ИТОГИ ЗА ВСЁ ВРЕМЯ, А НЕ ТОЛЬКО ЗА ОКНО. В последние шестьдесят строк
+  // попадают почти одни объявления, и по ним кажется, будто агенты друг с
+  // другом не разговаривают вовсе. Между тем пар «вопрос-ответ» набралось
+  // семьдесят две — просто они старше окна. Показывать надо оба числа:
+  // одно окно без истории вводит в заблуждение ровно так же, как одна
+  // история без окна.
+  let totals = {};
+  try {
+    for (const r of db.prepare(
+        "SELECT topic, COUNT(*) c FROM messages GROUP BY topic").all()) {
+      totals[r.topic] = r.c;
+    }
+  } catch { /* таблицы может не быть в свежей облачной базе */ }
   db.close();
-  res.json({ messages: rows.reverse() });
+  res.json({ messages: rows.reverse(), totals });
 });
 
 // ---- ACTIONS the owner can take from the dashboard ----

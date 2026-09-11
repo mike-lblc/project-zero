@@ -629,9 +629,17 @@ function renderChat(){
   const ms = ((state.chat||{}).messages) || [];
   if (!ms.length){ $("v-chat").innerHTML = `<div class="empty">агенты молчат</div>`; return; }
   const talk = ms.filter(m => m.recipient && m.recipient !== "ESCALATION").length;
+  const t = (state.chat || {}).totals || {};
+  const hist = [
+    t.ask ? `вопросов ${t.ask}` : null,
+    t.answer ? `ответов ${t.answer}` : null,
+    t.handoff ? `передач работы ${t.handoff}` : null,
+    t.chat ? `объявлений ${t.chat}` : null,
+  ].filter(Boolean).join(" · ");
   let h = `<h3>Что говорят агенты</h3>`
-        + `<div class="s" style="margin:-4px 0 10px">из последних ${ms.length} сообщений `
-        + `${talk} адресованы конкретному агенту, остальное — объявления всем</div>`;
+        + `<div class="s" style="margin:-4px 0 4px">в этом окне ${ms.length} сообщений, `
+        + `адресованных конкретному агенту — ${talk}</div>`
+        + (hist ? `<div class="s" style="margin:0 0 10px;opacity:.8">за всё время: ${hist}</div>` : "");
   ms.slice(-45).reverse().forEach(m => {
     let body = m.body;
     try { const j = JSON.parse(m.body); body = j.text || j.question || j.task || j.body || m.body; } catch {}
