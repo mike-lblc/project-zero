@@ -211,7 +211,25 @@ class Agent:
         return {"agent": self.name, "chose": chose, "ok": ok,
                 "detail": str(out)[:200], "why": why}
 
-    def _record(self, d, outcome, ok):
+    def _record(self, d, outcome, ok, _retry=3):
+        """Запись решения НЕ ИМЕЕТ ПРАВА уронить оборот агента.
+
+        Тот же класс ошибки, что уже дважды останавливал систему: работа
+        сделана, а процесс падает на попытке о ней рассказать. Потерять
+        запись допустимо, потерять работу — нет.
+        """
+        import sqlite3 as _sq
+        import time as _t
+        try:
+            return self.__record(d, outcome, ok)
+        except _sq.OperationalError as e:
+            if _retry > 0 and "locked" in str(e).lower():
+                _t.sleep(1.5)
+                return self._record(d, outcome, ok, _retry - 1)
+            print(f"[агент {self.name}] решение не записано ({e}); работа продолжается")
+            return None
+
+    def __record(self, d, outcome, ok):
         c = _con()
         c.execute("""INSERT INTO agent_decisions(agent,state_seen,chose,why,allowed,
                      outcome,ok,model,decided_at) VALUES (?,?,?,?,?,?,?,?,?)""",
