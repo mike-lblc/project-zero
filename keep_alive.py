@@ -29,6 +29,18 @@ sys.path.insert(0, str(ROOT))
 from core.db import connect  # noqa: E402
 
 PY = ["py", "-3.13", "-X", "utf8"]
+
+# ДВА РАЗНЫХ ФИЛЬТРА, И РАЗНИЦА МЕЖДУ НИМИ СУЩЕСТВЕННА.
+#
+# СЧИТАТЬ надо только интерпретаторы: py.exe и pyw.exe — это запускатели, они
+# порождают python.exe/pythonw.exe и живут рядом. Считая их, сторож видел один
+# воркер как два, объявлял дубль, убивал «лишнего» и запускал нового — восемь
+# штук за час, все пишущие в одну базу.
+#
+# СНИМАТЬ надо и запускатели тоже: оставленный запускатель висит сиротой.
+COUNT_NAMES = "Name='python.exe' OR Name='pythonw.exe' OR Name='node.exe'"
+KILL_NAMES = ("Name='py.exe' OR Name='pyw.exe' OR "
+              "Name='python.exe' OR Name='pythonw.exe'")
 STALE_SECONDS = 300          # журнал старше пяти минут — воркер не работает
 SERVICE_URL = "http://127.0.0.1:8402/health"
 
@@ -51,12 +63,7 @@ def running(needle):
     """Сколько процессов python содержат в командной строке эту подстроку."""
     r = subprocess.run(
         ["powershell", "-NoProfile", "-Command",
-         # Считаем ТОЛЬКО интерпретаторы. py.exe и pyw.exe — запускатели: они
-         # порождают python.exe/pythonw.exe и живут рядом, поэтому один воркер
-         # виден как два процесса. Именно на этом сторож и решал, что есть
-         # дубль, убивал «лишнего» и запускал нового — по кругу.
-         "(Get-CimInstance Win32_Process -Filter \"Name='python.exe' "
-         "OR Name='pythonw.exe' OR Name='node.exe'\" | "
+         "(Get-CimInstance Win32_Process -Filter \"" + COUNT_NAMES + "\" | "
          "Where-Object { $_.CommandLine -like '*" + needle + "*' } "
          "| Measure-Object).Count"],
         capture_output=True, text=True, timeout=90)
@@ -117,8 +124,7 @@ def check():
         # Процесс висит, но следов не оставляет — это хуже, чем мёртвый:
         # снаружи выглядит живым. Снимаем и поднимаем заново.
         subprocess.run(["powershell", "-NoProfile", "-Command",
-                        "Get-CimInstance Win32_Process -Filter \"Name='py.exe' OR Name='pyw.exe' "
-                        "OR Name='python.exe' OR Name='pythonw.exe'\" | "
+                        "Get-CimInstance Win32_Process -Filter \"" + KILL_NAMES + "\" | "
                         "Where-Object { $_.CommandLine -like '*worker.py*' } | "
                         "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True, timeout=90)
         start_worker()
@@ -129,8 +135,7 @@ def check():
         # и создают ровно те блокировки, от которых система умирала. Оставляем
         # один, лишние снимаем.
         subprocess.run(["powershell", "-NoProfile", "-Command",
-                        "Get-CimInstance Win32_Process -Filter \"Name='py.exe' OR Name='pyw.exe' "
-                        "OR Name='python.exe' OR Name='pythonw.exe'\" | "
+                        "Get-CimInstance Win32_Process -Filter \"" + KILL_NAMES + "\" | "
                         "Where-Object { $_.CommandLine -like '*worker.py*' } | "
                         "Sort-Object CreationDate | Select-Object -Skip 1 | "
                         "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True, timeout=90)
