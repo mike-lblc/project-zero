@@ -382,7 +382,13 @@ def claim(url, plan, dry_run=True):
     if not we_can_do(d["t"]):
         return {"ok": False, "why": "класс задачи вне того, что мы можем доказуемо закрыть"}
 
-    rivals, paid = bounty.competition(repo, num, d["t"])
+    # ДВА аргумента, а не три. Здесь передавался ещё и заголовок — остаток от
+    # прежней версии competition(), которая искала соперников по словам из
+    # заголовка. Её переписали на подсчёт комментариев, а вызов не поправили,
+    # и claim() падал с TypeError на КАЖДОМ вызове. Заявка не подавалась ни
+    # разу за всё время работы системы, и это выглядело как «нет подходящих
+    # задач», а не как поломка.
+    rivals, paid = bounty.competition(repo, num)
     if paid:
         return {"ok": False, "why": "премия уже выплачена другому"}
     if rivals >= 4:
@@ -597,7 +603,7 @@ def pursue(dry_run=True):
     # add_proof() существовал и не вызывался ниоткуда: 22 задачи висели «в работе»
     # и только у двух было чем подтвердить работу. Правило без исполнения — не правило.
     c = _con()
-    task = c.execute("SELECT id FROM tasks WHERE objective LIKE ? AND state='in_progress' "
+    task = c.execute("SELECT id FROM tasks WHERE objective LIKE ? AND state='running' "
                      "ORDER BY id DESC LIMIT 1", (f"%{repo}%",)).fetchone()
     c.close()
     if task:

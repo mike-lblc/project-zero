@@ -270,7 +270,13 @@ def stalled(hours=6):
     """Раздел 43: что висит и требует эскалации."""
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     c = _con()
+    # QUEUED ТОЖЕ ЗАВИСАЕТ. Прежний список состояний включал только начатые и
+    # упавшие задачи, поэтому шесть задач, ближайших к деньгам, простояли
+    # нетронутыми двадцать шесть часов — а уборка честно докладывала «зависших
+    # нет». Задача, которую никто не начал, застревает не менее надёжно, чем
+    # начатая и брошенная; разница лишь в том, что первую не видно.
     rows = c.execute("SELECT id,objective,state,attempts,updated_at FROM tasks "
-                     "WHERE state IN ('running','failed') AND updated_at < ?", (cutoff,)).fetchall()
+                     "WHERE state IN ('running','failed','queued') "
+                     "AND updated_at < ?", (cutoff,)).fetchall()
     c.close()
     return [dict(zip(("id", "objective", "state", "attempts", "updated_at"), r)) for r in rows]
