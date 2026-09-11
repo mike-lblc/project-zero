@@ -106,6 +106,7 @@ jobs:
 
       - name: Полный облачный цикл
         env:
+          P0_CLOUDFLARE_AI_TOKEN: ${{ secrets.P0_CLOUDFLARE_AI_TOKEN }}
           WALLET_ETH: ${{ secrets.WALLET_ETH }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -119,6 +120,10 @@ jobs:
           from agents import worker
           from datetime import datetime, timezone
 
+          from ops.live_state import publish
+          def live(name, agent, phase):
+              try: publish(name, agent, phase)
+              except Exception as e: print(f"::warning::Live telemetry failed: {type(e).__name__}")
           steps = dict(worker.CYCLE + worker.SLOW_CYCLE)
           ok = fail = 0
           for name in worker.CLOUD_STEPS:
@@ -129,6 +134,7 @@ jobs:
                   continue
               started = datetime.now(timezone.utc).isoformat()
               agent = worker.AGENT_OF.get(name, "orchestrator")
+              live(name, agent, "running")
               try:
                   out = fn()
                   worker.record_run(name, agent, True, str(out), started,
@@ -141,6 +147,7 @@ jobs:
                                     datetime.now(timezone.utc).isoformat())
                   print(f"  FAIL {name}: {detail}", flush=True)
                   fail += 1
+          live("cycle", "orchestrator", "waiting")
           print(f"\nоблачный цикл: {ok} шагов отработало, {fail} упало")
           print(f"не могут работать в облаке: {list(worker.CLOUD_CANNOT)}")
           PY

@@ -478,7 +478,7 @@ async function get(path){
   const name = path.replace("/api/", "");
   if (dataSource !== "snapshot") {
     try {
-      const r = await fetch(path);
+      const r = await fetch(path, {cache:"no-store", signal:AbortSignal.timeout(8000)});
       if (r.ok) { dataSource = "live"; return await r.json(); }
     } catch { /* сервера рядом нет — идём за снимком */ }
   }
@@ -493,9 +493,18 @@ async function get(path){
 }
 
 async function tick(){
-  const [st, ex, q, chat, pulse] = await Promise.all([
-    get("/api/status"), get("/api/execution"), get("/api/queue"),
-    get("/api/chat"), get("/api/pulse")]);
+  let values;
+  if(window.P0_LIVE){
+    try {
+      const r = await fetch('/api/all', {cache:'no-store', signal:AbortSignal.timeout(8000)});
+      if(!r.ok) throw new Error('Cloud unavailable');
+      const d = await r.json(); values = [d.status,d.execution,d.queue,d.chat,d.pulse]; dataSource='live';
+    } catch {
+      liveLabel='НЕТ СВЯЗИ · показаны последние полученные данные';
+      return;
+    }
+  } else values = await Promise.all([get("/api/status"),get("/api/execution"),get("/api/queue"),get("/api/chat"),get("/api/pulse")]);
+  const [st, ex, q, chat, pulse] = values;
   if (!st) { liveLabel = "данных нет: ни живого сервера, ни снимка"; return; }
   Object.assign(state, {st, ex, q, chat, pulse});
 
@@ -518,8 +527,9 @@ async function tick(){
 
   liveLabel = dataSource === "live" ? "живой поток"
             : ("снимок облака" + (snapshotAt ? " · " + snapshotAt.slice(0,16).replace("T"," ") + " UTC" : ""));
+  if (st.cloud_updated_at) liveLabel = (st.cloud_stale ? "СВЯЗЬ УСТАРЕЛА" : "ОБЛАКО") + " · " + (st.cloud_phase === "running" ? `${st.cloud_agent}: ${st.cloud_step}` : "ожидание следующего запуска") + " · " + new Date(st.cloud_updated_at).toLocaleTimeString();
   renderMoney(); renderChain(); renderAgents(); renderQueue(); renderChat();
-  animateActivity();
+  if(!window.P0_LIVE) animateActivity();
 }
 
 function renderMoney(){
@@ -598,6 +608,7 @@ function renderAgents(){
 
 function renderQueue(){
   const q = state.q || {};
+  if(q.restricted){ $("v-queue").innerHTML = `<div class="empty">Содержимое задач не публикуется в открытом доступе.</div>`; return; }
   let h = "";
   const esc2 = s => esc(String(s||"").slice(0,220));
   const ints = q.interventions || [], escs = q.escalations || [];
@@ -626,6 +637,7 @@ function renderQueue(){
 const TOPIC = { ask: "вопрос", answer: "ответ", handoff: "передал работу", chat: "" };
 
 function renderChat(){
+  if(state.chat?.restricted){ $("v-chat").innerHTML = `<div class="empty">Тексты переписки не публикуются в открытом доступе.</div>`; return; }
   const ms = ((state.chat||{}).messages) || [];
   if (!ms.length){ $("v-chat").innerHTML = `<div class="empty">агенты молчат</div>`; return; }
   const talk = ms.filter(m => m.recipient && m.recipient !== "ESCALATION").length;

@@ -1,0 +1,7 @@
+name = "p0-live"
+main = "index.js"
+compatibility_date = "2026-09-01"
+[[d1_databases]]
+binding = "STATE"
+database_name = "p0-live-state"
+database_id = "0c63cbd9-6f10-4e69-b48f-dcfc60432490"
