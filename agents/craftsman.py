@@ -97,14 +97,17 @@ def verify_claims(doc_path, repo, source_paths, pr_url=None):
         return {"error": f"нет файла {doc_path}"}
     text = doc.read_text(encoding="utf-8")
 
-    sources = []
+    # Держим исходники ПО ФАЙЛАМ, а не одной кучей. Куча кажется удобнее, но в
+    # ней подкоманда `list` из goal.py, memory.py и action_item.py — одно и то
+    # же слово, и проверка числа аргументов путает эти команды между собой.
+    by_file = {}
     for p in source_paths:
         s = _fetch(repo, p)
         if s:
-            sources.append(s)
-    if not sources:
+            by_file[p] = s
+    if not by_file:
         return {"error": "исходники не скачались — НЕ УТВЕРЖДАЕМ ничего"}
-    blob = "\n".join(sources)
+    blob = "\n".join(by_file.values())
 
     cmds = set()
     for m in re.finditer(r"^\s*(?:#.*)?omi\s+((?:--[a-z-]+\s+\S+\s+)*)([a-z][a-z0-9-]*)"
@@ -145,6 +148,75 @@ def verify_claims(doc_path, repo, source_paths, pr_url=None):
         else:
             bad += 1
             misses.append(f)
+
+    # ЧИСЛО АРГУМЕНТОВ. Этой проверки не было, и ровно её отсутствие пропустило
+    # ошибку в первый же PR: команда `omi goal progress <GOAL_ID>` существует,
+    # все её слова нашлись в исходниках — а работать она не будет, потому что
+    # требует ВТОРОЙ обязательный аргумент. Ревьюер нашёл это за нас.
+    #
+    # Существование команды и её пригодность к копированию — разные вещи.
+    # Проверять надо второе: читатель копирует строку целиком.
+    # Имя команды задаёт ДЕКОРАТОР, а не имя функции: @app.command("progress")
+    # стоит над def update_progress. Искать по имени подкоманды — значит не найти
+    # её вовсе (тихий пропуск) или найти чужую функцию (ложное обвинение). Обе
+    # ошибки были в первой версии этой проверки.
+    # Разбор идёт ПО ОДНОМУ ФАЙЛУ на группу команд, и имя команды берётся из
+    # ДЕКОРАТОРА, а не из имени функции: @app.command("progress") стоит над
+    # def update_progress. Обе эти детали были нарушены в первых версиях
+    # проверки, и каждая давала уверенный неверный ответ: поиск по имени
+    # функции не находил команду вовсе, а поиск по всем исходникам сразу
+    # приписывал `goal list` требования от `memory list`.
+    arity = {}
+    for path, src in by_file.items():
+        grp = Path(path).stem.replace("_", "-")            # goal.py -> goal
+        for m in re.finditer(r'@\w+\.command\(\s*(?:name\s*=\s*)?"([a-z][a-z0-9-]*)"', src):
+            d = src.find("\ndef ", m.end())
+            if d < 0:
+                continue
+            # Границу списка параметров ищем ПО СКОБКАМ, а не по строке «\n) ->».
+            # Однострочная сигнатура `def path(typer_ctx: typer.Context) -> None:`
+            # такой строки не содержит, и поиск уезжал в следующую команду,
+            # приписывая беспараметрической `config path` чужие два аргумента.
+            open_i = src.find("(", d)
+            if open_i < 0:
+                continue
+            depth, close_i = 0, -1
+            for j in range(open_i, min(len(src), open_i + 4000)):
+                if src[j] == "(":
+                    depth += 1
+                elif src[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        close_i = j
+                        break
+            if close_i < 0:
+                continue
+            params = src[open_i:close_i]
+            arity[(grp, m.group(1))] = len(
+                re.findall(r"typer\.Argument\(\s*\.\.\.", params))
+
+    for group, sub in sorted(cmds):
+        if not sub:
+            continue
+        required = arity.get((group, sub))
+        if not required:
+            continue
+        # сколько аргументов написано в документе после подкоманды
+        doc_calls = re.findall(rf"^\s*omi\s+(?:--\S+\s+)*{re.escape(group)}\s+"
+                               rf"{re.escape(sub)}((?:\s+[^\s|#]+)*)\s*$", text, re.M)
+        for tail in doc_calls:
+            given = [a for a in tail.split() if not a.startswith("-")]
+            claim = f"omi {group} {sub}{tail} — обязательных аргументов {required}"
+            good = len(given) >= required
+            c.execute("INSERT INTO claim_checks(pr_url,claim,kind,verified,source,"
+                      "checked_at) VALUES (?,?,?,?,?,?)",
+                      (pr_url, claim, "arity", 1 if good else 0, repo, now()))
+            if good:
+                ok += 1
+            else:
+                bad += 1
+                misses.append(f"omi {group} {sub}: дано аргументов {len(given)}, "
+                              f"нужно {required}")
     c.commit()
     c.close()
 
