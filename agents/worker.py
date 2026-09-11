@@ -707,6 +707,20 @@ def advance_tasks():
     if t.get("attempts", 0) and t.get("state") == "running":
         return f"#{t['id']} уже в работе, попыток {t['attempts']}"
 
+    # УПАВШУЮ ЗАДАЧУ НЕЛЬЗЯ НАЧАТЬ НАПРЯМУЮ. next_task() отдаёт и ждущие, и
+    # упавшие, а машина состояний разрешает из failed только возврат в очередь:
+    # провал обязан породить следующую ПОПЫТКУ, а не продолжение прежней. Без
+    # этого шага шаг падал с InvalidTransition тридцать один раз за восемь
+    # минут — я сам это и внёс, добавляя потребителя очереди.
+    # СОСТОЯНИЕ БЕРЁТСЯ ИЗ БАЗЫ, А НЕ ИЗ ВЫДАЧИ ОЧЕРЕДИ: next_task() возвращает
+    # id, цель, следующее действие, владельца, близость к деньгам и попытки —
+    # состояния среди них нет. Проверка t.get("state") была всегда ложной, и
+    # ветка возврата в очередь не срабатывала ни разу.
+    con = connect()
+    row = con.execute("SELECT state FROM tasks WHERE id=?", (t["id"],)).fetchone()
+    con.close()
+    if row and row[0] == "failed":
+        execution.unblock(t["id"], "новая попытка после провала")
     execution.start(t["id"], "взята в работу очередью")
     qid = council.escalate(
         "orchestrator",
@@ -1117,6 +1131,15 @@ def _turn(name, fn, agent, i):
     except Exception as e:
         detail = f"{type(e).__name__}: {e}"
         record_run(name, agent, False, detail, started, now())
+        # ПОВТОРЯЮЩИЙСЯ СБОЙ — ТОЖЕ ПОВТОР. Защита от однообразия смотрела
+        # только на успешные ответы, поэтому шаг, падающий с одной и той же
+        # ошибкой, бился о неё каждый оборот без передышки: тридцать один раз
+        # за восемь минут. Разницы нет: и там, и там система тратит оборот на
+        # результат, который уже известен.
+        paused_err = note_result(name, detail)
+        if paused_err:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: та же ошибка "
+                  f"{SAME_LIMIT} раза подряд, пауза на {paused_err} мин", flush=True)
         say(agent, f"⚠ Шаг «{name}» упал: {detail[:130]}. Записал в журнал, "
                    f"чтобы это не потерялось и попало в мою репутацию.")
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {name} FAILED: {detail}", flush=True)
