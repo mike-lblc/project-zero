@@ -63,6 +63,7 @@ SPAM_HINTS = ("bounty-", "-bounty", "bounties", "airdrop", "reward-hub",
 MIN_STARS_FOR_BIG = 40      # крупная сумма от малоизвестного репозитория недостоверна
 BIG_AMOUNT = 200.0
 MAX_PER_REPO = 2            # ферма выдаёт десятки однотипных задач из одного места
+MAX_PER_REPO_OFFSITE = 8    # агрегатор чужих конкурсов фермой не является
 
 AMOUNT_RE = [
     (re.compile(r"\$\s?([\d,]+(?:\.\d+)?)\s*(?:k\b)?", re.I), 1.0),
@@ -294,6 +295,35 @@ def enrich_and_score(rows):
         if not amount:
             continue
         repo = d["r"]
+
+        # ═══ ЗАДАЧА ВНЕ GITHUB ═══
+        # Здесь нет ни звёзд, ни заявок в обсуждении, зато есть разница,
+        # которую нельзя замазать: КОНКУРС — ЭТО НЕ БАУНТИ. За баунти платят
+        # тому, кто сделал работу; в конкурсе платят ОДНОМУ победителю, а
+        # остальные работают бесплатно. Приз в миллион и баунти в миллион —
+        # совершенно разные вещи, и складывать их в один список по величине
+        # суммы значит обманывать себя самым приятным образом.
+        #
+        # Поэтому призовой фонд режется на порядок: он показывает масштаб
+        # события, а не то, что мы можем получить.
+        if "offsite" in (d.get("l") or []):
+            is_contest = any(w in body.lower() for w in
+                             ("приз", "prize", "соревнован", "contest", "competition"))
+            expect = amount * (0.02 if is_contest else 0.6)
+            out.append({
+                "url": d["u"], "repo": repo, "title": d["t"][:180],
+                "amount": round(expect, 2), "stars": 0, "language": "",
+                "rivals": 0,
+                "payout": "неизвестно",
+                "labels": ",".join(d.get("l", []))[:120],
+                "fit": round(expect * 0.5, 1),
+                "note": (f"вне GitHub. Объявленная сумма ${amount:,.0f}"
+                         + (", но это КОНКУРС: платят только победителю, "
+                            "поэтому ожидание срезано в пятьдесят раз"
+                            if is_contest else "")),
+            })
+            continue
+
         if repo not in repo_cache:
             info = _gh(["api", f"repos/{repo}",
                         "--jq", "{s:.stargazers_count,l:(.language//\"\"),c:.created_at,f:.forks_count}"])
@@ -337,20 +367,136 @@ def enrich_and_score(rows):
                     "payout": ("крипта/Algora" if pay is True else "неизвестно"),
                     "labels": ",".join(d.get("l", []))[:120], "fit": fit})
     out.sort(key=lambda r: -r["fit"])
-    # не больше MAX_PER_REPO задач из одного репозитория: ферма иначе забьёт весь список
+    # Не больше MAX_PER_REPO задач из одного репозитория: ферма иначе забьёт
+    # весь список. Но АГРЕГАТОР — не ферма: mlcontests.com публикует чужие
+    # независимые соревнования, у каждого свой организатор и свой призовой
+    # фонд, и срезать его до двух позиций значит выбрасывать настоящую работу
+    # тем же фильтром, что ловит подделки. Разница проверяемая: площадка
+    # прошла проверку разведчика о четыре стены, репозиторий-ферма — нет.
     seen_repo, capped = {}, []
     for r in out:
         k = r["repo"]
+        limit = MAX_PER_REPO_OFFSITE if "offsite" in (r.get("labels") or "") else MAX_PER_REPO
         seen_repo[k] = seen_repo.get(k, 0) + 1
-        if seen_repo[k] <= MAX_PER_REPO:
+        if seen_repo[k] <= limit:
             capped.append(r)
     return capped
+
+
+# ════════════════════════════ ИСТОЧНИКИ ВНЕ GITHUB
+#
+# Владелец спросил прямо: «ты ищешь только на GitHub, а может есть где ещё».
+# Вопрос был по делу. Разведчик заработка давно находил площадки за пределами
+# GitHub — 62 штуки, 11 открытых, — но ОХОТНИК ЗА КОНКРЕТНЫМИ ЗАДАЧАМИ смотрел
+# только в GitHub Search. Площадки были известны, а задачи с них не читались.
+#
+# Замер показал, какие из них отдают задачи машиночитаемо прямо в разметке:
+#     mlcontests.com   89 разных сумм, до $1 048 576 — соревнования по данным
+#     immunefi.com     14 сумм — премии за найденные уязвимости
+#     replit.com       4 суммы — мелкие задачи на заказ
+# А какие требуют браузера или аккаунта — те честно не включены, а не обойдены.
+OFFSITE = [
+    ("mlcontests.com", "https://mlcontests.com/",
+     "соревнования по данным: призовой фонд объявлен заранее"),
+    ("immunefi.com", "https://immunefi.com/bug-bounty/",
+     "премии за найденные уязвимости, выплата в крипте"),
+    ("replit.com", "https://replit.com/bounties",
+     "мелкие задачи на заказ с фиксированной ценой"),
+]
+
+_MONEY_RE = re.compile(r"\$\s?([\d,]{2,})(?!\d)")
+_TITLE_RE = re.compile(r"<(?:h[1-4]|a)[^>]*>([^<]{12,90})</(?:h[1-4]|a)>", re.I)
+
+
+def search_offsite(per_site=8):
+    """Читает задачи с площадок ВНЕ GitHub.
+
+    Возвращает те же записи, что и поиск по GitHub, чтобы они проходили ровно
+    те же фильтры: настоящие ли деньги, дойдёт ли выплата, не разобрано ли.
+    Иной источник не означает иных правил.
+    """
+    guard.check_action("research", "GREEN")
+    import urllib.error
+    import urllib.request
+    ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"}
+    rows = []
+    for site, url, what in OFFSITE:
+        try:
+            html = urllib.request.urlopen(
+                urllib.request.Request(url, headers=ua), timeout=25
+            ).read(300000).decode("utf-8", "ignore")
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            _API_TROUBLE.append(f"{site}: {type(e).__name__}")
+            continue
+
+        # СНАЧАЛА ИЩЕМ СТРУКТУРУ, а не разбираем разметку глазами. mlcontests
+        # кладёт весь список соревнований в атрибут data-competitions готовым
+        # JSON: название, ссылка, приз, срок, площадка. Разбирать такое по
+        # тегам — значит добровольно заменять факт догадкой.
+        taken = 0
+        for m in re.finditer(r'data-competitions="([^"]+)"', html):
+            try:
+                import html as _h
+                items = json.loads(_h.unescape(m.group(1)))
+            except (ValueError, TypeError):
+                continue
+            for it in items:
+                if taken >= per_site:
+                    break
+                prize = str(it.get("prize") or "")
+                amount = _MONEY_RE.search(prize)
+                if not amount:
+                    continue
+                try:
+                    val = float(amount.group(1).replace(",", ""))
+                except ValueError:
+                    continue
+                if val < 20:
+                    continue
+                rows.append({
+                    "u": it.get("url") or url,
+                    "t": (it.get("name") or "")[:180],
+                    "b": (f"{what}. Приз: {prize}. Срок: {it.get('deadline','?')}. "
+                          f"Площадка: {it.get('platform','?')}. "
+                          f"Метки: {', '.join(it.get('tags') or [])}"),
+                    "n": None, "cm": 0, "r": site,
+                    "l": ["offsite"] + list(it.get("tags") or [])})
+                taken += 1
+
+        if taken:
+            continue          # структура нашлась, гадать по разметке не нужно
+
+        # Разметка — запасной путь для площадок без структурированных данных.
+        # Правило то же: нет суммы рядом с заголовком — задача не берётся.
+        # Лучше пропустить, чем приписать чужую цену.
+        text = re.sub(r"(?is)<(script|style).*?</\1>", " ", html)
+        for m in _TITLE_RE.finditer(text):
+            if taken >= per_site:
+                break
+            title = re.sub(r"\s+", " ", m.group(1)).strip()
+            near = text[m.end():m.end() + 400]
+            money = _MONEY_RE.search(near)
+            if not money:
+                continue
+            try:
+                amount = float(money.group(1).replace(",", ""))
+            except ValueError:
+                continue
+            if amount < 20:
+                continue
+            rows.append({"u": url, "t": title[:180],
+                         "b": f"{what}. Сумма со страницы: ${amount:,.0f}",
+                         "n": None, "cm": 0, "r": site, "l": ["offsite"]})
+            taken += 1
+    return rows
 
 
 def hunt(limit=60):
     """Полный заход: найти, оценить, записать."""
     _API_TROUBLE.clear()
-    raw = search(limit)
+    # GitHub плюс площадки вне его. Один источник — это одна слепая зона.
+    raw = search(limit) + search_offsite()
     rows = enrich_and_score(raw)
     # Отказ API — единственный случай, когда заход НЕЛЬЗЯ считать проведённым:
     # мы не видели рынок, значит и снимать задачи с очереди не имеем права.
@@ -363,12 +509,13 @@ def hunt(limit=60):
     c = _con()
     for r in rows:
         c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,stars,language,
-                     labels,fit_score,rivals,payout,found_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                     labels,fit_score,rivals,payout,note,found_at)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                      ON CONFLICT(url) DO UPDATE SET amount_usd=?, fit_score=?, stars=?,
                      rivals=?, status='found'""",
                   (r["url"], r["repo"], r["title"], r["amount"], "USD", r["stars"],
                    r["language"], r["labels"], r["fit"], r.get("rivals", 0),
-                   r.get("payout"), now(),
+                   r.get("payout"), r.get("note"), now(),
                    r["amount"], r["fit"], r["stars"], r.get("rivals", 0)))
     # ЧИСТКА. Задача, не прошедшая фильтры в этот заход, больше не «доступная»:
     # премию могли выплатить, толпа могла набежать. Оставлять её в очереди —
