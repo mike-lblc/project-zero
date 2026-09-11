@@ -368,6 +368,29 @@ def _supply():
     return out
 
 
+@tool("where_time_goes", "GREEN",
+      "куда уходит время системы по замерам: что стоит дорого, что падает, "
+      "какой источник умирает медленно",
+      needs=("замеры",))
+def _time_goes():
+    from core import telemetry
+    rows = telemetry.summary(24)
+    if not rows:
+        return "замеров за сутки нет — телеметрия только включена"
+    # Медленно умирающий источник опаснее отказавшего: он ещё отвечает, но уже
+    # съедает цикл, и заметить это без замера можно только когда он замолчит.
+    slow = [r for r in rows if r["kind"] == "source" and r["avg_ms"] > 3000]
+    broken = [r for r in rows if r["failed"] and r["calls"] >= 2]
+    out = telemetry.where_time_goes(24)
+    if slow:
+        out += "; МЕДЛЕННО ОТВЕЧАЮТ: " + ", ".join(
+            f"{r['name']} {r['avg_ms']}мс" for r in slow[:3])
+    if broken:
+        out += "; РЕГУЛЯРНО ПАДАЮТ: " + ", ".join(
+            f"{r['name']} {r['failed']}/{r['calls']}" for r in broken[:3])
+    return out
+
+
 # ═══════════════════════════════════════════════ ОБЩИЕ ПРАВИЛА
 # Этот кусок входит в промпт КАЖДОГО агента. Каждый запрет здесь оплачен
 # конкретной ошибкой, а не выведен из общих соображений.
@@ -588,7 +611,7 @@ register(Agent(
     kpi="число НАЙДЕННЫХ мест, где система тратит силы впустую, с измерением "
         "до и после; предложение без измерения не засчитывается",
     tools=("economic_review", "check_invariants", "housekeeping",
-           "chain_economics"),
+           "chain_economics", "where_time_goes"),
     system=COMMON + """
 ТЫ — ОПТИМИЗАТОР.
 
@@ -609,7 +632,8 @@ register(Agent(
     role="Сторож: следит, что агенты живы и работают, а не висят",
     kpi="время между поломкой и её обнаружением; чем меньше, тем лучше "
         "работа, а отсутствие поломок — не безделье",
-    tools=("watch_agents", "check_invariants", "housekeeping", "supply_check"),
+    tools=("watch_agents", "check_invariants", "housekeeping", "supply_check",
+           "where_time_goes"),
     system=COMMON + """
 ТЫ — СТОРОЖ.
 

@@ -35,6 +35,23 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
       "Accept": "application/json, text/html"}
 
 
+import time as _time
+
+
+def _measure(host, t0, ok, detail=None):
+    """Сколько занял поход к источнику и чем кончился.
+
+    Источник, который отвечает всё медленнее, умирает незаметно: он ещё не
+    отказывает, но уже съедает цикл. Без замера это видно только тогда, когда
+    он окончательно замолчит.
+    """
+    try:
+        from core import telemetry
+        telemetry.record("source", host, (_time.time() - t0) * 1000, ok, detail=detail)
+    except Exception:
+        pass
+
+
 class SourceDown(Exception):
     """Источник не ответил. Это НЕ «там ничего нет»."""
 
@@ -48,6 +65,8 @@ def _get(url, timeout=25, raw=False, max_bytes=600_000, accept=None):
     сломанной. Молчаливая обрезка данных — та же ложь, что молчаливый пустой
     список, поэтому потолок теперь поднимает отказ с внятной причиной.
     """
+    host = url.split("/")[2]
+    t0 = _time.time()
     try:
         head = dict(UA, **({"Accept": accept} if accept else {}))
         r = urllib.request.urlopen(urllib.request.Request(url, headers=head), timeout=timeout)
@@ -57,17 +76,21 @@ def _get(url, timeout=25, raw=False, max_bytes=600_000, accept=None):
                              f"нужен потолок выше или адрес полегче")
         body = blob.decode("utf-8", "ignore")
     except urllib.error.HTTPError as e:
-        raise SourceDown(f"{url.split('/')[2]}: отказ {e.code}") from e
-    except SourceDown:
+        _measure(host, t0, False, f"отказ {e.code}")
+        raise SourceDown(f"{host}: отказ {e.code}") from e
+    except SourceDown as e:
+        _measure(host, t0, False, str(e)[:90])
         raise                 # свой отказ уже назван причиной — не переименовывать
     except Exception as e:
-        raise SourceDown(f"{url.split('/')[2]}: {type(e).__name__}") from e
+        _measure(host, t0, False, type(e).__name__)
+        raise SourceDown(f"{host}: {type(e).__name__}") from e
+    _measure(host, t0, True)
     if raw:
         return body
     try:
         return json.loads(body)
     except ValueError as e:
-        raise SourceDown(f"{url.split('/')[2]}: ответ не разобрался") from e
+        raise SourceDown(f"{host}: ответ не разобрался") from e
 
 
 # ═════════════════════════════════════════════════ РАБОТА

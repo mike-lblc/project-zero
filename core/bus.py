@@ -138,8 +138,24 @@ def handoff(sender, recipient, task, why):
     """Передача работы с объяснением ПОЧЕМУ именно этому агенту."""
     if recipient not in DIRECTORY:
         raise ValueError(f"нет такого агента: {recipient}")
-    mid = _put(sender, recipient, "handoff",
-               json.dumps({"task": task, "why": why}, ensure_ascii=False))
+    body = json.dumps({"task": task, "why": why}, ensure_ascii=False)
+
+    # ПОВТОРНО ТУ ЖЕ РАБОТУ НЕ ПЕРЕДАЁМ, пока прежнюю не взяли. Без этого
+    # получилось 275 передач, из которых РАЗЛИЧНЫХ — одна: дистрибьютор каждый
+    # цикл заново просил сторожа следить за адресом сервиса. По журналу это
+    # выглядело как непрерывное сотрудничество двенадцати агентов, а на деле
+    # было одним неотвеченным сообщением, отправленным двести семьдесят пять
+    # раз. Проверка «передача работы между агентами работает» это пропускала,
+    # потому что считала строки, а не разнообразие.
+    con = connect()
+    dup = con.execute("SELECT id FROM messages WHERE sender=? AND recipient=? "
+                      "AND topic='handoff' AND body=? AND consumed_at IS NULL",
+                      (sender, recipient, body)).fetchone()
+    con.close()
+    if dup:
+        return dup[0]
+
+    mid = _put(sender, recipient, "handoff", body)
     broadcast(sender, f"⇉ передаю «{recipient}»: {task}. Почему ему: {why}")
     return mid
 

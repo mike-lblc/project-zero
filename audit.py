@@ -420,8 +420,22 @@ check("агенты общаются друг с другом", lambda: (
     and n("SELECT COUNT(*) FROM messages WHERE topic='answer'") > 0,
     f"вопросов {n(chr(83)+chr(69)+chr(76)+chr(69)+chr(67)+chr(84)+' COUNT(*) FROM messages WHERE topic=' + chr(39) + 'ask' + chr(39))}, "
     f"ответов {n(chr(83)+chr(69)+chr(76)+chr(69)+chr(67)+chr(84)+' COUNT(*) FROM messages WHERE topic=' + chr(39) + 'answer' + chr(39))}"))
-check("передача работы между агентами", lambda: (
-    n("SELECT COUNT(*) FROM messages WHERE topic='handoff'") > 0, "handoff работает"))
+# МЕРА — РАЗНООБРАЗИЕ, А НЕ КОЛИЧЕСТВО. Прежняя проверка считала строки и
+# сообщала «handoff работает» при 275 передачах, из которых РАЗЛИЧНЫХ была
+# одна: дистрибьютор каждый цикл заново просил сторожа следить за адресом.
+# По журналу — непрерывное сотрудничество, по существу — одно неотвеченное
+# сообщение, отправленное двести семьдесят пять раз.
+def _handoff_variety():
+    tot = n("SELECT COUNT(*) FROM messages WHERE topic='handoff'")
+    uniq = n("SELECT COUNT(*) FROM (SELECT DISTINCT sender,recipient,body "
+             "FROM messages WHERE topic='handoff')")
+    if not tot:
+        return False, "передач работы нет вовсе"
+    share = round(100 * uniq / tot)
+    return share >= 20, f"передач {tot}, различных {uniq} ({share}% неповторов)"
+
+
+check("передача работы между агентами", _handoff_variety)
 check("шина агентов существует", lambda: ((ROOT/"core"/"bus.py").exists(), "core/bus.py"))
 check("команда расширения существует", lambda: ((ROOT/"agents"/"team.py").exists(), "agents/team.py"))
 check("отчёт писаря создан", lambda: ((ROOT/"reports"/"market_report.txt").exists(),

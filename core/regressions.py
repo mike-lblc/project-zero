@@ -80,6 +80,32 @@ def add(name, kind, target, expr, origin):
     return added
 
 
+
+def amend(name, expr, why):
+    """Уточняет ФОРМУЛИРОВКУ инварианта, не трогая его смысл.
+
+    Зачем отдельная операция. Проверка иногда падает не потому, что код стал
+    неверным, а потому, что её образец был слишком буквальным: он совпадал с
+    одной конкретной записью верного кода и переставал совпадать после любой
+    перестановки строк. Такой ложный отказ обесценивает и настоящие — и
+    чинить его тихим UPDATE значит незаметно ослабить проверку.
+
+    Поэтому уточнение требует объяснения и сохраняется рядом с происхождением:
+    видно, что менялась формулировка, а не выученный урок.
+    """
+    if not why or len(why.strip()) < 20:
+        raise ValueError("уточнение без причины неотличимо от ослабления проверки")
+    c = _con()
+    row = c.execute("SELECT origin FROM invariants WHERE name=?", (name,)).fetchone()
+    if not row:
+        c.close()
+        raise ValueError(f"нет такого инварианта: {name}")
+    write(c, "UPDATE invariants SET expr=?, origin=? WHERE name=?",
+          (expr, row[0] + f" [формулировка уточнена: {why.strip()}]", name))
+    c.commit(); c.close()
+    return True
+
+
 def _files(target):
     out = []
     for pat in target.split(","):
@@ -271,7 +297,20 @@ def seed():
     return n
 
 
+def _cli_amend(argv):
+    """Уточнение формулировки из командной строки: имя, образец, причина."""
+    if len(argv) < 3:
+        print("нужно: amend «имя инварианта» «новый образец» «причина уточнения»")
+        return 2
+    amend(argv[0], argv[1], argv[2])
+    print(f"формулировка уточнена: {argv[0]}")
+    return 0
+
+
 if __name__ == "__main__":
+    import sys as _s
+    if len(_s.argv) > 1 and _s.argv[1] == "amend":
+        _s.exit(_cli_amend(_s.argv[2:]))
     new = seed()
     print("=" * 74)
     print(f"КАТАЛОГ ИНВАРИАНТОВ — {count()} проверок"

@@ -542,12 +542,46 @@ app.get('/api/signals', (req, res) => {
 });
 
 // ---- AGENT CHAT (russian) ----
+// НАБЛЮДАЕМОСТЬ В ФОРМАТЕ PROMETHEUS. Обычный текст, без зависимостей: если
+// владелец поднимет Grafana, она подключится сюда как есть и менять ничего не
+// придётся. Пока не поднял — замеры всё равно работают, и их читают агенты.
+app.get('/metrics', (_req, res) => {
+  const db = new DatabaseSync(DB, { readOnly: true });
+  let rows = [];
+  try {
+    rows = db.prepare(
+      "SELECT kind, name, COUNT(*) c, SUM(1-ok) bad, AVG(ms) avg FROM spans " +
+      "WHERE at > datetime('now','-24 hours') GROUP BY kind, name").all();
+  } catch { /* таблицы ещё нет — цикл не проходил */ }
+  db.close();
+
+  // Метка Prometheus не терпит кавычек и переносов: они ломают разбор у
+  // сборщика, и метрика молча пропадает вместо того, чтобы быть неверной.
+  const esc = (v) => String(v).replace(/["\\\n]/g, '_');
+  const out = [];
+  const block = (metric, help, type, pick) => {
+    out.push('# HELP ' + metric + ' ' + help, '# TYPE ' + metric + ' ' + type);
+    rows.forEach((r) => {
+      out.push(metric + '{kind="' + esc(r.kind) + '",name="' + esc(r.name) + '"} ' + pick(r));
+    });
+  };
+  block('p0_span_calls_total', 'Отрезков работы за сутки', 'counter', (r) => r.c);
+  block('p0_span_failed_total', 'Сколько из них упало', 'counter', (r) => r.bad || 0);
+  block('p0_span_avg_ms', 'Среднее время отрезка, миллисекунды', 'gauge',
+        (r) => Math.round(r.avg || 0));
+  res.type('text/plain; version=0.0.4').send(out.join('\n') + '\n');
+});
+
 app.get('/api/chat', (_req, res) => {
   const db = new DatabaseSync(DB, { readOnly: true });
   let rows = [];
   try {
-    rows = db.prepare(`SELECT id,sender,topic,body,created_at FROM messages
-                       WHERE topic IN ('chat','ask','answer','handoff') ORDER BY id DESC LIMIT 50`).all();
+    // АДРЕСАТ ОБЯЗАТЕЛЕН В ВЫДАЧЕ. Без него вопрос, ответ и передача работы
+    // выглядят на дашборде так же, как объявление в пустоту: 275 передач и 72
+    // пары «вопрос-ответ» были неотличимы от болтовни. Общение, из которого
+    // убрали второго участника, перестаёт быть общением.
+    rows = db.prepare(`SELECT id,sender,recipient,topic,body,created_at FROM messages
+                       WHERE topic IN ('chat','ask','answer','handoff') ORDER BY id DESC LIMIT 60`).all();
   } catch {}
   db.close();
   res.json({ messages: rows.reverse() });

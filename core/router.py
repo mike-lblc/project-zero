@@ -44,13 +44,62 @@ WEIGHT = {
 }
 
 
+# ГДЕ ЧТО ИСПОЛНЯЕТСЯ — ТРИ ЯВНЫХ РЕЖИМА, А НЕ УГАДЫВАНИЕ.
+#
+# Облачная модель — три миллиарда параметров против тридцати у домашней. Это
+# не «чуть хуже», это другой класс: разметить и переформатировать она может,
+# а рассуждение агента о собственном состоянии ей не по силам. Отдавать ей
+# выбор действия значит получать правдоподобные, но плохие решения — и не
+# отличать их от хороших, потому что в журнале они выглядят одинаково.
+#
+# Первая попытка решала это пробой: «спросим localhost, жив ли он». Проба была
+# ошибкой сразу по двум причинам. В облаке localhost'а нет вовсе, и обращение
+# туда — лишний запрос, который ничего не может вернуть. А главное, это
+# нарушало правило, ради которого облачный путь и строился: при облачном
+# режиме локальная модель не трогается, иначе тихий откат на неё выдаёт
+# «рассуждение состоялось» там, где его не было.
+#
+# Поэтому режим ЗАДАЁТСЯ, а не угадывается:
+#
+#   ollama      (по умолчанию)  всё дома — обычная работа на машине владельца
+#   cloudflare                  всё в облаке — там домашней модели физически
+#                               нет, и тяжёлые задачи честно помечаются как
+#                               исполненные слабой моделью
+#   split                       рутина в облако, мышление дома — режим для
+#                               машины владельца, когда облако разгружает
+#
+# Одна развилка, одно место, никаких вторых копий этого решения.
+CLOUD_OK = {"tag", "format", "dedupe"}     # рутина: облачной модели по силам
+
+
+def where(task_type):
+    """Где исполнится задача и почему именно там. Объяснимо — значит проверяемо."""
+    t = task_type.lower().strip()
+    backend = os.environ.get("P0_MODEL_BACKEND", "ollama")
+    local = MODELS.get(WEIGHT.get(t, "standard"), MODELS["standard"])
+
+    if backend == "ollama":
+        return "дома", local, "домашний режим: всё считает машина владельца"
+
+    if backend == "split":
+        if t in CLOUD_OK:
+            from core.cloud_model import MODEL
+            return "облако", MODEL, "рутина, качества облачной модели хватает"
+        return "дома", local, "мышление остаётся дома: домашняя модель крупнее в десять раз"
+
+    if backend == "cloudflare":
+        from core.cloud_model import MODEL
+        why = ("рутина, качества хватает" if t in CLOUD_OK else
+               "ВЫНУЖДЕННО: домашней модели здесь нет, рассуждение идёт на слабой — "
+               "решения будут хуже обычного")
+        return "облако", MODEL, why
+
+    raise RuntimeError(f"Unknown model backend: {backend}; refusing local fallback")
+
+
 def model_for(task_type):
     """Какая модель возьмёт эту задачу. Выбор объясним и проверяем."""
-    if os.environ.get("P0_MODEL_BACKEND") == "cloudflare":
-        from core.cloud_model import MODEL
-        return MODEL
-    return MODELS.get(WEIGHT.get(task_type.lower().strip(), "standard"),
-                      MODELS["standard"])
+    return where(task_type)[1]
 
 MECHANICAL = {"extract","classify","tag","format","parse","dedupe","summarize","translate"}
 JUDGMENT   = {"decide","choose","plan","approve","rule","propose","evaluate","prioritize","pivot"}
@@ -65,11 +114,11 @@ def _local(prompt, timeout=300, model=None):
     модель вытеснили из памяти, первый вызов ждёт возвращения восемнадцати
     гигабайт с диска. Короткий таймаут превращал это в «модель недоступна».
     """
+    # РЕШЕНИЕ О МЕСТЕ ПРИНИМАЕТСЯ ОДИН РАЗ — в where(). Здесь его копии быть не
+    # должно: две независимые развилки по одному признаку расходятся со
+    # временем, и тогда журнал говорит одно, а исполнилось другое.
     backend = os.environ.get("P0_MODEL_BACKEND", "ollama")
-    if backend == "cloudflare":
-        from core.cloud_model import generate
-        return generate(prompt, timeout=timeout)
-    if backend != "ollama":
+    if backend not in ("ollama", "cloudflare"):
         raise RuntimeError("Unknown model backend; refusing local fallback")
     req = urllib.request.Request(OLLAMA,
         data=json.dumps({"model": model or LOCAL_MODEL, "prompt": prompt,
@@ -85,11 +134,18 @@ def run(task_type, prompt, _retry=True):
         raise EscalationRequired(
             f"'{task_type}' is a JUDGMENT task. The local model is forbidden to decide. "
             f"Escalate to a Claude Code subagent.")
-    if os.environ.get("P0_MODEL_BACKEND") == "cloudflare":
+    place, m, why = where(t)
+    if place == "облако":
         from core.cloud_model import generate
-        return generate(prompt, structured=(t == "classify"))
-    m = model_for(t)
-    out = _local(prompt, model=m)
+        from core import telemetry
+        with telemetry.span("model", m):
+            return generate(prompt, structured=(t == "classify"))
+    # Время ответа модели — не любопытство, а вход в решение: именно замером
+    # выяснилось, что тяжёлая модель отвечает БЫСТРЕЕ лёгкой, потому что уже
+    # лежит в видеопамяти, а лёгкая выталкивает её и грузится заново.
+    from core import telemetry
+    with telemetry.span("model", m):
+        out = _local(prompt, model=m)
     # Known failure mode: small local models return empty. Retry once, then escalate.
     if not out or not out.strip():
         if _retry:

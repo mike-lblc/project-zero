@@ -752,7 +752,8 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("chain_economics", _src("chain_economics")),  # выручка в долларах, не в токенах
               ("rich_targets", _src("rich_targets")),      # у кого есть деньги
               ("package_docs", _src("package_docs")),      # сырьё для работы «документация»
-              ("supply_check", _src("supply_check"))]      # перекличка снабжения
+              ("supply_check", _src("supply_check")),     # перекличка снабжения
+              ("where_time_goes", _src("where_time_goes"))]  # куда уходит время
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 
 # ═══════════════════════════════════════ ЧТО МОЖЕТ РАБОТАТЬ В ОБЛАКЕ
@@ -810,6 +811,7 @@ CLOUD_STEPS = [
     "rich_targets",        # организации с деньгами и продуктом
     "package_docs",        # свежесть пакетов и ссылки на репозитории
     "supply_check",        # жива ли вообще наша бесплатная снасть
+    "where_time_goes",     # замеры: что дорого, что падает, что тормозит
 ]
 
 # Чего в облаке нет и почему — без умолчаний:
@@ -999,7 +1001,10 @@ def _turn(name, fn, agent, i):
         return False
     started = now()
     try:
-        out = fn()
+        # Замер вокруг шага. Мерится и падение тоже: считать только удачные
+        # вызовы значит не увидеть, что время уходит на повторы после отказов.
+        with telemetry.span("step", name, agent):
+            out = fn()
         paused = note_result(name, out)
         record_run(name, agent, True, str(out), started, now())
         if paused:
