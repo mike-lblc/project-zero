@@ -239,16 +239,30 @@ def ensure_schema(con, schema_sql):
     # Обычный execute ожидание уважает, поэтому разбираем скрипт на операторы.
     # Границы операторов определяет сам sqlite: разбиение по «;» спотыкается о
     # комментарии и отдаёт обрывки, на которых драйвер говорит «incomplete input».
+    def _strip_comments(text):
+        """Убирает ведущие строки-комментарии.
+
+        Без этого оператор, перед которым стоит комментарий, начинался с «--»
+        и ОТБРАСЫВАЛСЯ ЦЕЛИКОМ. Локально это было незаметно — база уже
+        существовала. На чистой установке пропадала половина таблиц, и первый
+        же облачный прогон упал на создании индекса по несуществующей таблице.
+        Ошибка, которую видно только там, где ещё ничего нет.
+        """
+        lines = [ln for ln in text.splitlines()
+                 if ln.strip() and not ln.strip().startswith("--")]
+        return "\n".join(lines).strip()
+
     buf = ""
     for line in schema_sql.splitlines(keepends=True):
         buf += line
         if sqlite3.complete_statement(buf):
-            stmt = buf.strip()
-            if stmt and not stmt.startswith("--"):
+            stmt = _strip_comments(buf)
+            if stmt:
                 con.execute(stmt)
             buf = ""
-    if buf.strip() and not buf.strip().startswith("--"):
-        con.execute(buf)
+    tail = _strip_comments(buf)
+    if tail:
+        con.execute(tail)
     con.commit()
     for m in re.finditer(r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\((.*?)\n\);",
                          schema_sql, re.S):
