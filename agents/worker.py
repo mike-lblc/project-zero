@@ -1078,7 +1078,7 @@ def run_forever(interval=90):
         if urgent:
             name, fn, agent = urgent
         agent = AGENT_OF.get(name, "orchestrator") if not urgent else agent
-        ran = True
+        ran = False
         try:
             ran = _turn(name, fn, agent, i)
         except Exception as e:
@@ -1093,7 +1093,11 @@ def run_forever(interval=90):
         if _PENDING_EVENT[0] is not None:
             try:
                 from core import events
-                events.complete(_PENDING_EVENT[0], f"{name}: отработано")
+                if ran is True:
+                    events.complete(_PENDING_EVENT[0], f"{name}: отработано")
+                else:
+                    events.release(_PENDING_EVENT[0])
+                    time.sleep(min(interval, 5))
             except Exception:
                 pass
             _PENDING_EVENT[0] = None
@@ -1143,6 +1147,7 @@ def _turn(name, fn, agent, i):
         say(agent, f"⚠ Шаг «{name}» упал: {detail[:130]}. Записал в журнал, "
                    f"чтобы это не потерялось и попало в мою репутацию.")
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {name} FAILED: {detail}", flush=True)
+        return None
     return True
 
 

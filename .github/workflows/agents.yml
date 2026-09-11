@@ -25,6 +25,7 @@ name: Agents cycle
 on:
   schedule:
     - cron: '*/15 * * * *'
+    - cron: '17 */2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -76,6 +77,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+
+      - name: Сквозной аудит каждые два часа
+        id: deep_audit
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 */2 * * *'
+        continue-on-error: true
+        run: python ops/deep_audit.py
+
+      - name: Сохранить отчёт аудита
+        if: always() && steps.deep_audit.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-audit-report
+          path: reports/deep-audit.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Облачное рассуждение и исполнение инструмента
         id: cloud_reasoning
@@ -264,3 +280,7 @@ jobs:
         run: |
           echo "::error::Cloud reasoning failed; inspect cloud_turns and agent_decisions"
           exit 1
+
+      - name: Сообщить о провале сквозного аудита
+        if: always() && steps.deep_audit.outcome == 'failure'
+        run: exit 1

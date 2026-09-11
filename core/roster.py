@@ -748,3 +748,11 @@ register(Agent(
 агента-владельца: источник, которым никто не пользуется, — это не снабжение,
 а список благих намерений.
 """))
+
+
+@tool("produce_requested_documentation", "GREEN", "Create a source-derived document for an explicitly queued documentation_request", needs=("сеть", "gh"))
+def _produce_requested_documentation():
+    from agents.executor import produce_requested
+    return produce_requested()
+
+register(Agent(name="executor", role="Исполнитель документации по исходникам", kpi="Проверенный документ по конкретному запросу, переданный мастеровому", tools=("produce_requested_documentation", "check_invariants"), system=COMMON + "Работай только с явными запросами documentation_request. Не выдавай создание файла за отправку PR или оплату. Проверка структуры не доказывает полную семантическую корректность CLI."))

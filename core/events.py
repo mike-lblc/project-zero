@@ -79,10 +79,13 @@ def _con():
 def publish(kind, payload=None, source=None):
     """Публикует событие. Возвращает (id, кому адресовано) или (id, None)."""
     who, prio = SUBSCRIPTIONS.get(kind, (None, 7))
+    encoded = json.dumps(payload or {}, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > 65536:
+        raise ValueError("Event payload exceeds 64 KiB; store content and send a reference")
     c = _con()
     cur = c.execute("""INSERT INTO events(kind,payload,source,priority,created_at)
                        VALUES (?,?,?,?,?)""",
-                    (kind, json.dumps(payload or {}, ensure_ascii=False)[:2000],
+                    (kind, encoded,
                      source, prio, now()))
     eid = cur.lastrowid
     c.commit(); c.close()
@@ -99,12 +102,12 @@ def pending(agent=None, limit=10):
             return []
         marks = ",".join("?" * len(kinds))
         rows = c.execute(f"""SELECT id,kind,payload,priority,created_at FROM events
-                             WHERE done_at IS NULL AND kind IN ({marks})
+                             WHERE done_at IS NULL AND claimed_by IS NULL AND kind IN ({marks})
                              ORDER BY priority, id LIMIT ?""",
                          (*kinds, limit)).fetchall()
     else:
         rows = c.execute("""SELECT id,kind,payload,priority,created_at FROM events
-                            WHERE done_at IS NULL ORDER BY priority, id LIMIT ?""",
+                            WHERE done_at IS NULL AND claimed_by IS NULL ORDER BY priority, id LIMIT ?""",
                          (limit,)).fetchall()
     c.close()
     return [dict(zip(("id", "kind", "payload", "priority", "at"), r)) for r in rows]
