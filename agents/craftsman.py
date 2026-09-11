@@ -640,39 +640,38 @@ def fulfil(dry_run=True):
     for mid, body, created in rows:
         m = re.search(r"ФАЙЛ:\s*(\S+)\s*\n(.+)", body or "", re.S)
         if not m:
-            c = connect()
-            c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), mid))
-            c.commit(); c.close()
-            bus.broadcast("craftsman", f"Ответ на эскалацию #{mid} не содержит файла — "
-                                       f"отправлять нечего. Пометил как разобранный, "
-                                       f"работу не выдумываю.")
+            bus.broadcast("craftsman", f"Ответ #{mid} не содержит файла; оставлен в очереди для исправления.")
             continue
         path, content = m.group(1), m.group(2)
 
+        # A resolution must name its exact issue. Never guess by fit score.
+        target = re.search(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/(\d+)", (body or "").split("ФАЙЛ:", 1)[0])
+        if not target:
+            bus.broadcast("craftsman", f"Ответ #{mid}: нет ссылки на исходную задачу перед ФАЙЛ; отправка отложена.")
+            continue
+        issue_url = target.group(0)
         c = _con()
-        b = c.execute("""SELECT url,repo,title,amount_usd FROM bounties
-                         WHERE status='attempted' ORDER BY fit_score DESC LIMIT 1""").fetchone()
+        b = c.execute("SELECT url,repo,title,amount_usd FROM bounties WHERE url=? AND status='attempted'", (issue_url,)).fetchone()
         c.close()
         if not b:
-            return "есть готовый текст, но нет задачи со статусом «заявка подана»"
+            continue
         url, repo, title, usd = b
 
         branch = "docs/" + re.sub(r"[^a-z0-9-]+", "-", (title or "work").lower())[:40].strip("-")
         res = deliver(repo, branch, {path: content},
                       title=f"docs: {title[:70]}",
                       body=(f"Closes the documented gap from {url}\n\n"
-                            f"Все команды и флаги в тексте сверены с исходниками "
-                            f"репозитория построчно перед отправкой.\n\n"
-                            f"🤖 Generated with [Claude Code](https://claude.com/claude-code)"),
+                            f"Prepared by the P0 agent system. Review is requested."),
                       dry_run=dry_run)
-        c = connect()
-        c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), mid))
-        c.commit(); c.close()
-        if res.get("ok"):
+        if res.get("ok") and not dry_run and not res.get("dry_run") and res.get("url"):
+            c = connect()
+            c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), mid))
+            c.commit(); c.close()
             done += 1
+        elif res.get("ok") and dry_run:
+            done += 1  # prepared, not delivered; message remains pending
         else:
-            bus.broadcast("craftsman", f"Отправка не удалась: {res.get('why')}. "
-                                       f"Задача остаётся со статусом «заявка подана».")
+            bus.broadcast("craftsman", f"Отправка #{mid} не подтверждена; сообщение сохранено для повторной попытки.")
     return f"{'подготовлено' if dry_run else 'отправлено'} работ: {done} из {len(rows)}"
 
 

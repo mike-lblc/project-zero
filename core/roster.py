@@ -126,6 +126,8 @@ def _house():
 def _inv():
     from core import regressions
     ok, bad, _ = regressions.run(verbose=False)
+    if bad:
+        raise RuntimeError(f"Invariant failures: {bad}")
     return f"инвариантов {regressions.count()}: прошло {ok}, упало {bad}"
 
 
