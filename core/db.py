@@ -230,7 +230,26 @@ def ensure_schema(con, schema_sql):
     key = hash(schema_sql)
     if key in _SCHEMA_DONE:
         return con
-    con.executescript(schema_sql)
+    # ПО ОДНОМУ ОПЕРАТОРУ, А НЕ executescript.
+    #
+    # executescript в Python начинает с неявного COMMIT и НЕ УВАЖАЕТ
+    # busy_timeout: при занятой базе он падает сразу, не дожидаясь. Отсюда
+    # брались «database is locked» даже после того, как ожидание подняли до
+    # шестидесяти секунд, — и один такой отказ убивал воркер целиком.
+    # Обычный execute ожидание уважает, поэтому разбираем скрипт на операторы.
+    # Границы операторов определяет сам sqlite: разбиение по «;» спотыкается о
+    # комментарии и отдаёт обрывки, на которых драйвер говорит «incomplete input».
+    buf = ""
+    for line in schema_sql.splitlines(keepends=True):
+        buf += line
+        if sqlite3.complete_statement(buf):
+            stmt = buf.strip()
+            if stmt and not stmt.startswith("--"):
+                con.execute(stmt)
+            buf = ""
+    if buf.strip() and not buf.strip().startswith("--"):
+        con.execute(buf)
+    con.commit()
     for m in re.finditer(r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\((.*?)\n\);",
                          schema_sql, re.S):
         table, body = m.group(1), m.group(2)

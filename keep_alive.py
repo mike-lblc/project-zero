@@ -114,7 +114,17 @@ def check():
         acted.append(f"воркер перезапущен (процесс висел, но журнал молчал "
                      f"{int(age) if age else '—'} сек)")
     elif procs > 1:
-        acted.append(f"ВНИМАНИЕ: воркеров запущено {procs} — двойная нагрузка на базу")
+        # Два воркера — это не «к сведению», а поломка: они пишут в одну базу
+        # и создают ровно те блокировки, от которых система умирала. Оставляем
+        # один, лишние снимаем.
+        subprocess.run(["powershell", "-NoProfile", "-Command",
+                        "Get-CimInstance Win32_Process -Filter \"Name='py.exe' OR "
+                        "Name='python.exe'\" | Where-Object { $_.CommandLine -like "
+                        "'*worker.py*' } | Sort-Object CreationDate | "
+                        "Select-Object -Skip 1 | ForEach-Object { Stop-Process -Id "
+                        "$_.ProcessId -Force }"], capture_output=True, timeout=90)
+        acted.append(f"лишних воркеров снято: {procs - 1} (двойная запись в базу "
+                     f"создаёт те самые блокировки)")
 
     if not service_alive():
         start_service()
@@ -126,7 +136,10 @@ def check():
 def install():
     """Сторож раз в пять минут и при входе в систему."""
     task = "P0-keep-alive"
-    cmd = f'py -3.13 -X utf8 "{ROOT / "keep_alive.py"}"'
+    # Запуск ЧЕРЕЗ СКРЫТЫЙ ЗАПУСКАТЕЛЬ. Планировщик показывает чёрное окно
+    # консоли при каждом срабатывании; раз в пять минут это помеха на рабочем
+    # столе, а не признак работы.
+    cmd = f'wscript.exe "{ROOT / "ops" / "run_hidden.vbs"}" "{ROOT / "keep_alive.py"}"'
     r = subprocess.run(["schtasks", "/Create", "/TN", task, "/SC", "MINUTE",
                         "/MO", "5", "/TR", cmd, "/F"],
                        capture_output=True, text=True, timeout=60)

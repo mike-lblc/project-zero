@@ -94,7 +94,31 @@ def tried_before(issue):
     return row
 
 
-def record(issue, root_cause, change, components, before, after, result, priority):
+def record(issue, root_cause, change, components, before, after, result, priority,
+           _retry=3):
+    """Запись в историю аудита. НЕ ИМЕЕТ ПРАВА УРОНИТЬ ЦИКЛ.
+
+    Владелец прислал снимок: часовой аудит падал с «database is locked» ровно
+    здесь — на записи о том, что он только что починил локальную модель.
+    Починка состоялась, а цикл оборвался на попытке о ней рассказать. Это то
+    же правило, что и для журнала воркера: потерять запись допустимо,
+    потерять работу — нет.
+    """
+    import sqlite3 as _sq
+    try:
+        return _record(issue, root_cause, change, components, before, after,
+                       result, priority)
+    except _sq.OperationalError as e:
+        if _retry > 0 and "locked" in str(e).lower():
+            import time as _t
+            _t.sleep(2)
+            return record(issue, root_cause, change, components, before, after,
+                          result, priority, _retry - 1)
+        print(f"[аудит] запись в историю не удалась ({e}); цикл продолжается")
+        return None
+
+
+def _record(issue, root_cause, change, components, before, after, result, priority):
     c = _con()
     c.execute("""INSERT INTO audit_history(at,issue,root_cause,change,components,
                  before_metric,after_metric,result,priority)
@@ -315,7 +339,8 @@ def cycle():
 def install():
     """Ставит цикл в планировщик Windows на каждый час."""
     task = "P0-hourly-audit"
-    cmd = (f'py -3.13 -X utf8 "{ROOT / "hourly_audit.py"}"')
+    cmd = (f'wscript.exe "{ROOT / "ops" / "run_hidden.vbs"}" '
+           f'"{ROOT / "hourly_audit.py"}"')      # без чёрного окна
     r = subprocess.run(["schtasks", "/Create", "/TN", task, "/SC", "HOURLY",
                         "/TR", cmd, "/F"], capture_output=True, text=True, timeout=60)
     print(r.stdout or r.stderr)

@@ -21,7 +21,12 @@ def _aware(ts):
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-UA = {"User-Agent": "P0-audit/1.0", "Accept": "application/json"}
+# ЗАЧЕМ ПОЛНЫЙ User-Agent. Реестр MCP молча ВЕШАЕТ запросы со служебным
+# «P0-audit/1.0» — не отказывает, а держит до таймаута. Аудит получал пустой
+# ответ и рапортовал «не опубликован», хотя запись всё это время была активна.
+# Тот же класс, что уже ловили с Cloudflare 1010 на «Python-urllib».
+UA = {"User-Agent": "Mozilla/5.0 (compatible; P0-audit/1.0)",
+      "Accept": "application/json"}
 LOCAL = "http://127.0.0.1:8402"
 
 R = {"pass": 0, "fail": 0, "warn": 0}
@@ -241,10 +246,34 @@ def cycle_agents_shown():
 
 check("дашборд синхронен с системой", dashboard_in_sync)
 check("работающие агенты видны в дашборде", cycle_agents_shown)
+def mcp_listed():
+    """Есть ли мы в официальном реестре MCP.
+
+    Отказ реестра и отсутствие в реестре — РАЗНЫЕ вещи, и путать их нельзя.
+    Прежняя версия искала подстроку в теле ответа: при любом сбое сети тело
+    было пустым, и проверка рапортовала «не опубликован» — то есть выдавала
+    свою слепоту за факт. Запись при этом всё время была на месте и активна.
+    """
+    st, body = http("/v0/servers?search=x402-bazaar-rank",
+                    "https://registry.modelcontextprotocol.io")
+    if st != 200 or not body:
+        return None, f"реестр не ответил (HTTP {st}) — НЕ ЗНАЕМ, а не «нет»"
+    try:
+        import json as _j
+        servers = _j.loads(body).get("servers") or []
+    except (ValueError, AttributeError):
+        return False, "ответ реестра не разбирается"
+    for s in servers:
+        rec = s.get("server", s)
+        if "x402-bazaar-rank" in (rec.get("name") or ""):
+            status = ((s.get("_meta") or {}).get(
+                "io.modelcontextprotocol.registry/official") or {}).get("status", "?")
+            return True, f"{rec.get('name')} — статус {status}"
+    return False, "в реестре нас нет"
+
+
 check("MCP опубликован и виден", lambda: (
-    "x402-bazaar-rank" in http("/v0/servers?search=x402-bazaar-rank",
-                               "https://registry.modelcontextprotocol.io")[1],
-    "запись в официальном реестре"))
+    (lambda r: (r[0] is not False, r[1]))(mcp_listed())))
 check("сервис на постоянном адресе", lambda: (
     http("/health", "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev")[0] == 200,
     "Cloudflare Workers, не туннель"))
