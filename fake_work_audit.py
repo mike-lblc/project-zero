@@ -222,6 +222,17 @@ for path in files:
         # функция верхнего уровня, которую никто не зовёт ни здесь, ни где-либо
         if nm.startswith("__") or nm in ("now", "main"):
             continue
+        # Функция, зарегистрированная ДЕКОРАТОРОМ, вызывается не по имени.
+        # Инструменты агентов объявлены через @tool(...) и попадают в реестр;
+        # искать их по имени — значит объявить мёртвым весь набор инструментов.
+        # Детектор, который врёт про живой код, обесценивает свои же находки.
+        try:
+            i = src.index(f"def {nm}")
+            head = src[max(0, i - 400):i]
+            if "@tool(" in head or "@app.command(" in head or "@register" in head:
+                continue
+        except ValueError:
+            pass
         uses = src.count(nm)
         if uses <= 1:
             others = sum(p.read_text(encoding="utf-8").count(nm) for p in files if p != path)
