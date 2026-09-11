@@ -90,6 +90,10 @@ h3:first-child{margin-top:2px}
 .msg .w{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--acc);
   margin-right:7px}
 .msg .x{color:var(--dim)}
+/* Адресованное сообщение отличается от объявления всем: у переписки есть
+   второй участник, и это единственное, что отличает разговор от монолога. */
+.msg.direct{border-left:2px solid var(--acc);padding-left:8px;
+  background:linear-gradient(90deg,rgba(77,159,255,.06),transparent 60%)}
 
 /* мини-шкала */
 .bar{height:3px;border-radius:2px;background:rgba(96,132,196,.16);overflow:hidden;
@@ -617,14 +621,28 @@ function renderQueue(){
   $("v-queue").innerHTML = h;
 }
 
+/* Вид сообщения словом, а не кодом: владелец не обязан помнить, что
+   «handoff» — это передача работы другому агенту. */
+const TOPIC = { ask: "вопрос", answer: "ответ", handoff: "передал работу", chat: "" };
+
 function renderChat(){
   const ms = ((state.chat||{}).messages) || [];
   if (!ms.length){ $("v-chat").innerHTML = `<div class="empty">агенты молчат</div>`; return; }
-  let h = "<h3>Что говорят агенты</h3>";
-  ms.slice(-40).reverse().forEach(m => {
+  const talk = ms.filter(m => m.recipient && m.recipient !== "ESCALATION").length;
+  let h = `<h3>Что говорят агенты</h3>`
+        + `<div class="s" style="margin:-4px 0 10px">из последних ${ms.length} сообщений `
+        + `${talk} адресованы конкретному агенту, остальное — объявления всем</div>`;
+  ms.slice(-45).reverse().forEach(m => {
     let body = m.body;
-    try { const j = JSON.parse(m.body); body = j.text || j.question || j.body || m.body; } catch {}
-    h += `<div class="msg"><span class="w">${esc(m.sender)}</span>`
+    try { const j = JSON.parse(m.body); body = j.text || j.question || j.task || j.body || m.body; } catch {}
+    const kind = TOPIC[m.topic] ?? m.topic;
+    /* Стрелка к адресату — это и есть ответ на вопрос «кто с кем работает».
+       Раньше здесь стоял один отправитель, и переписка выглядела монологами. */
+    const to = m.recipient && m.recipient !== "ESCALATION"
+      ? `<span class="x" style="opacity:.75"> → ${esc(m.recipient)}</span>` : "";
+    const tag = kind ? `<span class="s" style="margin-left:6px">${esc(kind)}</span>` : "";
+    h += `<div class="msg ${m.recipient ? "direct" : ""}">`
+       + `<span class="w">${esc(m.sender)}</span>${to}${tag}`
        + `<span class="x">${esc(String(body).slice(0,300))}</span></div>`;
   });
   $("v-chat").innerHTML = h;
@@ -637,17 +655,29 @@ function renderChat(){
 
 /* активность агентов подсвечивает их в сцене и гоняет импульсы по связям */
 let lastRunId = 0;
+let lastMsgId = 0;   // до какого сообщения искры уже пролетели
 function animateActivity(){
   const runs = ((state.pulse||{}).runs) || [];
   runs.slice(0, 12).forEach(r => {
     const i = nodes.findIndex(n => n.userData.spec.id === r.agent);
     if (i < 0) return;
     nodes[i].userData.active = Math.min(1, nodes[i].userData.active + .5);
-    if (Math.random() < .3){
-      const j = Math.floor(Math.random()*nodes.length);
-      if (j !== i) sendPulse(i, j, nodes[i].userData.spec.color);
-    }
   });
+
+  /* ИСКРА ЛЕТИТ ПО НАСТОЯЩЕМУ СООБЩЕНИЮ, А НЕ КУДА ПОПАЛО.
+     Здесь стояло `Math.random()`: искры шли между случайными узлами и
+     выглядели как переговоры агентов. Картинка была красивой и ничему не
+     соответствовала — ровно та подделка работы, которую мы ловим в коде.
+     Теперь летит только то, что действительно отправлено: от отправителя
+     к адресату. Объявление всем искры не даёт — у него нет второго конца. */
+  const ms = ((state.chat||{}).messages) || [];
+  ms.forEach(m => {
+    if (m.id <= lastMsgId || !m.recipient) return;
+    const i = nodes.findIndex(n => n.userData.spec.id === m.sender);
+    const j = nodes.findIndex(n => n.userData.spec.id === m.recipient);
+    if (i >= 0 && j >= 0 && i !== j) sendPulse(i, j, nodes[i].userData.spec.color);
+  });
+  if (ms.length) lastMsgId = Math.max(lastMsgId, ...ms.map(m => m.id || 0));
 }
 
 function showCard(id){

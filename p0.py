@@ -42,11 +42,23 @@ def _ps(cmd):
     return r.stdout.strip()
 
 
-def _pids(pattern):
-    """Номера процессов, чья командная строка содержит образец."""
-    out = _ps(f"(Get-CimInstance Win32_Process | Where-Object "
-              f"{{$_.CommandLine -like '*{pattern}*'}}).ProcessId")
+def _pids(pattern, names):
+    """Номера процессов нужного вида, чья командная строка содержит образец.
+
+    ВИД ПРОЦЕССА ОБЯЗАТЕЛЕН. Без него поиск находил САМ СЕБЯ: в командной
+    строке запроса PowerShell стоит тот же образец, который мы ищем, и пульт
+    решал, что служба уже работает, — после чего не запускал её и докладывал
+    «остановлена». Проверка, считающая собственное отражение за находку,
+    выглядит работающей ровно до первого решения на её основе.
+    """
+    cond = " -or ".join(f"$_.Name -eq '{n}'" for n in names)
+    out = _ps(f"(Get-CimInstance Win32_Process | Where-Object {{({cond}) -and "
+              f"$_.CommandLine -like '*{pattern}*'}}).ProcessId")
     return [p.strip() for p in out.split() if p.strip().isdigit()]
+
+
+PY_NAMES = ("pythonw.exe", "python.exe", "py.exe", "pyw.exe")
+NODE_NAMES = ("node.exe",)
 
 
 def _alive(port=PORT):
@@ -81,8 +93,8 @@ def _cloud_state():
 
 
 def status():
-    worker = _pids("agents/worker.py")
-    server = _pids("server.js")
+    worker = _pids("agents/worker.py", PY_NAMES)
+    server = _pids("server.js", NODE_NAMES)
     print("=" * 66)
     print("P0 — ЧТО СЕЙЧАС РАБОТАЕТ")
     print("=" * 66)
@@ -103,8 +115,9 @@ def stop():
     for t in TASKS:
         _ps(f"Disable-ScheduledTask -TaskName '{t}' -ErrorAction SilentlyContinue | Out-Null")
         print(f"  задача {t}: выключена")
-    for pat, label in (("agents/worker.py", "воркер"), ("server.js", "служба")):
-        pids = _pids(pat)
+    for pat, names, label in (("agents/worker.py", PY_NAMES, "воркер"),
+                              ("server.js", NODE_NAMES, "служба")):
+        pids = _pids(pat, names)
         for pid in pids:
             subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True,
                            creationflags=0x08000000)
@@ -120,11 +133,11 @@ def start():
     for t in TASKS:
         _ps(f"Enable-ScheduledTask -TaskName '{t}' -ErrorAction SilentlyContinue | Out-Null")
         print(f"  задача {t}: включена")
-    if not _pids("server.js"):
+    if not _pids("server.js", NODE_NAMES):
         background(["node", "server.js"], cwd=ROOT / "service",
                    log=str(ROOT / "data" / "server.log"))
         print("  служба: запущена")
-    if not _pids("agents/worker.py"):
+    if not _pids("agents/worker.py", PY_NAMES):
         background(["python", "agents/worker.py", "60"], cwd=ROOT,
                    log=str(ROOT / "data" / "worker.log"))
         print("  воркер: запущен")
