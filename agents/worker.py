@@ -74,7 +74,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"verifier",
@@ -597,6 +597,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("economics", economic_review),
               ("briefing", daily_briefing),
               ("prospect", _prospect("prospect")),          # ищет ВСЕ пути к деньгам
+              ("expand", _prospect("expand")),
               ("deep_check", _prospect("deep_check")),
               ("probe_paths", _prospect("probe_paths")),    # щупает их о наши стены
               ("path_report", _prospect("path_report")),
@@ -609,6 +610,49 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("escalation_watch", escalation_watch),
               ("mtbx_audit", mtbx_audit)]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
+
+# ═══════════════════════════════════════ ЧТО МОЖЕТ РАБОТАТЬ В ОБЛАКЕ
+#
+# Владелец спросил, почему всё крутится локально. Честный ответ на момент
+# вопроса: в облаке работали ТРИ шага из тридцати семи — проверка кошелька,
+# обновление рынка и аудит целостности. Остальное требовало либо локального
+# сервиса, либо локальной модели, либо просто не было туда вписано. Называть
+# это «круглосуточной работой в облаке» было сильным преувеличением.
+#
+# Здесь честная граница. В облаке работает всё, чему нужны только сеть, база
+# и gh (он есть на раннерах GitHub). НЕ работает то, что упирается в машину
+# владельца, и это названо поимённо, а не умолчано.
+CLOUD_STEPS = [
+    "watch_payments",      # миссия: не пришёл ли платёж
+    "refresh_market",      # свежесть рыночных данных
+    "audit",               # целостность доказательства
+    "fresh_bounties",      # перехват свежих премий — здесь решает скорость
+    "hunt_bounties",       # полный обход рынка задач
+    "watch_prs",           # состояние отправленной работы
+    "collect_payouts",     # объявлена ли нам выплата
+    "pursue",              # ведение задачи до заявки
+    "fulfil",              # отправка готовой работы
+    "find_leads",          # кто может заплатить
+    "diagnose_leads",      # за что именно
+    "find_channel",        # чем до них дотянуться законно
+    "verify_service",      # есть ли повод для обращения
+    "prospect",            # разведка классов заработка
+    "probe_paths",         # проверка площадок о наши стены
+    "path_report",         # картина путей целиком
+    "expand",              # расширение пространства поиска рынком
+    "distributor",         # видит ли нас рынок
+    "housekeeping",        # зависшие задачи, уборка, входящие
+    "escalation_watch",    # суждения, ждущие ответа
+]
+
+# Чего в облаке нет и почему — без умолчаний:
+CLOUD_CANNOT = {
+    "health_check": "проверяет локальный сервис на 127.0.0.1",
+    "scout_research": "идёт через локальную языковую модель",
+    "deep_check": "тоже через локальную модель",
+    "mechanic": "правит код и публикует — из облака это менять репозиторий на ходу",
+    "mtbx_audit": "часть проверок обращается к локальному сервису",
+}
 
 
 # Сколько раз подряд шаг может выдать ОДИН И ТОТ ЖЕ результат, прежде чем

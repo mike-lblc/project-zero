@@ -299,6 +299,11 @@ def apply_fix(problem, dry_run=False):
     else:
         outcome, detail = "applied", f"аудит: {before_ok}/{before_fail} -> {after_ok}/{after_fail}"
         bus.broadcast("mechanic", f"Починил {rel}: {problem['detail']}. {detail}")
+        # ПОЧИНКА РОЖДАЕТ ПОСТОЯННУЮ ПРОВЕРКУ. Иначе тот же дефект вернётся
+        # в другом файле, и мы снова будем ловить его руками. Владелец указал
+        # на это прямо: аудит с неизменным числом проверок доказывает одно и
+        # то же вечно, а расти он должен быстрее самой системы.
+        _remember_fix(rel, kind, problem)
     c.execute("""INSERT INTO code_fixes(file,problem,diff,audit_before,audit_after,outcome,detail,at)
                  VALUES (?,?,?,?,?,?,?,?)""",
               (rel, problem["detail"], diff, before_ok, after_ok, outcome, detail, now()))
@@ -335,6 +340,38 @@ def publish(files):
         return f"опубликовано файлов: {len(files)}"
     except (subprocess.SubprocessError, OSError) as e:
         return f"git недоступен: {type(e).__name__}"
+
+
+# Какие починки превращаются в инвариант и каким выражением он проверяется.
+# Список намеренно короткий: инвариант ставится только там, где дефект
+# выражается однозначным образцом в тексте файла.
+_INVARIANT_OF = {
+    "bare_except": (r"except\s*:",
+                    "Голый except глотает любые ошибки, включая срабатывание "
+                    "собственных гейтов, и превращает поломку в тишину."),
+    "naive_time_as_utc": (r"""\+\s*["']\+00:00["']""",
+                          "Дописывание пояса к наивной метке объявляет местное "
+                          "время всемирным и сдвигает данные незаметно."),
+    "unguarded_delete": (r"DELETE\s+FROM\s+\w+\s*$",
+                         "Удаление по всей таблице берёт исключительную "
+                         "блокировку и роняет параллельных писателей."),
+}
+
+
+def _remember_fix(rel, kind, problem):
+    """Превращает починенный дефект в постоянную проверку."""
+    spec = _INVARIANT_OF.get(kind)
+    if not spec:
+        return
+    expr, why = spec
+    try:
+        from core import regressions
+        regressions.add(
+            name=f"{kind} не возвращается в {rel}",
+            kind="absent", target=rel, expr=expr,
+            origin=f"{why} Поймано механиком в {rel}: {problem['detail'][:120]}")
+    except (ImportError, ValueError):
+        pass
 
 
 def repair_round(limit=3):

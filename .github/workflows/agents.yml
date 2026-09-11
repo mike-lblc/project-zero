@@ -1,52 +1,164 @@
 name: Agents cycle
 
-# Круглосуточная работа агентов БЕЗ ноутбука владельца.
-# Локальная модель здесь не нужна: все эти шаги — HTTP-запросы к рынку и блокчейну.
+# КРУГЛОСУТОЧНАЯ РАБОТА БЕЗ НОУТБУКА ВЛАДЕЛЬЦА.
+#
+# Что здесь было раньше и почему это было преувеличением: запускались ТРИ шага
+# из тридцати восьми — проверка кошелька, обновление рынка и аудит целостности.
+# Всё остальное жило только на машине владельца и умирало вместе с ней.
+# Называть это «системой, работающей 24/7 в облаке» было нечестно.
+#
+# Теперь здесь работает ВСЁ, что физически может работать в облаке: список
+# CLOUD_STEPS в agents/worker.py, двадцать шагов. Чего здесь нет — названо
+# поимённо в CLOUD_CANNOT: локальная модель и локальный сервис остаются на
+# машине владельца, и это ограничение среды, а не умолчание.
+#
+# ЧЕСТНО О БАЗЕ. Она весит больше двух мегабайт, и коммитить её каждые
+# пятнадцать минут значило бы двести мегабайт в сутки в репозиторий. Поэтому
+# облачная база живёт в артефакте между прогонами, а в репозиторий уходит
+# только дашборд и снимок цифр — они маленькие и дают видимость снаружи.
+#
+# Из этого следует то, что нужно знать прямо: облачная и локальная базы
+# РАЗНЫЕ и расходятся. Общая база потребовала бы размещённого хранилища
+# (Cloudflare D1), и это отдельная работа, а не побочный эффект этой.
+# Дашборд на Pages показывает ОБЛАЧНОЕ состояние и подписан соответственно.
+
 on:
   schedule:
-    - cron: '*/15 * * * *'    # каждые 15 минут (укладывается в 2000 мин/мес free)
-  workflow_dispatch:           # и кнопка «запустить сейчас»
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  # Два одновременных прогона писали бы в одну базу и создавали ровно те
+  # блокировки, от которых система умирала локально.
+  group: agents-cycle
+  cancel-in-progress: false
+
+permissions:
+  contents: write          # цикл коммитит базу и дашборд
 
 jobs:
   cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
         with:
-          python-version: '3.13'
+          fetch-depth: 1
 
-      - name: Восстановить базу из артефакта
+      - name: Поднять базу прошлого прогона
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
           name: brain-db
           path: data
 
-      - name: Один проход цикла
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Полный облачный цикл
         env:
           WALLET_ETH: ${{ secrets.WALLET_ETH }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p data
+          mkdir -p data docs
           printf 'WALLET_ETH=%s\n' "$WALLET_ETH" > .env
           python - <<'PY'
-          import sys
+          import sys, traceback
           sys.path.insert(0, '.')
           from core.db import init
           init()
           from agents import worker
-          # только шаги, которым не нужен ни локальный сервис, ни локальная модель
-          for name in ("watch_payments", "refresh_market", "audit"):
-              fn = dict(worker.CYCLE)[name]
+          from datetime import datetime, timezone
+
+          steps = dict(worker.CYCLE + worker.SLOW_CYCLE)
+          ok = fail = 0
+          for name in worker.CLOUD_STEPS:
+              fn = steps.get(name)
+              if not fn:
+                  print(f"{name}: ШАГ НЕ НАЙДЕН В ЦИКЛЕ", flush=True)
+                  fail += 1
+                  continue
+              started = datetime.now(timezone.utc).isoformat()
+              agent = worker.AGENT_OF.get(name, "orchestrator")
               try:
-                  print(f"{name}: {fn()}", flush=True)
+                  out = fn()
+                  worker.record_run(name, agent, True, str(out), started,
+                                    datetime.now(timezone.utc).isoformat())
+                  print(f"  ok   {name}: {out}", flush=True)
+                  ok += 1
               except Exception as e:
-                  print(f"{name} FAILED: {type(e).__name__}: {e}", flush=True)
+                  detail = f"{type(e).__name__}: {e}"
+                  worker.record_run(name, agent, False, detail, started,
+                                    datetime.now(timezone.utc).isoformat())
+                  print(f"  FAIL {name}: {detail}", flush=True)
+                  fail += 1
+          print(f"\nоблачный цикл: {ok} шагов отработало, {fail} упало")
+          print(f"не могут работать в облаке: {list(worker.CLOUD_CANNOT)}")
           PY
 
-      - name: Сохранить базу
+      - name: Растущий каталог инвариантов
+        run: |
+          python - <<'PY'
+          import sys; sys.path.insert(0, '.')
+          from core import regressions
+          regressions.seed()
+          ok, bad, fails = regressions.run(verbose=False)
+          print(f"инвариантов в каталоге: {regressions.count()}, "
+                f"прошло {ok}, упало {bad}")
+          for name, detail, _ in fails:
+              print(f"::warning::инвариант нарушен — {name}: {detail}")
+          PY
+
+      - name: Собрать дашборд для публикации
+        run: |
+          python - <<'PY'
+          import sys, json, subprocess
+          sys.path.insert(0, '.')
+          from core.db import connect
+          c = connect()
+          q = lambda s: (c.execute(s).fetchone() or [0])[0]
+          d = {
+            'payments': q('SELECT COUNT(*) FROM payments'),
+            'revenue': q('SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments'),
+            'spend': q('SELECT COUNT(*) FROM spend'),
+            'runs_24h': q("SELECT COUNT(*) FROM runs WHERE started_at > datetime('now','-1 day')"),
+            'errors_24h': q("SELECT COUNT(*) FROM runs WHERE status='error' AND started_at > datetime('now','-1 day')"),
+            'evidence': q('SELECT COUNT(*) FROM evidence'),
+            'sources': q('SELECT COUNT(*) FROM sources'),
+            'leads': q('SELECT COUNT(*) FROM leads'),
+            'reachable': q('SELECT COUNT(*) FROM leads WHERE reachable=1'),
+            'paths': q('SELECT COUNT(*) FROM money_paths'),
+            'paths_open': q('SELECT COUNT(*) FROM money_paths WHERE open_to_us=1'),
+            'categories': q('SELECT COUNT(*) FROM path_categories'),
+            'blind': q('SELECT COUNT(*) FROM path_categories WHERE searched_at IS NULL'),
+            'claims': q('SELECT COUNT(*) FROM claim_checks WHERE verified=1'),
+            'prs': q('SELECT COUNT(*) FROM pull_requests'),
+            'cycles': q('SELECT COUNT(*) FROM audit_cycles'),
+            'fixes': q("SELECT COUNT(*) FROM code_fixes WHERE outcome='applied'"),
+          }
+          d['matrix'] = [dict(zip(('stage','owner','verdict','blocker'), r)) for r in
+                         c.execute('SELECT stage,owner_agent,verdict,blocker FROM capability_matrix ORDER BY ord')]
+          d['agents'] = [dict(zip(('agent','runs','errors'), r)) for r in
+                         c.execute("SELECT agent,COUNT(*),SUM(status='error') FROM runs "
+                                   "WHERE started_at>datetime('now','-1 day') GROUP BY agent "
+                                   "ORDER BY COUNT(*) DESC")]
+          d['open_paths'] = [dict(zip(('platform','category','score'), r)) for r in
+                             c.execute('SELECT platform,category,score FROM money_paths '
+                                       'WHERE open_to_us=1 ORDER BY score DESC LIMIT 10')]
+          d['walls'] = [dict(zip(('wall','n'), r)) for r in
+                        c.execute('SELECT wall,COUNT(*) FROM money_paths WHERE wall IS NOT NULL '
+                                  'GROUP BY wall ORDER BY COUNT(*) DESC')]
+          d['msgs'] = {t: q(f"SELECT COUNT(*) FROM messages WHERE topic='{t}'")
+                       for t in ('ask','answer','handoff','chat')}
+          c.close()
+          open('data/snapshot.json','w',encoding='utf-8').write(
+              json.dumps(d, ensure_ascii=False, indent=1))
+          PY
+          python ops/build_snapshot.py docs/floor.html
+          echo "дашборд собран для публикации"
+
+      - name: Сохранить базу до следующего прогона
         uses: actions/upload-artifact@v4
         with:
           name: brain-db
@@ -54,13 +166,32 @@ jobs:
           retention-days: 30
           overwrite: true
 
-      - name: Проверить, не пришёл ли платёж
+      - name: Опубликовать дашборд
+        run: |
+          git config user.name  "p0-agents"
+          git config user.email "agents@project-zero.local"
+          git add -f docs/floor.html || true
+          if git diff --cached --quiet; then
+            echo "состояние не изменилось — публиковать нечего"
+          else
+            git commit -m "chore(agents): облачный цикл $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase --autostash origin main || true
+            git push
+          fi
+
+      - name: Состояние миссии
         run: |
           python - <<'PY'
           import sys; sys.path.insert(0, '.')
           from core.db import connect
-          n = connect().execute("SELECT COUNT(*) FROM payments").fetchone()[0]
-          print(f"::notice::Платежей в базе: {n}")
-          if n:
+          c = connect()
+          pays = c.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+          spend = c.execute("SELECT COUNT(*) FROM spend").fetchone()[0]
+          c.close()
+          print(f"::notice::платежей {pays}, потрачено {spend}")
+          if spend:
+              print("::error::ТАБЛИЦА ТРАТ НЕ ПУСТА — заявление «с нуля» недействительно")
+              sys.exit(1)
+          if pays:
               print("::warning::ПЛАТЁЖ ОБНАРУЖЕН — проверить, что он от постороннего")
           PY
