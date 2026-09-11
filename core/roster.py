@@ -217,6 +217,25 @@ def _explore():
     return growth.explore()
 
 
+@tool("check_indexing", "GREEN",
+      "проверить готовность платных адресов к попаданию в индекс Bazaar: "
+      "25 проверок Coinbase по каждому тарифу",
+      needs=("сеть", "ключ CDP"))
+def _indexing():
+    from core import cdp
+    if not cdp.have_credentials():
+        return "ключ CDP не настроен — проверку выполнить нечем"
+    SELF = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev"
+    out = []
+    for path in ("/search", "/report", "/alpha", "/dataset"):
+        st, d = cdp.call("POST", "/platform/v2/x402/validate", {"resource": SELF + path})
+        pf = d.get("preflight") or []
+        bad = [c for c in pf if not c.get("passed")]
+        out.append(f"{path}: {len(pf) - len(bad)}/{len(pf)}"
+                   + (f" — {bad[0].get('check')}" if bad else ""))
+    return "; ".join(out)
+
+
 @tool("recall_memory", "GREEN",
       "вспомнить по СМЫСЛУ, что система уже выясняла — включая выводы, "
       "сформулированные другими словами")
@@ -310,7 +329,7 @@ register(Agent(
     role="Мастеровой: доводит работу до слияния и следит за ней",
     kpi="доля утверждений в отправленной работе, подтверждённых исходным кодом, "
         "и число PR, доведённых до ответа мейнтейнера",
-    tools=("watch_prs", "collect_payouts", "watch_payments"),
+    tools=("watch_prs", "collect_payouts", "watch_payments", "check_indexing"),
     system=COMMON + """
 ТЫ — МАСТЕРОВОЙ.
 
