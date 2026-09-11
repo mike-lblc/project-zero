@@ -77,6 +77,17 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Облачное рассуждение и исполнение инструмента
+        id: cloud_reasoning
+        continue-on-error: true
+        env:
+          P0_MODEL_BACKEND: cloudflare
+          P0_CLOUD_FREE_VERIFIED: '1'
+          P0_CLOUDFLARE_ACCOUNT_ID: a8dd50703f4d727cd15c934aed9582d4
+          P0_CLOUDFLARE_AI_TOKEN: ${{ secrets.P0_CLOUDFLARE_AI_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: python ops/cloud_turn.py
+
       - name: Полный облачный цикл
         env:
           WALLET_ETH: ${{ secrets.WALLET_ETH }}
@@ -247,3 +258,9 @@ jobs:
           if pays:
               print("::warning::ПЛАТЁЖ ОБНАРУЖЕН — проверить, что он от постороннего")
           PY
+
+      - name: Сообщить об отказе облачного рассуждения
+        if: always() && steps.cloud_reasoning.outcome == 'failure'
+        run: |
+          echo "::error::Cloud reasoning failed; inspect cloud_turns and agent_decisions"
+          exit 1

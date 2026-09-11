@@ -85,6 +85,9 @@ def run(task_type, prompt, _retry=True):
         raise EscalationRequired(
             f"'{task_type}' is a JUDGMENT task. The local model is forbidden to decide. "
             f"Escalate to a Claude Code subagent.")
+    if os.environ.get("P0_MODEL_BACKEND") == "cloudflare":
+        from core.cloud_model import generate
+        return generate(prompt, structured=(t == "classify"))
     m = model_for(t)
     out = _local(prompt, model=m)
     # Known failure mode: small local models return empty. Retry once, then escalate.

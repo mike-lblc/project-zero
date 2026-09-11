@@ -43,4 +43,31 @@ class CloudModelTests(unittest.TestCase):
             with self.assertRaises(router.EscalationRequired): router.run('approve','hello')
             call.assert_not_called()
 
+    def test_structured_provider_response(self):
+        answer = {"tool":"supply_check", "why":"check available sources"}
+        with patch.dict(os.environ, ENV, clear=True), patch('urllib.request.urlopen',return_value=io.BytesIO(json.dumps({"success":True,"result":{"response":answer}}).encode())) as call:
+            self.assertEqual(json.loads(router.run('classify','choose a tool')),answer)
+            self.assertEqual(json.loads(call.call_args.args[0].data)['response_format'],{'type':'json_object'})
+
+    def test_cloud_rotation_persists_and_cap_survives_restart(self):
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+        from ops import cloud_turn
+        from datetime import datetime, timezone
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'test.db'
+            actor=Mock()
+            actor.act.return_value={"ok":True,"detail":"TEST ONLY"}
+            with patch.dict(os.environ,ENV,clear=True), patch('core.db.init'), patch('core.db.connect',side_effect=lambda:sqlite3.connect(path)), patch('core.roster.wire',return_value={'a':None,'b':None}), patch('core.agent.get',return_value=actor) as get, patch('core.recall.recall'), patch('builtins.print'):
+                self.assertEqual(cloud_turn.main(),0)
+                self.assertEqual(cloud_turn.main(),0)
+                self.assertEqual([c.args[0] for c in get.call_args_list],['a','b'])
+                with sqlite3.connect(path) as con:
+                    con.executemany('INSERT INTO cloud_turns(agent,started_at) VALUES (?,?)',[('a',datetime.now(timezone.utc).isoformat())]*94)
+                self.assertEqual(cloud_turn.main(),0)
+                con.close()
+                self.assertEqual(actor.act.call_count,2)
+
 if __name__ == '__main__': unittest.main()

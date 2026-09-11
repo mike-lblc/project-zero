@@ -15,7 +15,7 @@ class CloudModelUnavailable(RuntimeError):
     pass
 
 
-def generate(prompt, timeout=60):
+def generate(prompt, timeout=60, structured=False):
     if os.environ.get("P0_CLOUD_FREE_VERIFIED") != "1":
         raise CloudModelUnavailable("Cloud activation requires verified Free plan")
     account = os.environ.get("P0_CLOUDFLARE_ACCOUNT_ID", "")
@@ -24,10 +24,13 @@ def generate(prompt, timeout=60):
         raise CloudModelUnavailable("Missing cloud account or AI credential")
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 24000:
         raise CloudModelUnavailable("Prompt must contain 1..24000 characters")
+    payload = {"messages": [{"role": "user", "content": prompt}],
+               "max_tokens": 512, "temperature": 0.2, "stream": False}
+    if structured:
+        payload["response_format"] = {"type": "json_object"}
     req = urllib.request.Request(
         f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{MODEL}",
-        data=json.dumps({"prompt": prompt, "max_tokens": 512,
-                         "temperature": 0.2, "stream": False}).encode(),
+        data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=min(timeout, 90)) as response:
@@ -44,6 +47,8 @@ def generate(prompt, timeout=60):
         raise CloudModelUnavailable("Cloud inference returned an unsuccessful response")
     result = data.get("result")
     text = result.get("response") if isinstance(result, dict) else None
+    if structured and isinstance(text, dict):
+        text = json.dumps(text, ensure_ascii=False)
     if not isinstance(text, str) or not text.strip():
         raise CloudModelUnavailable("Cloud inference returned no generated text")
     return text
