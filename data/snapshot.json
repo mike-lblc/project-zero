@@ -1,0 +1,274 @@
+{
+ "payments": 0,
+ "revenue": 0,
+ "spend": 0,
+ "runs_24h": 4227,
+ "errors_24h": 3,
+ "evidence": 247,
+ "sources": 733,
+ "leads": 25,
+ "reachable": 4,
+ "paths": 62,
+ "paths_open": 11,
+ "categories": 33,
+ "blind": 12,
+ "claims": 460,
+ "prs": 1,
+ "cycles": 11,
+ "fixes": 15,
+ "matrix": [
+  {
+   "stage": "A. НАЙТИ ВОЗМОЖНОСТЬ",
+   "owner": "prospector",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "B. ПРОВЕРИТЬ СПРОС",
+   "owner": "prospector",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "C. СДЕЛАТЬ ПРЕДЛОЖЕНИЕ",
+   "owner": "salesman",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "D. НАЙТИ ПОКУПАТЕЛЕЙ",
+   "owner": "leads",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "E. НАЙТИ КАНАЛ СВЯЗИ",
+   "owner": "leads",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "F. ПОВОД ДЛЯ ОБРАЩЕНИЯ",
+   "owner": "leads",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "G. ОБРАЩЕНИЕ НАРУЖУ",
+   "owner": "craftsman",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "H. ПРИЁМ ОТВЕТОВ",
+   "owner": "craftsman",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "I. ПУТЬ ОПЛАТЫ",
+   "owner": "orchestrator",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "J. ПОЛУЧИТЬ ПЛАТЁЖ",
+   "owner": "orchestrator",
+   "verdict": "НЕТ ВХОДА",
+   "blocker": null
+  },
+  {
+   "stage": "K. ПРОВЕРИТЬ ПЛАТЁЖ",
+   "owner": "craftsman",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "L. ВЫПОЛНИТЬ ОБЕЩАННОЕ",
+   "owner": "craftsman",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "M. УЧИТЬСЯ НА ИСХОДАХ",
+   "owner": "optimizer",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  },
+  {
+   "stage": "N. ПОВТОРЯЕМОСТЬ",
+   "owner": "orchestrator",
+   "verdict": "РАБОТАЕТ",
+   "blocker": null
+  }
+ ],
+ "agents": [
+  {
+   "agent": "scout",
+   "runs": 579,
+   "errors": 0
+  },
+  {
+   "agent": "watchdog",
+   "runs": 559,
+   "errors": 0
+  },
+  {
+   "agent": "bounty",
+   "runs": 386,
+   "errors": 0
+  },
+  {
+   "agent": "distributor",
+   "runs": 372,
+   "errors": 0
+  },
+  {
+   "agent": "orchestrator",
+   "runs": 350,
+   "errors": 0
+  },
+  {
+   "agent": "adversary",
+   "runs": 307,
+   "errors": 1
+  },
+  {
+   "agent": "judge",
+   "runs": 294,
+   "errors": 1
+  },
+  {
+   "agent": "leads",
+   "runs": 255,
+   "errors": 0
+  },
+  {
+   "agent": "salesman",
+   "runs": 226,
+   "errors": 0
+  },
+  {
+   "agent": "explorer",
+   "runs": 216,
+   "errors": 0
+  },
+  {
+   "agent": "craftsman",
+   "runs": 180,
+   "errors": 0
+  },
+  {
+   "agent": "critic",
+   "runs": 92,
+   "errors": 0
+  },
+  {
+   "agent": "scribe",
+   "runs": 83,
+   "errors": 0
+  },
+  {
+   "agent": "optimizer",
+   "runs": 83,
+   "errors": 0
+  },
+  {
+   "agent": "verifier",
+   "runs": 68,
+   "errors": 0
+  },
+  {
+   "agent": "merchant",
+   "runs": 63,
+   "errors": 0
+  },
+  {
+   "agent": "prospector",
+   "runs": 51,
+   "errors": 0
+  },
+  {
+   "agent": "postman",
+   "runs": 40,
+   "errors": 0
+  },
+  {
+   "agent": "mechanic",
+   "runs": 23,
+   "errors": 1
+  }
+ ],
+ "open_paths": [
+  {
+   "platform": "immunefi.com",
+   "category": "баунти за безопасность",
+   "score": 18.0
+  },
+  {
+   "platform": "cointracker.io",
+   "category": "баунти за безопасность",
+   "score": 15.0
+  },
+  {
+   "platform": "solanacompass.com",
+   "category": "гранты",
+   "score": 15.0
+  },
+  {
+   "platform": "bounties.network",
+   "category": "перевод и локализация",
+   "score": 15.0
+  },
+  {
+   "platform": "bitdegree.org",
+   "category": "партнёрские отчисления",
+   "score": 15.0
+  },
+  {
+   "platform": "proxies.sx",
+   "category": "баунти за код",
+   "score": 15.0
+  },
+  {
+   "platform": "coingabbar.com",
+   "category": "баунти за безопасность",
+   "score": 13.0
+  },
+  {
+   "platform": "donatr.ee",
+   "category": "спонсорство сопровождения",
+   "score": 13.0
+  },
+  {
+   "platform": "mlcontests.com",
+   "category": "соревнования по данным",
+   "score": 13.0
+  },
+  {
+   "platform": "nevermined.ai",
+   "category": "рынок агентов и инструментов",
+   "score": 10.0
+  }
+ ],
+ "walls": [
+  {
+   "wall": "не подтверждено, что площадка вообще платит исполнителю",
+   "n": 33
+  },
+  {
+   "wall": "требует подтверждения личности — агентам запрещено",
+   "n": 1
+  },
+  {
+   "wall": "требует вложений, а выплата не в крипте",
+   "n": 1
+  }
+ ],
+ "msgs": {
+  "ask": 64,
+  "answer": 63,
+  "handoff": 197,
+  "chat": 439
+ }
+}
