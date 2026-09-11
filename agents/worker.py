@@ -1001,6 +1001,37 @@ def _claim_slot():
     return True
 
 
+def _slow_cursor(value=None):
+    """Где мы в очереди редких шагов. Хранится в базе, а не в процессе.
+
+    ПОЧЕМУ ЭТО ВАЖНО. Редких шагов тридцать пять, и один из них берётся раз в
+    двадцать быстрых оборотов: полный круг занимает около двенадцати часов.
+    Счётчик оборотов был обычной переменной и обнулялся при каждом запуске —
+    значит после любого перезапуска очередь начиналась С НАЧАЛА.
+
+    Последствие измеримо: первые два редких шага отработали по сорок с лишним
+    раз за сутки, а последние семь — от нуля до семнадцати. Не потому, что они
+    менее полезны, а потому, что до них просто не доходила очередь. Шаг,
+    стоящий в конце списка, при частых перезапусках не выполняется никогда —
+    и выглядит при этом исправно объявленным.
+
+    Это ровно та же болезнь, что была у пауз: состояние, не пережившее
+    перезапуск, создаёт видимость работы механизма, которого нет.
+    """
+    con = connect()
+    con.execute("CREATE TABLE IF NOT EXISTS cursors ("
+                "name TEXT PRIMARY KEY, value INTEGER NOT NULL, at TEXT)")
+    if value is None:
+        row = con.execute("SELECT value FROM cursors WHERE name='slow'").fetchone()
+        con.close()
+        return row[0] if row else 0
+    con.execute("INSERT INTO cursors(name,value,at) VALUES ('slow',?,?) "
+                "ON CONFLICT(name) DO UPDATE SET value=excluded.value, at=excluded.at",
+                (int(value), now()))
+    con.commit(); con.close()
+    return value
+
+
 def run_forever(interval=90):
     if not _claim_slot():
         return
@@ -1011,6 +1042,8 @@ def run_forever(interval=90):
     record_run("worker_start", "orchestrator", True,
                f"цикл {interval}с, шагов {len(CYCLE)}+{len(SLOW_CYCLE)}", now(), now())
     i = 0
+    # Очередь редких шагов продолжается с того места, где её прервали.
+    slow_at = _slow_cursor()
     while True:
         try:
             guard.check_alive()
@@ -1019,7 +1052,8 @@ def run_forever(interval=90):
             return
         # каждые SLOW_EVERY шагов — один редкий вместо быстрого
         if i and i % SLOW_EVERY == 0:
-            name, fn = SLOW_CYCLE[(i // SLOW_EVERY - 1) % len(SLOW_CYCLE)]
+            name, fn = SLOW_CYCLE[slow_at % len(SLOW_CYCLE)]
+            slow_at = _slow_cursor(slow_at + 1)
         else:
             name, fn = CYCLE[i % len(CYCLE)]
         # СРОЧНОЕ ИДЁТ ВНЕ ОЧЕРЕДИ. До этого цикл крутил тридцать девять шагов
