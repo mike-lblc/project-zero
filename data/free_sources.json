@@ -1,0 +1,82 @@
+[
+ {
+  "group": "РАБОТА: где платят за результат",
+  "name": "Hacker News «кто нанимает»",
+  "url": "https://hn.algolia.com/api/v1/search?query=freelancer%20seeking%20work&tags=story&hitsPerPage=3"
+ },
+ {
+  "group": "РАБОТА: где платят за результат",
+  "name": "Hacker News свежие вакансии",
+  "url": "https://hacker-news.firebaseio.com/v0/jobstories.json"
+ },
+ {
+  "group": "РАБОТА: где платят за результат",
+  "name": "Devpost: хакатоны с призами",
+  "url": "https://devpost.com/api/hackathons?status[]=open&order_by=prize-amount"
+ },
+ {
+  "group": "РАБОТА: где платят за результат",
+  "name": "GitHub: задачи с меткой награды",
+  "url": "https://api.github.com/search/issues?q=label:bounty+state:open&per_page=1"
+ },
+ {
+  "group": "ДАННЫЕ: сырьё для продукта",
+  "name": "DefiLlama: протоколы и TVL",
+  "url": "https://api.llama.fi/protocols"
+ },
+ {
+  "group": "ДАННЫЕ: сырьё для продукта",
+  "name": "CoinGecko: рынок монет",
+  "url": "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+ },
+ {
+  "group": "ДАННЫЕ: сырьё для продукта",
+  "name": "Blockscout Base: кошелёк",
+  "url": "https://base.blockscout.com/api/v2/stats"
+ },
+ {
+  "group": "ДАННЫЕ: сырьё для продукта",
+  "name": "PyPI: сведения о пакете",
+  "url": "https://pypi.org/pypi/requests/json"
+ },
+ {
+  "group": "ДАННЫЕ: сырьё для продукта",
+  "name": "npm: сведения о пакете",
+  "url": "https://registry.npmjs.org/express"
+ },
+ {
+  "group": "ДАННЫЕ: сырьё для продукта",
+  "name": "crates.io: пакеты Rust",
+  "url": "https://crates.io/api/v1/crates?page=1&per_page=1"
+ },
+ {
+  "group": "ВИДИМОСТЬ: где нас могут найти",
+  "name": "Реестр MCP",
+  "url": "https://registry.modelcontextprotocol.io/v0/servers?limit=1"
+ },
+ {
+  "group": "ВИДИМОСТЬ: где нас могут найти",
+  "name": "Индекс Bazaar (чтение без ключа)",
+  "url": "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=1"
+ },
+ {
+  "group": "ВИДИМОСТЬ: где нас могут найти",
+  "name": "Индекс OpenFacilitator",
+  "url": "https://pay.openfacilitator.io/discovery/resources"
+ },
+ {
+  "group": "ВИДИМОСТЬ: где нас могут найти",
+  "name": "Каталог пользовательских скриптов",
+  "url": "https://greasyfork.org/en/scripts.json?page=1"
+ },
+ {
+  "group": "ОБСЛУЖИВАНИЕ: чем это всё крутить",
+  "name": "GitHub API",
+  "url": "https://api.github.com/rate_limit"
+ },
+ {
+  "group": "ОБСЛУЖИВАНИЕ: чем это всё крутить",
+  "name": "Локальные модели",
+  "url": "http://127.0.0.1:11434/api/tags"
+ }
+]

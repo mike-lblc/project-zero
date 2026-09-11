@@ -99,6 +99,12 @@ print("\n── Функции, которые объявляют результ
 suspects = []
 files = sorted((ROOT / "agents").glob("*.py")) + sorted((ROOT / "core").glob("*.py"))
 
+# Весь наш код целиком — для поиска вызовов. Отдельно от files: проверяем мы
+# агентов и ядро, а ВЫЗЫВАТЬ их может что угодно в хозяйстве.
+_ALL_PY = [q for q in ROOT.rglob("*.py")
+           if not any(part in (".git", "node_modules", ".venv", "__pycache__")
+                      for part in q.parts)]
+
 # Вызов ЛЮБОЙ нашей же функции тоже считается чтением: она может сходить в базу
 # за нас. Без этого детектор обвинил repair_round (зовёт find_problems и
 # apply_fix) и economic_review (зовёт economics.survival) — обе читают базу
@@ -247,9 +253,13 @@ for path in files:
             pass
         uses = src.count(nm)
         if uses <= 1:
-            others = sum(p.read_text(encoding="utf-8").count(nm) for p in files if p != path)
-            others += sum((ROOT / f).read_text(encoding="utf-8").count(nm)
-                          for f in ("audit.py", "mtbx_audit.py") if (ROOT / f).exists())
+            # Смотреть НАДО ВЕЗДЕ, а не в двух выбранных вручную файлах.
+            # На этом детектор объявил мёртвой launch.background, которую зовут
+            # keep_alive.py и hourly_audit.py: они просто лежат в корне и в
+            # список не входили. Ложная находка обесценивает и настоящие —
+            # проверка, которой не верят, не работает.
+            others = sum(q.read_text(encoding="utf-8", errors="ignore").count(nm)
+                         for q in _ALL_PY if q != path)
             if others == 0:
                 dead.append(f"{path.name}:{nm}")
 

@@ -295,11 +295,35 @@ def ensure_schema(con, schema_sql):
             col, decl = parts[0], " ".join(parts[1:])
             if col in have or "PRIMARY KEY" in decl.upper() or "UNIQUE" in decl.upper():
                 continue
-            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            # ЧЕРЕЗ ТО ЖЕ ОЖИДАНИЕ, что и всё остальное. Раньше добавление
+            # колонки шло напрямую, мимо повторов: CREATE умел ждать снятия
+            # блокировки, а ALTER — нет. Достаточно было работающего воркера,
+            # чтобы миграция упала с «database is locked», а вместе с ней —
+            # любой процесс, которому эта колонка нужна.
+            _exec(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     con.commit()
     _SCHEMA_DONE.add(key)
     return con
 
+
+
+def write(con, sql, params=(), tries=6):
+    """Запись, которая ждёт снятия блокировки и повторяет попытку.
+
+    busy_timeout покрывает не всё: при занятой базе отдельные операции всё
+    равно отказывают сразу. Каждый такой отказ раньше выглядел как поломка
+    того, кто писал, — агент не мог завести себе строку только потому, что
+    воркер в эту секунду крутил цикл. Ждать и повторить дешевле, чем
+    разбираться потом, почему запись не появилась.
+    """
+    for i in range(tries):
+        try:
+            con.execute(sql, params)
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() or i == tries - 1:
+                raise
+            time.sleep(1 + i)
 
 def init():
     con = connect()

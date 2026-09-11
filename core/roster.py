@@ -246,6 +246,119 @@ def _recall():
     return f"в семантическую память добавлено {n}, всего записей {st['всего']}"
 
 
+# ── БЕСПЛАТНЫЕ ИСТОЧНИКИ. У каждого подключения есть агент-владелец.
+# Источник без владельца не проверяется никем и тихо умирает: мы уже держали
+# в списке реестр, который три часа не отвечал, и никто этого не заметил.
+
+@tool("hunt_contests", "GREEN",
+      "открытые конкурсы с объявленным призовым фондом — работа за пределами "
+      "площадок с премиями",
+      needs=("сеть",))
+def _contests():
+    from core import sources
+    rows = sources.hackathons(min_prize=1000, limit=10)
+    if not rows:
+        return "конкурсов с призом от $1000 сейчас нет"
+    top = rows[0]
+    return (f"открытых конкурсов: {len(rows)}; крупнейший «{top['title']}» "
+            f"${top['prize_usd']:,}; ВНИМАНИЕ: платят одному победителю")
+
+
+@tool("hunt_hn_jobs", "GREEN",
+      "свежие вакансии и заказы с Hacker News — источник без ключа и аккаунта",
+      needs=("сеть",))
+def _hn():
+    from core import sources
+    jobs = sources.hn_jobs(10)
+    talk = sources.hn_search("hiring contractor api", 5)
+    return f"вакансий: {len(jobs)}, обсуждений найма: {len(talk)}"
+
+
+@tool("market_demand", "GREEN",
+      "где люди сами дописывают недостающие функции — измеренный чужими "
+      "руками спрос на маленькие инструменты",
+      needs=("сеть",))
+def _demand():
+    from core import sources
+    rows = sources.script_demand(12)
+    if not rows:
+        return "каталог не отдал данных"
+    return "спрос выше всего: " + ", ".join(
+        f"{r['site']} ({r['scripts']})" for r in rows[:5])
+
+
+@tool("chain_economics", "GREEN",
+      "состояние сети, в которой нам платят, и курсы — чтобы считать выручку "
+      "в долларах, а не в токенах",
+      needs=("сеть",))
+def _chain():
+    from core import sources
+    st = sources.chain_stats()
+    px = sources.coin_price()
+    base = next((c for c in sources.defi_chains(30) if c["chain"] == "Base"), None)
+    head = (f"Base: блоков {st.get('blocks')}, адресов {st.get('addresses')}; "
+            f"ETH ${px.get('ethereum')}")
+    return head + (f"; средств в сети ${base['tvl_usd']:,}" if base else "")
+
+
+@tool("rich_targets", "GREEN",
+      "организации с деньгами и публичным продуктом — кандидаты в адресаты, "
+      "а НЕ готовые лиды",
+      needs=("сеть",))
+def _targets():
+    from core import sources
+    rows = sources.defi_protocols(40)
+    with_site = [r for r in rows if r.get("url")]
+    on_base = [r for r in with_site if "Base" in (r.get("chains") or [])]
+    return (f"кандидатов с сайтом: {len(with_site)}, из них работают в Base "
+            f"(наша сеть оплаты): {len(on_base)}")
+
+
+@tool("where_visible", "GREEN",
+      "видят ли нас независимые индексы; отказ индекса и отсутствие в индексе "
+      "различаются",
+      needs=("сеть",))
+def _visible():
+    from core import sources
+    v = sources.visibility()
+    yes = [k for k, r in v.items() if r["listed"] is True]
+    unknown = [k for k, r in v.items() if r["listed"] is None]
+    out = f"нас видно в: {', '.join(yes) if yes else 'нигде'}"
+    if unknown:
+        out += f"; НЕ ПРОВЕРЕНО (индекс не ответил): {', '.join(unknown)}"
+    return out
+
+
+@tool("package_docs", "GREEN",
+      "свежесть и документация пакета — сырьё для работы класса «документация»",
+      needs=("сеть",))
+def _pkg():
+    from core import sources
+    ok, bad = [], []
+    for name, reg in (("requests", "pypi"), ("express", "npm"), ("serde", "crates")):
+        try:
+            v = sources.package_info(name, reg).get("version")
+            (ok if v else bad).append(reg if v else f"{reg}: ответил без версии")
+        except sources.SourceDown as e:
+            bad.append(str(e))          # ИМЕНЕМ, а не молча: глухой except
+    out = f"реестров пакетов отвечает: {len(ok)} из 3"                # и был тем самым
+    return out + (f"; МОЛЧИТ — {'; '.join(bad)}" if bad else "")     # обманом продуктивности
+
+
+@tool("supply_check", "GREEN",
+      "перекличка всех бесплатных подключений: что живо, что умерло и почему",
+      needs=("сеть",))
+def _supply():
+    from core import sources
+    inv = sources.inventory()
+    dead = [f"{k} ({r['why']})" for k, r in inv.items() if not r["ok"]]
+    live = sum(1 for r in inv.values() if r["ok"])
+    out = f"живых подключений {live} из {len(inv)}"
+    if dead:
+        out += "; МОЛЧАТ: " + "; ".join(dead)
+    return out
+
+
 # ═══════════════════════════════════════════════ ОБЩИЕ ПРАВИЛА
 # Этот кусок входит в промпт КАЖДОГО агента. Каждый запрет здесь оплачен
 # конкретной ошибкой, а не выведен из общих соображений.
@@ -278,7 +391,8 @@ register(Agent(
     role="Охотник за оплачиваемой работой",
     kpi="число ДОСТУПНЫХ задач, где выплата физически дойдёт до кошелька; "
         "найденная, но разобранная или уже выплаченная задача не засчитывается",
-    tools=("hunt_bounties", "fresh_bounties", "watch_payments"),
+    tools=("hunt_bounties", "fresh_bounties", "watch_payments",
+           "hunt_contests", "hunt_hn_jobs"),
     system=COMMON + """
 ТЫ — ОХОТНИК ЗА ОПЛАЧИВАЕМОЙ РАБОТОЙ.
 
@@ -302,7 +416,7 @@ register(Agent(
     role="Разведчик способов заработка",
     kpi="число классов заработка, проверенных ВПЕРВЫЕ, и площадок, у которых "
         "подтверждено, что они платят исполнителю",
-    tools=("prospect", "probe_paths", "expand_space"),
+    tools=("prospect", "probe_paths", "expand_space", "hunt_contests"),
     system=COMMON + """
 ТЫ — РАЗВЕДЧИК СПОСОБОВ ЗАРАБОТКА.
 
@@ -329,7 +443,8 @@ register(Agent(
     role="Мастеровой: доводит работу до слияния и следит за ней",
     kpi="доля утверждений в отправленной работе, подтверждённых исходным кодом, "
         "и число PR, доведённых до ответа мейнтейнера",
-    tools=("watch_prs", "collect_payouts", "watch_payments", "check_indexing"),
+    tools=("watch_prs", "collect_payouts", "watch_payments", "check_indexing",
+           "package_docs"),
     system=COMMON + """
 ТЫ — МАСТЕРОВОЙ.
 
@@ -352,7 +467,7 @@ register(Agent(
     role="Разведка клиентов и законных каналов связи",
     kpi="число лидов с ПРОВЕРЕННЫМ публичным каналом и воспроизводимых дефектов, "
         "дающих законный повод для обращения",
-    tools=("find_leads", "find_channel", "verify_service"),
+    tools=("find_leads", "find_channel", "verify_service", "rich_targets"),
     system=COMMON + """
 ТЫ — РАЗВЕДКА КЛИЕНТОВ.
 
@@ -439,7 +554,8 @@ register(Agent(
     role="Продавец: превращает наблюдение в конкретное предложение",
     kpi="число диагнозов, подкреплённых ВОСПРОИЗВОДИМЫМ фактом о сервисе "
         "клиента, а не общим наблюдением о его бизнесе",
-    tools=("diagnose_leads", "study_market", "find_channel"),
+    tools=("diagnose_leads", "study_market", "find_channel", "where_visible",
+           "check_distribution"),
     system=COMMON + """
 ТЫ — ПРОДАВЕЦ.
 
@@ -462,7 +578,8 @@ register(Agent(
     role="Оптимизатор: считает, кто окупается, и находит пустую работу",
     kpi="число НАЙДЕННЫХ мест, где система тратит силы впустую, с измерением "
         "до и после; предложение без измерения не засчитывается",
-    tools=("economic_review", "check_invariants", "housekeeping"),
+    tools=("economic_review", "check_invariants", "housekeeping",
+           "chain_economics"),
     system=COMMON + """
 ТЫ — ОПТИМИЗАТОР.
 
@@ -483,7 +600,7 @@ register(Agent(
     role="Сторож: следит, что агенты живы и работают, а не висят",
     kpi="время между поломкой и её обнаружением; чем меньше, тем лучше "
         "работа, а отсутствие поломок — не безделье",
-    tools=("watch_agents", "check_invariants", "housekeeping"),
+    tools=("watch_agents", "check_invariants", "housekeeping", "supply_check"),
     system=COMMON + """
 ТЫ — СТОРОЖ.
 
@@ -503,7 +620,7 @@ register(Agent(
     name="explorer",
     role="Исследователь: ищет, где спрос выше конкуренции",
     kpi="число ниш, измеренных ВПЕРВЫЕ, и честно названных слепых зон",
-    tools=("explore_niches", "prospect", "study_market"),
+    tools=("explore_niches", "prospect", "study_market", "market_demand"),
     system=COMMON + """
 ТЫ — ИССЛЕДОВАТЕЛЬ.
 
@@ -559,3 +676,42 @@ if __name__ == "__main__":
         print(f"  промпт: {a['prompt_chars']} символов")
         print(f"  инструменты: {', '.join(a['tools'])}")
         print(f"  успех: {a['kpi'][:100]}")
+
+register(Agent(
+    name="supplier",
+    role="Снабженец: следит за тем, чем мы вообще можем пользоваться бесплатно",
+    kpi="число ЖИВЫХ бесплатных подключений и время между смертью источника и "
+        "тем, как мы об этом узнали; найденный, но не подключённый источник "
+        "не засчитывается",
+    tools=("supply_check", "where_visible", "package_docs", "market_demand"),
+    system=COMMON + """
+ТЫ — СНАБЖЕНЕЦ.
+
+Весь бюджет системы — ноль. Значит, всё, чем она работает, кто-то отдаёт
+бесплатно и в любой день может перестать отдавать. Твоя работа — знать состав
+этого снабжения и замечать убыль РАНЬШЕ, чем на неё наткнётся работающий
+агент.
+
+Ты существуешь из-за конкретного случая: реестр MCP три часа не отвечал на
+наш служебный заголовок, проверка исправно писала «мы не опубликованы», и
+никто не различил «нас там нет» и «нам не ответили». Три часа система
+действовала по ложной картине.
+
+Отсюда твоё главное различение, и оно важнее всего остального:
+  * ИСТОЧНИК ОТВЕТИЛ «пусто» — это факт, с ним можно работать;
+  * ИСТОЧНИК НЕ ОТВЕТИЛ — это НЕЗНАНИЕ, и докладывать его надо как незнание.
+Путать эти два состояния тебе запрещено.
+
+Что ты знаешь о снабжении по нашим собственным замерам:
+  * из двадцати проверенных адресов живыми оказались одиннадцать, и это
+    нормально: остальные требуют аккаунт, ключ или устроены иначе;
+  * источник, отвергнутый без записанной причины, через неделю выглядит
+    недосмотром, и его проверяют заново — поэтому причина пишется всегда;
+  * ответ с кодом 200 ещё не значит пригодность: каталог скриптов отвечал
+    200 и отдавал описание формы поиска вместо самих скриптов.
+
+ЧЕГО ТЕБЕ НЕЛЬЗЯ: считать источник годным по коду ответа, не посмотрев, что
+внутри. И нельзя записывать новый источник в снабжение, пока у него нет
+агента-владельца: источник, которым никто не пользуется, — это не снабжение,
+а список благих намерений.
+"""))

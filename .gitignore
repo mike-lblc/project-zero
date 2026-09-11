@@ -31,3 +31,6 @@ venv/
 reports/*.raw
 *.log
 data/code_backups/
+
+# 9 МБ, пересоздаётся запросом к DefiLlama раз в шесть часов:
+data/defi_protocols.json

@@ -11,7 +11,7 @@
 """
 import sys, hashlib
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect, ensure_schema
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS cycle_memory (
   seen_count INTEGER NOT NULL DEFAULT 1,
   first_at TEXT NOT NULL,
   last_at TEXT NOT NULL,
+  skip_until TEXT,
   UNIQUE(agent, step)
 );
 CREATE TABLE IF NOT EXISTS focus_queue (
@@ -77,6 +78,55 @@ def changed(agent, step, value):
                 (n, now(), agent, step))
     con.commit(); con.close()
     return (n % 20 == 0), n          # раз в 20 повторов — короткое подтверждение жизни
+
+
+
+def pause(agent, step, minutes):
+    """Отправляет шаг на паузу ДО указанного времени. Пауза живёт в базе.
+
+    Так было не сразу, и разница принципиальная. Счёт повторов хранился в базе
+    и переживал перезапуск, а решение «пропускать до такого-то оборота» лежало
+    в словаре процесса — и умирало вместе с ним. Сторож перезапускал воркера,
+    номера оборотов начинались с нуля, пауза испарялась, и шаг снова бежал.
+    По журналу это выглядело как восемнадцать одинаковых прогонов подряд при
+    формально исправной защите.
+
+    Отсюда два решения: паузa хранится В БАЗЕ и измеряется ЧАСАМИ, а не
+    номерами оборотов. Номер оборота — счётчик внутри запуска; привязывать к
+    нему то, что должно пережить запуск, бессмысленно по определению.
+    """
+    until = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    con = connect()
+    _init(con)
+    con.execute("UPDATE cycle_memory SET skip_until=? WHERE agent=? AND step=?",
+                (until.isoformat(), agent, step))
+    con.commit(); con.close()
+    return until
+
+
+def paused_until(agent, step):
+    """До какого момента шаг на паузе, или None. Читает базу, а не память."""
+    con = connect()
+    _init(con)
+    row = con.execute("SELECT skip_until FROM cycle_memory WHERE agent=? AND step=?",
+                      (agent, step)).fetchone()
+    con.close()
+    if not row or not row[0]:
+        return None
+    try:
+        until = datetime.fromisoformat(row[0])
+    except ValueError:
+        return None
+    return until if until > datetime.now(timezone.utc) else None
+
+
+def resume(agent, step):
+    """Снимает паузу: шаг снова приносит новое."""
+    con = connect()
+    _init(con)
+    con.execute("UPDATE cycle_memory SET skip_until=NULL WHERE agent=? AND step=?",
+                (agent, step))
+    con.commit(); con.close()
 
 
 def seen_claim(claim):

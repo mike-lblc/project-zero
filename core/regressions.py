@@ -36,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from core.db import connect, ensure_schema  # noqa: E402
+from core.db import connect, ensure_schema, write  # noqa: E402
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS invariants (
@@ -72,9 +72,9 @@ def add(name, kind, target, expr, origin):
         raise ValueError("инвариант без описания поломки не принимается: "
                          "проверка, не выведенная из настоящей ошибки, — догадка")
     c = _con()
-    c.execute("""INSERT INTO invariants(name,kind,target,expr,origin,added_at)
-                 VALUES (?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING""",
-              (name, kind, target, expr, origin.strip(), now()))
+    write(c, """INSERT INTO invariants(name,kind,target,expr,origin,added_at)
+                VALUES (?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING""",
+          (name, kind, target, expr, origin.strip(), now()))
     added = c.total_changes > 0
     c.commit(); c.close()
     return added
@@ -103,12 +103,17 @@ def _check_one(inv):
             files = _files(target)
             if not files:
                 return False, f"файлы не найдены: {target}"
-            rx = re.compile(expr)
+            # Целиком, а не построчно. Построчный просмотр не мог совпасть ни
+            # с одним многострочным образцом: инвариант с переносом строки либо
+            # вечно падал, либо — и это хуже — вечно ПРОХОДИЛ как «не
+            # встречается». Проверка, не способная сработать, опаснее
+            # отсутствующей: она создаёт видимость охвата.
+            rx = re.compile(expr, re.MULTILINE)
             hits = []
             for f in files:
-                for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
-                    if rx.search(line):
-                        hits.append(f"{f.name}:{i}")
+                text = f.read_text(encoding="utf-8")
+                for m in rx.finditer(text):
+                    hits.append(f"{f.name}:{text.count(chr(10), 0, m.start()) + 1}")
             if kind == "absent":
                 return (not hits), ("не встречается" if not hits
                                     else f"встречается в {hits[:3]}")

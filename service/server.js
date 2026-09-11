@@ -311,6 +311,9 @@ function agentState() {
     { id: 'prospector', role: 'Разведчик заработка', job: 'ищет ВСЕ способы заработать и щупает их о наши стены',
       work: n(`SELECT COUNT(*) c FROM money_paths`),
       last: (one(`SELECT MAX(checked_at) t FROM money_paths`) || {}).t },
+    { id: 'supplier', role: 'Снабженец', job: 'держит перекличку бесплатных источников: что живо, что умерло и почему',
+      work: n(`SELECT COUNT(*) c FROM agent_decisions WHERE agent='supplier'`),
+      last: (one(`SELECT MAX(decided_at) t FROM agent_decisions WHERE agent='supplier'`) || {}).t },
     { id: 'watchdog', role: 'Сторож', job: 'следит за живостью агентов',
       work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='watchdog'`),
       last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='watchdog'`) || {}).t }

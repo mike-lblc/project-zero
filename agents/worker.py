@@ -672,6 +672,20 @@ def _postman(fn_name):
     return run
 
 
+def _src(tool_name):
+    """Шаг, исполняющий подключение к бесплатному источнику.
+
+    Ходит через реестр инструментов, а не напрямую: так шаг цикла и инструмент
+    агента — это ОДИН И ТОТ ЖЕ код. Иначе они расходятся, и агент рассуждает о
+    возможности, которая в цикле давно сломана.
+    """
+    def run():
+        from core import roster  # noqa: F401  — регистрация инструментов
+        from core.agent import TOOLS
+        return TOOLS[tool_name].fn()
+    return run
+
+
 def _team(fn_name):
     def run():
         from agents import team
@@ -698,6 +712,7 @@ CYCLE = [("watch_payments", watch_payments),        # миссия: первый
          ("health_check", health_check),            # аптайм = место в выдаче
          ("refresh_market", refresh_market),        # свежесть данных = свежесть диагнозов
          ("audit", audit),                          # целостность доказательства
+         ("hunt_contests", _src("hunt_contests")),  # работа ВНЕ площадок с премиями
          ("watchdog", _team("watchdog"))]           # живость агентов
 
 # РЕДКИЕ — полезны, но не ежеминутно.
@@ -728,7 +743,16 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("reason_and_act", reason_and_act),
               ("housekeeping", housekeeping),
               ("escalation_watch", escalation_watch),
-              ("mtbx_audit", mtbx_audit)]
+              ("mtbx_audit", mtbx_audit),
+              # Бесплатные подключения. Каждое проверено живым вызовом, у
+              # каждого есть агент-владелец; здесь они получают ход в цикле,
+              # иначе остались бы возможностью, которой никто не пользуется.
+              ("hunt_hn_jobs", _src("hunt_hn_jobs")),      # вакансии без ключа
+              ("market_demand", _src("market_demand")),    # спрос, измеренный чужими руками
+              ("chain_economics", _src("chain_economics")),  # выручка в долларах, не в токенах
+              ("rich_targets", _src("rich_targets")),      # у кого есть деньги
+              ("package_docs", _src("package_docs")),      # сырьё для работы «документация»
+              ("supply_check", _src("supply_check"))]      # перекличка снабжения
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 
 # ═══════════════════════════════════════ ЧТО МОЖЕТ РАБОТАТЬ В ОБЛАКЕ
@@ -778,6 +802,14 @@ CLOUD_STEPS = [
     "economics",           # кто окупается
     "briefing",            # суточная сводка
     "explorer_replies",    # ответы на входящие
+    # Бесплатные подключения: всем нужна только сеть, значит облако их тянет.
+    "hunt_contests",       # конкурсы с призовым фондом
+    "hunt_hn_jobs",        # вакансии и заказы без ключа
+    "market_demand",       # где люди дописывают недостающее руками
+    "chain_economics",     # состояние сети оплаты и курсы
+    "rich_targets",        # организации с деньгами и продуктом
+    "package_docs",        # свежесть пакетов и ссылки на репозитории
+    "supply_check",        # жива ли вообще наша бесплатная снасть
 ]
 
 # Чего в облаке нет и почему — без умолчаний:
@@ -796,13 +828,36 @@ CLOUD_CANNOT = {
 # Сколько раз подряд шаг может выдать ОДИН И ТОТ ЖЕ результат, прежде чем
 # признать, что он ничего нового не приносит.
 SAME_LIMIT = 3
+# Потолок паузы — сутки, и считается она в МИНУТАХ, а не в оборотах цикла.
+# Оборот — счётчик внутри одного запуска; привязывать к нему то, что обязано
+# пережить перезапуск, бессмысленно по смыслу, и именно на этом защита от
+# повторов не срабатывала ни разу.
+BACKOFF_MAX_MIN = 24 * 60
+
+# НО НЕ ДЛЯ ВСЕХ. Общий потолок в сутки едва не обошёлся дорого: защита от
+# повторов усыпила watch_payments на 24 часа — то есть проверку того самого
+# события, ради которого всё построено. Повторяющийся ответ «платежей нет»
+# честен и скучен, но цена пропуска здесь несимметрична: мы ищем ПЕРВЫЙ
+# платёж, и узнать о нём через сутки — почти то же, что не узнать.
+#
+# Отсюда правило: длина паузы определяется не тем, как часто шаг повторяется,
+# а тем, ЧЕМ ГРОЗИТ ПРОПУСК. Где цена пропуска высока, скука терпится.
+PAUSE_CAP_MIN = {
+    "watch_payments":  15,   # приход денег — событие, ради которого всё это
+    "fresh_bounties":  20,   # премия живёт часы; опоздание = ноль
+    "watch_prs":       60,   # конфликт в нашей работе ждать не должен
+    "hunt_bounties":   60,   # полный обход рынка тяжелее, час терпит
+    "supply_check":   180,   # снабжение меняется медленно
+}
 # На сколько оборотов он после этого уходит на паузу. Растёт с каждым повтором,
 # но не бесконечно: раз в сутки проверить состояние обязан любой шаг.
 BACKOFF_MAX = 60
-_skip_until = {}        # шаг -> номер оборота, до которого пропускаем (в пределах запуска)
+# Паузы повторяющихся шагов ЖИВУТ В БАЗЕ (core.memory), а не здесь. Словарь в
+# процессе умирал при каждом перезапуске сторожем, и защита от повторов
+# формально работала, фактически не срабатывая ни разу.
 
 
-def should_run(name, turn):
+def should_run(name):
     """Пропускать ли шаг, который перестал приносить новое.
 
     Зачем. Детектор подделки нашёл агентов, выдающих один и тот же результат
@@ -819,10 +874,12 @@ def should_run(name, turn):
     перезапуск. Механизм для этого уже был построен — cycle_memory хранит
     результат шага между запусками, им и пользуемся.
     """
-    return turn >= _skip_until.get(name, 0)
+    agent = AGENT_OF.get(name, "orchestrator")
+    until = memory.paused_until(agent, name)
+    return until is None
 
 
-def note_result(name, out, turn):
+def note_result(name, out):
     """Учитывает, принёс ли шаг новое, и назначает паузу если нет.
 
     Счёт повторов ведёт memory.changed(): он лежит в базе и переживает
@@ -831,12 +888,15 @@ def note_result(name, out, turn):
     agent = AGENT_OF.get(name, "orchestrator")
     fresh, seen = memory.changed(agent, name, str(out))
     if seen <= 1:
-        _skip_until.pop(name, None)
+        memory.resume(agent, name)          # принёс новое — пауза снимается
         return None
     if seen >= SAME_LIMIT:
-        wait = min(BACKOFF_MAX, 2 ** (seen - SAME_LIMIT + 1))
-        _skip_until[name] = turn + wait
-        return wait
+        # Пауза растёт с числом повторов, но не бесконечно: раз в сутки
+        # состояние обязан проверить любой шаг, даже самый скучный.
+        cap = PAUSE_CAP_MIN.get(name, BACKOFF_MAX_MIN)
+        minutes = min(cap, 5 * 2 ** (seen - SAME_LIMIT))
+        memory.pause(agent, name, minutes)
+        return minutes
     return None
 
 
@@ -935,20 +995,20 @@ def _turn(name, fn, agent, i):
     Возвращает True, если шаг действительно выполнялся, и False, если он был
     пропущен по паузе — вызывающий по этому решает, ждать полный такт или нет.
     """
-    if not should_run(name, i):
+    if not should_run(name):
         return False
     started = now()
     try:
         out = fn()
-        paused = note_result(name, out, i)
+        paused = note_result(name, out)
         record_run(name, agent, True, str(out), started, now())
         if paused:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out} "
-                  f"— то же самое {SAME_LIMIT} раза подряд, пауза на {paused} оборотов",
+                  f"— то же самое {SAME_LIMIT} раза подряд, пауза на {paused} минут",
                   flush=True)
             say(agent, f"Шаг «{name}» {SAME_LIMIT} раза подряд дал один и тот же "
                        f"результат: «{str(out)[:70]}». Нового он сейчас не приносит, "
-                       f"ухожу с ним на паузу — повторять одно и то же не работа.")
+                       f"ухожу с ним на паузу на {paused} мин — повторять одно и то же не работа.")
         else:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] {name}: {out}", flush=True)
     except Exception as e:
