@@ -53,7 +53,18 @@ def main():
         started = background(["node", "server.js"], cwd=ROOT / "service",
                              log=str(ROOT / "data" / "server_export.log"))
         if not alive(PORT, tries=20):
+            # Причину НАДО ПОКАЗАТЬ. Отказ без причины отправляет разбираться
+            # заново того, кто увидит его следующим, — а журнал к тому моменту
+            # уже стёрт вместе с машиной, на которой всё это крутилось.
             print("СБОЙ: сервер не поднялся, снимок не снят", file=sys.stderr)
+            log = ROOT / "data" / "server_export.log"
+            if log.exists():
+                tail = log.read_text(encoding="utf-8", errors="ignore").splitlines()[-25:]
+                print("— что сказал сервер —", file=sys.stderr)
+                for ln in tail:
+                    print("   " + ln, file=sys.stderr)
+            else:
+                print(f"журнала {log} нет — процесс не дошёл до запуска", file=sys.stderr)
             if started:
                 started.terminate()
             return 1
