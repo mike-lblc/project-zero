@@ -34,7 +34,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write          # цикл коммитит базу и дашборд
+  contents: write          # публикация дашборда
+  actions: read            # память из предыдущего запуска
 
 jobs:
   cycle:
@@ -45,12 +46,32 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Найти последнюю сохранённую базу
+        id: memory
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              ...context.repo, name: 'brain-db', per_page: 100
+            });
+            const candidates = artifacts.filter(a => !a.expired &&
+              a.workflow_run && a.workflow_run.head_branch === context.ref.replace('refs/heads/', '') &&
+              String(a.workflow_run.id) !== String(context.runId));
+            candidates.sort((a, b) => b.id - a.id);
+            if (candidates.length) {
+              core.setOutput('run_id', String(candidates[0].workflow_run.id));
+            } else {
+              core.notice('Первый запуск: сохранённой базы ещё нет.');
+            }
+
       - name: Поднять базу прошлого прогона
+        if: steps.memory.outputs.run_id != ''
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
           name: brain-db
           path: data
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.memory.outputs.run_id }}
 
       - uses: actions/setup-python@v5
         with:
@@ -186,9 +207,10 @@ jobs:
         run: |
           npm --prefix service ci --omit=dev --no-audit --no-fund || npm --prefix service install --omit=dev --no-audit --no-fund
           cp service/dashboard.html docs/dashboard.html
-          python ops/export_api.py docs/api 8402 || echo "снимок выдачи не снят — страница покажет прошлый"
+          python ops/export_api.py docs/api 8402
 
       - name: Сохранить базу до следующего прогона
+        if: always() && hashFiles('data/brain.db') != ''
         uses: actions/upload-artifact@v4
         with:
           name: brain-db
