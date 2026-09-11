@@ -20,7 +20,23 @@ const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
 const PRICE = '10000';          // $0.01 — медиана рынка (мы стояли в 10x ниже)
 
 // ---- the asset: crawled Bazaar index with real usage metrics ----
-const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'bazaar_index.json'), 'utf8'));
+// Каталог рынка весит 49 МБ и в репозиторий не кладётся: он пересобирается
+// обходом. Значит, в облаке его нет — и раньше служба ИЗ-ЗА ЭТОГО НЕ
+// ПОДНИМАЛАСЬ ВООБЩЕ, унося с собой и выдачу состояния, к рынку никак не
+// относящуюся. Отсутствие товара на витрине — не повод закрывать магазин:
+// без каталога поиск отвечает пустотой и честно говорит почему, а всё
+// остальное работает.
+const INDEX_FILE = path.join(ROOT, 'data', 'bazaar_index.json');
+let raw = [];
+let catalogNote = null;
+try {
+  raw = JSON.parse(fs.readFileSync(INDEX_FILE, 'utf8'));
+} catch (e) {
+  catalogNote = 'каталог рынка не загружен: ' + (e.code === 'ENOENT'
+    ? 'файла нет — он пересобирается обходом и в репозиторий не кладётся'
+    : e.message);
+  console.warn(catalogNote);
+}
 const CATALOG = raw.map(it => {
   const a = (it.accepts || [])[0] || {};
   const q = it.quality || {};
@@ -320,6 +336,9 @@ function agentState() {
   ];
   const state = {
     agents,
+    // Если каталога рынка нет, об этом надо СКАЗАТЬ. Иначе пустая выдача
+    // поиска выглядит как пустой рынок, а это разные вещи.
+    catalog: { size: CATALOG.length, note: catalogNote },
     mission: {
       payments:  n(`SELECT COUNT(*) c FROM payments`),
       spend:     n(`SELECT COUNT(*) c FROM spend`),
