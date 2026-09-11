@@ -1,6 +1,6 @@
 """Model router. Enforces DECISION_PROTOCOL.md section 1:
 THE LOCAL MODEL MAY NEVER DECIDE. Mechanical work runs locally; judgment escalates."""
-import json, urllib.request, urllib.error
+import json, os, urllib.request, urllib.error
 
 OLLAMA = "http://127.0.0.1:11434/api/generate"
 
@@ -46,6 +46,9 @@ WEIGHT = {
 
 def model_for(task_type):
     """Какая модель возьмёт эту задачу. Выбор объясним и проверяем."""
+    if os.environ.get("P0_MODEL_BACKEND") == "cloudflare":
+        from core.cloud_model import MODEL
+        return MODEL
     return MODELS.get(WEIGHT.get(task_type.lower().strip(), "standard"),
                       MODELS["standard"])
 
@@ -62,6 +65,12 @@ def _local(prompt, timeout=300, model=None):
     модель вытеснили из памяти, первый вызов ждёт возвращения восемнадцати
     гигабайт с диска. Короткий таймаут превращал это в «модель недоступна».
     """
+    backend = os.environ.get("P0_MODEL_BACKEND", "ollama")
+    if backend == "cloudflare":
+        from core.cloud_model import generate
+        return generate(prompt, timeout=timeout)
+    if backend != "ollama":
+        raise RuntimeError("Unknown model backend; refusing local fallback")
     req = urllib.request.Request(OLLAMA,
         data=json.dumps({"model": model or LOCAL_MODEL, "prompt": prompt,
                          "stream": False}).encode(),
