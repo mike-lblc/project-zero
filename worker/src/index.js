@@ -12,8 +12,21 @@
 import CATALOG from "../catalog.slim.json";
 
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+// ДВА ФАСИЛИТАТОРА, И ВЫБОР НЕ КОСМЕТИЧЕСКИЙ.
+//
+// Общественный работает без ключа, и на нём мы жили до сих пор. Но индекс
+// Bazaar, куда агенты ходят искать платные сервисы, ведёт Coinbase, и он
+// заносит сервис только после оплаченного вызова ЧЕРЕЗ СВОЙ фасилитатор.
+// Пока мы рассчитывались через общественный, мы были платёжно живыми и
+// при этом невидимыми там, где ищут.
+//
+// Если ключ CDP настроен — считаем через него. Если нет — работаем как
+// раньше: отсутствие ключа не должно ронять платежи.
 const FACILITATOR = "https://pay.openfacilitator.io";
-const JOIN_URL = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/join";
+const CDP_HOST = "api.cdp.coinbase.com";
+const CDP_BASE = `https://${CDP_HOST}/platform/v2/x402`;
+const SELF = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev";
+const JOIN_URL = SELF + "/join";
 
 // Тарифы в микро-USDC. Цены выставлены по реальному рынку:
 // медиана $0.0100, 99-й перцентиль $1.40 — мы стоим ниже потолка.
@@ -31,11 +44,61 @@ const json = (data, status = 200, extra = {}) =>
                "access-control-allow-origin": "*", ...extra },
   });
 
+// Что именно принимает каждый платный адрес. Без этого описания индексатор
+// Bazaar не может построить корректный запрос от имени агента и не берёт
+// сервис в каталог: проверка bazaar.info.input.* обязательна.
+// СТРУКТУРА ВЗЯТА С РАБОТАЮЩЕГО СЕРВИСА, а не придумана. Я дважды угадывал
+// формат и дважды ошибался; правильный ответ нашёлся, когда я посмотрел, что
+// именно отдаёт сервис, уже стоящий в индексе.
+//
+// Главное, чего не видно из документации: queryParams — это ПРИМЕРЫ ЗНАЧЕНИЙ,
+// а не описания типов. Индексатор берёт их как готовый вызов и сверяет со
+// схемой; описания типов вместо значений давали ошибку «q is required».
+const INPUTS = {
+  "/search": {
+    method: "GET",
+    queryParams: { q: "weather", limit: 5 },
+    params: {
+      q: { type: "string", description: "capability to search for" },
+      limit: { type: "integer", minimum: 1, maximum: 50, default: 10 },
+      network: { type: "string", description: "chain filter, e.g. eip155:8453" },
+    },
+    required: ["q"],
+  },
+  "/report": { method: "GET", queryParams: {}, params: {}, required: [] },
+  "/alpha": { method: "GET", queryParams: {}, params: {}, required: [] },
+  "/dataset": { method: "GET", queryParams: {}, params: {}, required: [] },
+};
+
+// СХЕМА ОПИСЫВАЕТ ВЕСЬ ОБЪЕКТ input, а не только параметры запроса.
+// Я описал в ней одни queryParams, и проверка сказала прямо: «additional
+// property type is not allowed, additional property method is not allowed».
+// Форма взята с сервиса, который уже стоит в индексе, — после двух попыток
+// угадать её по документации.
+function inputSchema(path) {
+  const i = INPUTS[path] || { method: "GET", params: {}, required: [] };
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["type", "method"],
+    properties: {
+      type: { type: "string", const: "http" },
+      method: { type: "string", enum: ["GET", "HEAD"] },
+      queryParams: {
+        type: "object",
+        properties: i.params,
+        ...(i.required.length ? { required: i.required } : {}),
+      },
+    },
+  };
+}
+
 function requirements(path, payTo, description) {
   const t = TIERS[path];
+  const i = INPUTS[path] || { method: "GET", queryParams: {}, example: "" };
   return {
     scheme: "exact",
-    network: "base",
+    network: "eip155:8453",
     maxAmountRequired: t.amount,
     amount: t.amount,
     asset: USDC_BASE,
@@ -43,12 +106,102 @@ function requirements(path, payTo, description) {
     description,
     mimeType: "application/json",
     maxTimeoutSeconds: 300,
-    resource: path,
+    // resource — ПОЛНЫЙ АДРЕС строкой. Ни путь «/search», ни объект с полем
+    // url не подходят: у всех проиндексированных сервисов здесь строка.
+    resource: SELF + path,
   };
 }
 
+// РАСШИРЕНИЕ BAZAAR ЛЕЖИТ НА ВЕРХНЕМ УРОВНЕ, а не внутри accepts.
+// Проверка сказала дословно: «no bazaar extension in top-level extensions
+// object». Вложив его в accepts[0].extra, я сделал его невидимым для
+// индексатора — структура важна не меньше содержания.
+function bazaarExtension(path) {
+  const i = INPUTS[path] || { method: "GET", queryParams: {}, schema: {} };
+  return {
+    bazaar: {
+      info: {
+        input: {
+          type: "http",
+          method: i.method,
+          queryParams: i.queryParams,
+        },
+        output: {
+          type: "json",
+          example: path === "/search"
+            ? { query: "weather", results: [{ resource: "https://example.com/api",
+                name: "sample service", priceUsd: 0.01, payers30d: 42, calls30d: 310 }] }
+            : { generatedAt: "ISO-8601", data: "see tier description" },
+        },
+      },
+      schema: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        required: ["input"],
+        properties: {
+          input: inputSchema(path),
+          output: {
+            type: "object",
+            required: ["type"],
+            properties: {
+              type: { type: "string" },
+              example: { type: "object" },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+/** Подпись запроса к CDP: короткий токен на ОДИН метод и адрес.
+ *
+ *  CDP не принимает ключ в заголовке — каждый запрос подписывается токеном,
+ *  действующим две минуты, и в подпись входит конкретный адрес. Перехваченный
+ *  токен нельзя переиспользовать для другого запроса.
+ */
+// Base64 от ЛЮБОГО текста. Голый btoa принимает только Latin-1 и бросает
+// исключение на первом не-латинском символе. Одна русская строка в описании
+// тарифа превратила требование оплаты в HTTP 500: сервис перестал брать
+// деньги вовсе. Кодируем через UTF-8, чтобы текст не мог сломать платёж.
+const b64utf8 = (str) =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(str)));
+
+const b64u = (buf) =>
+  btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+async function cdpJwt(env, method, path) {
+  const raw = Uint8Array.from(atob(env.CDP_API_KEY_SECRET), (c) => c.charCodeAt(0));
+  // Ключ приходит как 64 байта: первые 32 — семя приватного, вторые — публичный.
+  const seed = raw.slice(0, 32);
+  const key = await crypto.subtle.importKey(
+    "raw", seed, { name: "Ed25519" }, false, ["sign"]).catch(async () => {
+      // Часть сред принимает только PKCS8 — собираем обёртку вокруг семени.
+      const pkcs8 = new Uint8Array([
+        0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70,
+        0x04, 0x22, 0x04, 0x20, ...seed]);
+      return crypto.subtle.importKey("pkcs8", pkcs8, { name: "Ed25519" }, false, ["sign"]);
+    });
+
+  const now = Math.floor(Date.now() / 1000);
+  const nonce = [...crypto.getRandomValues(new Uint8Array(16))]
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+  const header = { alg: "EdDSA", kid: env.CDP_API_KEY_ID, typ: "JWT", nonce };
+  const payload = {
+    sub: env.CDP_API_KEY_ID, iss: "cdp", aud: ["cdp_service"],
+    nbf: now, exp: now + 120,
+    uris: [`${method.toUpperCase()} ${CDP_HOST}${path}`],
+  };
+  const enc = new TextEncoder();
+  const input = b64u(enc.encode(JSON.stringify(header))) + "." +
+                b64u(enc.encode(JSON.stringify(payload)));
+  const sig = await crypto.subtle.sign({ name: "Ed25519" }, key, enc.encode(input));
+  return input + "." + b64u(sig);
+}
+
 /** Проверяем и проводим платёж через фасилитатор. Без подтверждения данные не отдаём. */
-async function settle(paymentHeader, reqs) {
+async function settle(paymentHeader, reqs, env) {
   let payload;
   try {
     payload = JSON.parse(atob(paymentHeader));
@@ -56,19 +209,38 @@ async function settle(paymentHeader, reqs) {
     try { payload = JSON.parse(paymentHeader); } catch { return { ok: false, why: "payload не разобран" }; }
   }
   const body = JSON.stringify({ x402Version: 2, paymentPayload: payload, paymentRequirements: reqs });
-  const head = { "content-type": "application/json" };
+  const useCdp = Boolean(env && env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET);
 
-  const v = await fetch(`${FACILITATOR}/verify`, { method: "POST", headers: head, body });
+  async function post(step) {
+    if (useCdp) {
+      const path = `/platform/v2/x402/${step}`;
+      const token = await cdpJwt(env, "POST", path);
+      return fetch(CDP_BASE + "/" + step, {
+        method: "POST",
+        headers: { "content-type": "application/json",
+                   authorization: `Bearer ${token}` },
+        body,
+      });
+    }
+    return fetch(`${FACILITATOR}/${step}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body,
+    });
+  }
+
+  const v = await post("verify");
   const vr = await v.json().catch(() => ({}));
   if (!v.ok || vr.isValid === false || vr.valid === false)
-    return { ok: false, why: vr.invalidReason || vr.error || `verify ${v.status}` };
+    return { ok: false, why: vr.invalidReason || vr.error || `verify ${v.status}`,
+             via: useCdp ? "cdp" : "public" };
 
-  const s = await fetch(`${FACILITATOR}/settle`, { method: "POST", headers: head, body });
+  const s = await post("settle");
   const sr = await s.json().catch(() => ({}));
   if (!s.ok || sr.success === false)
-    return { ok: false, why: sr.errorReason || sr.error || `settle ${s.status}` };
+    return { ok: false, why: sr.errorReason || sr.error || `settle ${s.status}`,
+             via: useCdp ? "cdp" : "public" };
 
-  return { ok: true, tx: sr.transaction || sr.txHash || null };
+  return { ok: true, tx: sr.transaction || sr.txHash || null,
+           via: useCdp ? "cdp" : "public" };
 }
 
 // ------------------------------------------------------------------ поиск
@@ -390,11 +562,30 @@ export default {
       const t = TIERS[path];
       const reqs = requirements(path, payTo, t.what);
       const header = request.headers.get("x-payment");
-      if (!header)
-        return json({ x402Version: 2, error: "Payment Required", accepts: [reqs],
-                      free_alternative: "/sample", weekly_report: JOIN_URL }, 402);
+      if (!header) {
+        // ЗАГОЛОВОК, А НЕ ТОЛЬКО ТЕЛО. Проверка CDP сказала прямо: «индексатор
+        // читает для версии 2 только заголовок». Мы отдавали требование оплаты
+        // лишь в теле — и девятнадцать последующих проверок пропускались из-за
+        // этой одной. Сервис работал, платил бы исправно и оставался невидим.
+        // resource ЖИВЁТ НА ВЕРХНЕМ УРОВНЕ. Внутри accepts он тоже остаётся —
+        // его читают плательщики, — но индексатор ищет именно верхний.
+        // resource — ОБЪЕКТ типа ResourceInfo. Проверка назвала тип прямо:
+        // «cannot unmarshal string into Go struct field
+        // PaymentRequired.resource of type types.ResourceInfo». В самом же
+        // индексе он потом виден строкой — индексатор его разворачивает.
+        const pr = { x402Version: 2,
+                     resource: { url: SELF + path,
+                                 type: "http",
+                                 method: (INPUTS[path] || {}).method || "GET",
+                                 description: t.what },
+                     accepts: [reqs],
+                     extensions: bazaarExtension(path) };
+        const body402 = { ...pr, error: "Payment Required",
+                          free_alternative: "/sample", weekly_report: JOIN_URL };
+        return json(body402, 402, { "payment-required": b64utf8(JSON.stringify(pr)) });
+      }
 
-      const r = await settle(header, reqs);
+      const r = await settle(header, reqs, env);
       if (!r.ok)
         return json({ x402Version: 2, error: "Payment failed", reason: r.why, accepts: [reqs] }, 402);
 
