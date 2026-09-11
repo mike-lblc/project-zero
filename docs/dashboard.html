@@ -416,8 +416,12 @@ function animate(){
     p.m.material.opacity = Math.sin(p.t * Math.PI);
     p.m.scale.setScalar(.8 + Math.sin(p.t*Math.PI)*.9);
   }
+  /* Происхождение данных видно ВСЕГДА, а счётчик пролетающих искр — это
+     украшение поверх него. Раньше счётчик перетирал подпись, и почти всё
+     время страница не говорила, живой перед вами поток или вчерашний снимок:
+     самое важное сообщение исчезало именно тогда, когда система работала. */
   document.getElementById("live").textContent =
-    pulses.length ? `в полёте: ${pulses.length}` : liveLabel;
+    liveLabel + (pulses.length ? ` · в полёте ${pulses.length}` : "");
 
   composer.render();
 }
