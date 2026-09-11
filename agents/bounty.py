@@ -115,7 +115,7 @@ def _gh(args, timeout=40, expect_missing=False):
     return ""
 
 
-def competition(repo, issue_number, title):
+def competition(repo, issue_number):
     """Сколько человек УЖЕ делают эту задачу и не выплачена ли она.
 
     Возвращает (соперники, выплачена_ли).
@@ -213,6 +213,12 @@ def looks_like_real_money(body, labels):
       тело без суммы вовсе -> тренировочная песочница (9446 автозадач)
     """
     b = (body or "").lower()
+    # МЕТКА ПЛОЩАДКИ. Параметр labels принимался и молча выбрасывался — а это
+    # был самый достоверный признак из всех: метку «💎 Bounty» ставит сам бот
+    # выплат. Задачи, где сумма указана только меткой, отсеивались как мусор.
+    lab = " ".join(labels or []).lower()
+    if "bounty" in lab or "reward" in lab or "💎" in lab or "💰" in lab:
+        return True
     if "/bounty" in b or "algora" in b:
         return True
     if re.search(r"\$\s?\d", b):
@@ -312,7 +318,7 @@ def enrich_and_score(rows):
             continue          # платят способом, недоступным владельцу
 
         # ЗАНЯТОСТЬ: сколько уже делают то же самое и не выплачено ли уже
-        rivals, paid = competition(repo, d.get("n"), d["t"])
+        rivals, paid = competition(repo, d.get("n"))
         if paid:
             continue                      # премию уже получил другой — работать не за что
         if rivals >= 4:
@@ -448,7 +454,7 @@ def fresh_bounties(max_age_hours=6, max_rivals=3):
         amount = parse_amount(d["t"] + " " + d.get("b", ""))
         if not amount:
             continue
-        rivals, paid = competition(d["r"], d["n"], d["t"])
+        rivals, paid = competition(d["r"], d["n"])
         if paid or rivals > max_rivals:
             continue
         hot.append({"url": d["u"], "repo": d["r"], "title": d["t"][:180],

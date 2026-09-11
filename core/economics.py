@@ -129,10 +129,28 @@ def roi_gate(agent, kind, expected_value_units=0.0):
     cost = COST_UNITS.get(kind, 0.5)
     if kind != "frontier_escalation":
         return True, "дёшево, гейт не нужен"
-    if expected_value_units >= cost:
-        return True, f"ожидаемая отдача {expected_value_units} >= стоимости {cost}"
-    return False, (f"ожидаемая отдача {expected_value_units} ниже стоимости {cost} — "
-                   f"эскалация не оправдана, решать локально или отложить")
+
+    # РЕПУТАЦИЯ ПРОСЯЩЕГО. Параметр agent принимался и молча выбрасывался —
+    # гейт был одинаков для всех. Но дорогая операция, запрошенная агентом,
+    # который ни разу ничего не довёл, и та же операция от работающего агента
+    # — это разные ставки. Репутация уже считается по исходам, оставалось
+    # только ею воспользоваться.
+    c = _con()
+    row = c.execute("SELECT SUM(calls), SUM(correct) FROM agent_reputation "
+                    "WHERE agent=?", (agent,)).fetchone()
+    c.close()
+    calls, correct = (row[0] or 0), (row[1] or 0)
+    share = correct / calls if calls else None
+    need = cost
+    if share is not None and calls >= 20 and share < 0.5:
+        need = cost * 2          # половина прогонов впустую — планка выше
+    if expected_value_units >= need:
+        return True, (f"ожидаемая отдача {expected_value_units} >= планки {need}"
+                      + (f" (доля успешных прогонов {share:.0%})" if share is not None else ""))
+    return False, (f"ожидаемая отдача {expected_value_units} ниже планки {need} — "
+                   f"эскалация не оправдана, решать локально или отложить"
+                   + (f"; у агента {agent} успешных прогонов {share:.0%} из {calls}"
+                      if share is not None and calls >= 20 else ""))
 
 
 # ---------------------------------------------------------------- раздел 28

@@ -124,7 +124,118 @@ def find_problems():
                 problems.append({"file": rel, "kind": "unused_import",
                                  "detail": f"импорт '{name}' в строке {line} не используется",
                                  "line": line, "target": name, "severity": 1})
+
+        # ── ПАРАМЕТР ПРИНЯТ И ВЫБРОШЕН ────────────────────────────────
+        # Владелец спросил, почему чинящий агент не поймал поломку. Честный
+        # ответ: не мог — он умел находить только голый except и лишний импорт.
+        # Настоящий дефект выглядел так: _leads(fn_name) принимал имя шага и
+        # НИКОГДА его не использовал, всегда вызывая одно и то же. Шаги,
+        # вписанные в цикл, не запускались, а журнал показывал бодрый результат.
+        # Такую поломку не видно ни по падениям, ни по тестам — только по тому,
+        # что объявленный параметр нигде не встречается в теле.
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            args = [a.arg for a in node.args.args + node.args.kwonlyargs
+                    if a.arg not in ("self", "cls", "_")]
+            if not args:
+                continue
+            # Смотрим ТОЛЬКО на тело. Дамп всей функции содержит объявление
+            # самого параметра (arg='fn_name'), и проверка находила его же,
+            # успокаивалась и пропускала дефект — то есть детектор ловил
+            # собственный хвост. На этом он и провалил первую же проверку
+            # против настоящей поломки.
+            body_names = set()
+            for stmt in node.body:
+                body_names |= {n.id for n in ast.walk(stmt) if isinstance(n, ast.Name)}
+                body_names |= {n.attr for n in ast.walk(stmt) if isinstance(n, ast.Attribute)}
+            # f-строки и обращения по ключу тоже считаются использованием
+            body_text = " ".join(ast.dump(s) for s in node.body)
+            for a in args:
+                if a in body_names or f"'{a}'" in body_text:
+                    continue
+                problems.append({
+                    "file": rel, "kind": "ignored_parameter",
+                    "detail": f"функция '{node.name}' (строка {node.lineno}) принимает "
+                              f"'{a}' и никогда его не использует — вызывающий думает, "
+                              f"что управляет поведением, а оно не меняется",
+                    "line": node.lineno, "target": a, "severity": 4})
+
+        # ── МЕСТНОЕ ВРЕМЯ, ОБЪЯВЛЕННОЕ ВСЕМИРНЫМ ──────────────────────
+        # Дописать '+00:00' к наивной метке — значит объявить местное время UTC.
+        # Данные выглядят исправными и уезжают на разницу поясов; у нас так
+        # уехали десять записей журнала, и проверка живости показала будущее.
+        for i, line in enumerate(src.splitlines(), 1):
+            if re.search(r'\+\s*["\']\+00:00["\']', line):
+                problems.append({
+                    "file": rel, "kind": "naive_time_as_utc",
+                    "detail": f"строка {i}: к метке времени дописывается '+00:00' — "
+                              f"если метка местная, это объявляет её всемирной и "
+                              f"сдвигает данные на разницу поясов",
+                    "line": i, "severity": 4})
+
+        # ── УДАЛЕНИЕ БЕЗ УСЛОВИЯ ──────────────────────────────────────
+        # DELETE по всей таблице берёт исключительную блокировку. У нас такой
+        # вызов в уборке повторов ронял шаг с «database is locked» даже когда
+        # удалять было нечего.
+        for i, line in enumerate(src.splitlines(), 1):
+            if re.search(r"DELETE\s+FROM\s+\w+\s*(?:\"\"\"|'''|\"|')?\s*$", line, re.I):
+                problems.append({
+                    "file": rel, "kind": "unguarded_delete",
+                    "detail": f"строка {i}: DELETE по всей таблице без условия — "
+                              f"берёт исключительную блокировку и роняет "
+                              f"параллельных писателей",
+                    "line": i, "severity": 3})
+
+    # ── ССЫЛКА НА ОТСУТСТВУЮЩИЙ АТРИБУТ МОДУЛЯ ────────────────────────
+    # Самый тихий класс: код ссылается на module.ATTR, которого в модуле нет.
+    # Так исчез mechanic.CYCLE — его снесли вместе с соседней функцией, и шаг
+    # механика падал при каждом вызове. Ни синтаксис, ни импорты этого не видят.
+    problems += _missing_attributes()
     return problems
+
+
+def _missing_attributes():
+    """Ищет обращения к module.ATTR, которых в модуле не существует."""
+    out = []
+    files = list((ROOT / "agents").glob("*.py")) + list((ROOT / "core").glob("*.py"))
+    # что каждый модуль объявляет на верхнем уровне
+    declared = {}
+    for f in files:
+        try:
+            t = ast.parse(f.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        names = set()
+        for n in t.body:
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(n.name)
+            elif isinstance(n, ast.Assign):
+                names |= {x.id for x in n.targets if isinstance(x, ast.Name)}
+            elif isinstance(n, (ast.Import, ast.ImportFrom)):
+                names |= {(a.asname or a.name).split(".")[0] for a in n.names}
+        declared[f.stem] = names
+
+    for f in files:
+        rel = _rel(f)
+        try:
+            t = ast.parse(f.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for n in ast.walk(t):
+            if not (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)):
+                continue
+            mod, attr = n.value.id, n.attr
+            if mod not in declared or mod == f.stem:
+                continue
+            if attr.startswith("__") or attr in declared[mod]:
+                continue
+            out.append({
+                "file": rel, "kind": "missing_attribute",
+                "detail": f"строка {n.lineno}: обращение к {mod}.{attr}, "
+                          f"но в модуле {mod} такого имени нет — вызов упадёт",
+                "line": n.lineno, "severity": 5})
+    return out
 
 
 # ---------------------------------------------------------------- правка

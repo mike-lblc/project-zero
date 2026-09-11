@@ -66,7 +66,7 @@ def fetch_and_store(url):
     con.commit()
     return cur.lastrowid, text
 
-def extract(question, text, source_id):
+def extract(question, text):
     """MECHANICAL only. Router forbids this path from making judgments."""
     prompt = (f"From the text below, extract ONLY facts that answer: {question}\n"
               f"Rules: quote or closely paraphrase the text. If the text does not "
@@ -109,7 +109,7 @@ def run_job(question, queries, max_pages=4):
                 print(f"  SKIP {url[:60]} ({type(e).__name__})"); continue
             pages += 1
             print(f"  [{pages}] fetched {url[:70]}")
-            ans = extract(question, text, sid)
+            ans = extract(question, text)
             short = ans.strip().replace("\n", " ")[:400]
             if short.upper().startswith("NOT FOUND"):
                 print(f"      -> nothing relevant")
@@ -145,7 +145,7 @@ def investigate(url, question, keywords):
         print(f"  {url[:60]} -> no keyword hits ({', '.join(keywords)})")
         return sid, None
     joined = "\n---\n".join(chunks)[:6000]
-    ans = extract(question, joined, sid).strip().replace("\n", " ")
+    ans = extract(question, joined).strip().replace("\n", " ")
     print(f"  {url[:60]}\n    hits={len(chunks)} -> {ans[:300]}")
     if ans.upper().startswith("NOT FOUND") or ans.upper().startswith("ESCALATE"):
         return sid, None

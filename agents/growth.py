@@ -28,7 +28,7 @@ def now():
 def say(agent, text):
     con = connect()
     dup = con.execute("SELECT 1 FROM messages WHERE topic='chat' AND body=? "
-                      "AND created_at > datetime('now','-6 hours') LIMIT 1", (text,)).fetchone()
+                      "LIMIT 1", (text,)).fetchone()   # без окна: см. core/bus.broadcast
     if dup:
         con.close(); return
     con.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) VALUES (?,?,?,?,?)",

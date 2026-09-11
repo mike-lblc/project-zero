@@ -70,30 +70,81 @@ CREATE TABLE IF NOT EXISTS path_categories (
 # платят за результат, а не за присутствие», потому что присутствовать где-то
 # круглосуточно мы можем, а быть человеком — нет.
 CATEGORIES = {
+    # ── платят за решённую задачу ─────────────────────────────────────
     "баунти за код": ["open source bounty platform pay contributors",
                       "github issue bounty crypto payout"],
     "баунти за безопасность": ["bug bounty platform pays crypto researchers",
                                "smart contract audit bounty payout usdc"],
+    "баунти за протоколы": ["defi protocol bug bounty rewards researchers",
+                            "immunefi style bounty program payout"],
     "конкурсы и хакатоны": ["online hackathon prize crypto payout remote",
                             "ai agent competition prize money open"],
-    "гранты": ["retroactive public goods funding grant open source",
-               "developer grant program crypto no equity"],
+    "соревнования по данным": ["machine learning competition prize money open",
+                               "data science challenge cash prize leaderboard"],
+    "конкурсы алгоритмов": ["algorithmic trading competition prize payout",
+                            "quant tournament rewards open participation"],
+    "предсказания и рынки": ["prediction market api rewards accuracy",
+                             "forecasting competition prize payout"],
+
+    # ── платят за созданный актив ─────────────────────────────────────
     "рынок агентов и инструментов": ["agent marketplace developers earn per call",
                                      "mcp server marketplace paid tools"],
+    "магазины расширений": ["browser extension monetization developers revenue",
+                            "userscript marketplace paid developers"],
+    "рынки шаблонов": ["template marketplace creators earn royalties",
+                       "sell templates developers passive income"],
+    "рынки плагинов": ["plugin marketplace revenue share developers",
+                       "app store for developer tools commission"],
+    "модели и веса": ["sell fine-tuned model marketplace inference revenue",
+                      "model hosting revenue share creators"],
+    "наборы данных": ["sell dataset api developers marketplace",
+                      "open data product paid api buyers"],
+    "готовые промпты и навыки": ["sell prompts marketplace creators paid",
+                                 "ai skill marketplace revenue"],
+
+    # ── платят за поток вызовов ───────────────────────────────────────
     "микроплатежи за вызовы": ["x402 monetize api agents pay per request",
                                "pay per call api marketplace crypto"],
-    "продажа данных": ["sell dataset api developers marketplace",
-                       "open data product paid api buyers"],
+    "перепродажа вычислений": ["resell inference capacity margin developers",
+                               "gpu marketplace earn providing compute"],
+    "узлы и инфраструктура": ["run rpc node earn rewards no stake",
+                              "decentralized infrastructure provider rewards"],
+    "сбор и отдача данных": ["earn providing web data crawler network",
+                             "decentralized scraping rewards contributors"],
+
+    # ── платят за внимание и рекомендацию ─────────────────────────────
+    "партнёрские отчисления": ["developer affiliate program pays usdc",
+                               "referral program crypto payout no kyc"],
     "спонсорство сопровождения": ["open source maintainer sponsorship crypto",
                                   "github sponsors alternative crypto payout"],
+    "донаты за инструмент": ["donation platform developers crypto tips",
+                             "tip jar open source crypto"],
+    "платные подписки на контент": ["paid newsletter platform crypto payout",
+                                    "developer content subscription revenue"],
+
+    # ── платят за работу руками ───────────────────────────────────────
     "краудсорсинг проверки": ["paid crowdsource testing bug reports remote",
                               "data labeling pays crypto no id verification"],
     "перевод и локализация": ["open source translation bounty paid",
                               "localization contribution reward program"],
-    "партнёрские отчисления": ["developer affiliate program pays usdc",
-                               "referral program crypto payout no kyc"],
-    "предсказания и рынки": ["prediction market api rewards accuracy",
-                             "forecasting competition prize payout"],
+    "техническая документация": ["paid technical writing open source projects",
+                                 "documentation contract work remote crypto"],
+    "аудит и ревью кода": ["paid code review service developers",
+                           "security review marketplace independent auditors"],
+    "поддержка и отладка": ["paid debugging help marketplace developers",
+                            "expert support marketplace pay per issue"],
+
+    # ── платят за доступ и посредничество ─────────────────────────────
+    "гранты": ["retroactive public goods funding grant open source",
+               "developer grant program crypto no equity"],
+    "ретроактивное финансирование": ["retroactive funding round open source impact",
+                                     "public goods funding rewards builders"],
+    "экосистемные программы": ["ecosystem incentive program builders rewards",
+                               "protocol developer incentives payout"],
+    "поиск и посредничество": ["finder fee referral deals remote no upfront",
+                               "introduction commission marketplace"],
+    "арбитраж информации": ["sell market research reports independent analyst",
+                            "paid research subscription niche data"],
 }
 
 # СТЕНЫ. Слова, по которым площадка сама себя выдаёт. Ловим не догадкой,
@@ -169,7 +220,8 @@ def discover(categories=2, per_query=6):
     from agents import scout
 
     con = _con()
-    for cat in CATEGORIES:
+    space = {**CATEGORIES, **DISCOVERED}     # мой список плюс найденное рынком
+    for cat in space:
         con.execute("INSERT OR IGNORE INTO path_categories(category) VALUES (?)", (cat,))
     con.commit()
     due = [r[0] for r in con.execute(
@@ -180,7 +232,7 @@ def discover(categories=2, per_query=6):
     added = 0
     for cat in due:
         answered = False          # хоть один запрос по классу реально отработал
-        for query in CATEGORIES[cat]:
+        for query in space.get(cat, []):
             hits = scout.search(query, limit=per_query)
             if hits and hits[0].get("error"):
                 bus.broadcast("prospector", f"Поиск по классу «{cat}» не выполнен: "
@@ -396,7 +448,106 @@ def deep_check(platform=None):
     return f"разобрана {platform}"
 
 
+DISCOVERED = {}          # классы, найденные не мной, а вычитанные с рынка
+
+
+def expand():
+    """Добавляет классы заработка, которых НЕ БЫЛО в моём списке.
+
+    Зачем. Владелец спросил, почему классов всего двенадцать, — и вопрос был
+    по существу. Любой перечень, написанный заранее, это граница моего
+    воображения, а не граница рынка. Список вырос до трёх десятков, но
+    остался списком.
+
+    Здесь граница снимается. Страницы уже найденных площадок читаются в
+    поисках оборотов, которыми рынок сам описывает заработок: «earn by …»,
+    «get paid to …», «rewards for …». Каждый такой оборот — это способ
+    заработать, названный не мной. Найденное становится новым классом со
+    своим поисковым запросом и уходит в общий обход.
+
+    Класс без источника не добавляется: у каждого нового записана площадка,
+    на странице которой он встретился.
+    """
+    guard.check_action("research", "GREEN")
+    con = _con()
+    rows = con.execute("""SELECT platform FROM money_paths
+                          WHERE open_to_us=1 OR payout='crypto'
+                          ORDER BY score DESC LIMIT 8""").fetchall()
+    known = {r[0] for r in con.execute("SELECT category FROM path_categories")}
+    con.close()
+    if not rows:
+        return "нечего читать: открытых площадок ещё нет"
+
+    # Обороты, которыми площадки описывают заработок. Берём то, что идёт ПОСЛЕ
+    # них: это и есть способ заработка, названный чужими словами.
+    HOOKS = (r"earn (?:money |crypto |rewards? )?(?:by|for|from) ([a-z][a-z \-]{6,45})",
+             r"get paid (?:to|for) ([a-z][a-z \-]{6,45})",
+             r"rewards? for ([a-z][a-z \-]{6,45})",
+             r"paid (?:to|for) ([a-z][a-z \-]{6,45})",
+             r"bounties? for ([a-z][a-z \-]{6,45})")
+    # Слова-пустышки: встречаются в обороте, но класса не образуют.
+    NOISE = ("you", "your", "us", "it", "this", "them", "more", "free", "the",
+             "any", "great", "our", "their", "every", "all", "each", "some",
+             "doing", "being", "getting", "having", "making it", "just")
+    # Оборот превращается в класс, только если называет РАБОТУ. Без этого
+    # фильтра из страниц вычитывается словесная труха вроде «doing great work
+    # in any»: грамматически подходит, а искать по ней нечего. Класс, который
+    # нельзя превратить в осмысленный запрос, засоряет обход и вытесняет
+    # настоящие направления.
+    WORK = ("build", "writ", "test", "review", "audit", "translat", "document",
+            "design", "develop", "deploy", "run", "host", "label", "annotat",
+            "report", "find", "fix", "solv", "creat", "publish", "maintain",
+            "moderat", "verif", "curat", "index", "monitor", "secur", "integrat",
+            "train", "tun", "benchmark", "research", "analyz", "support",
+            "contribut", "submit", "answer", "compet", "forecast", "predict")
+
+    found = {}
+    for (platform,) in rows:
+        html = _get("https://" + platform)
+        if not html:
+            continue
+        text = _text(html).lower()
+        for hook in HOOKS:
+            for m in re.finditer(hook, text):
+                phrase = re.sub(r"\s+", " ", m.group(1)).strip(" -")
+                words = [w for w in phrase.split() if w not in NOISE]
+                if len(words) < 2:
+                    continue
+                phrase = " ".join(words[:5])
+                if len(phrase) < 10:
+                    continue
+                if not any(w in phrase for w in WORK):
+                    continue          # оборот не называет работу — не класс
+                found.setdefault(phrase, platform)
+
+    added = 0
+    con = _con()
+    for phrase, platform in list(found.items())[:12]:
+        name = "найдено на рынке: " + phrase
+        if name in known:
+            continue
+        sid = con.execute(
+            "INSERT INTO sources(url,title,fetched_at,raw_excerpt) VALUES (?,?,?,?)",
+            (f"https://{platform}", f"способ заработка со страницы {platform}",
+             now(), phrase[:300])).lastrowid
+        con.execute("INSERT OR IGNORE INTO path_categories(category) VALUES (?)", (name,))
+        # запрос для нового класса строится из самой найденной фразы
+        DISCOVERED[name] = [f"{phrase} platform pays crypto",
+                            f"{phrase} marketplace payout"]
+        added += 1
+        _ = sid
+    con.commit(); con.close()
+
+    if added:
+        bus.broadcast("prospector", f"Пространство поиска расширено: {added} способов "
+                                    f"заработать, которых не было в моём списке. Их назвал "
+                                    f"рынок своими словами, не я. Примеры: "
+                                    f"{', '.join(list(found)[:3])}.")
+    return f"новых классов из чужих слов: {added}, всего в обходе: {len(CATEGORIES) + len(DISCOVERED)}"
+
+
 CYCLE = [("prospect", lambda: discover(2, 6)),
+         ("expand", expand),
          ("deep_check", deep_check),
          ("probe_paths", lambda: probe(6)),
          ("path_report", report)]

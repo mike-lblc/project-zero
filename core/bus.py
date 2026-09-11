@@ -49,11 +49,20 @@ def _put(sender, recipient, topic, body):
 
 
 def broadcast(sender, text):
-    """Объявление всем. Дословный повтор за последние 6 часов молча пропускается:
-    повторять одно и то же — не работа, а шум."""
+    """Объявление всем. Дословный повтор молча пропускается: повторять одно и
+    то же — не работа, а шум.
+
+    ОКНО ПО ВРЕМЕНИ УБРАНО. Здесь была вторая дверь для дублей: worker.say()
+    уже перестал их пропускать, а broadcast продолжал разрешать повтор спустя
+    шесть часов — и в чате снова копились дословные копии, которые уборка
+    тут же удаляла. Две части системы работали друг против друга.
+
+    Подтверждение того, что агенты живы, берётся из журнала прогонов, а не из
+    повторённой реплики, поэтому окно здесь не нужно вовсе.
+    """
     con = connect()
-    dup = con.execute("SELECT 1 FROM messages WHERE topic='chat' AND body=? "
-                      "AND created_at > datetime('now','-6 hours') LIMIT 1", (text,)).fetchone()
+    dup = con.execute("SELECT 1 FROM messages WHERE topic='chat' AND body=? LIMIT 1",
+                      (text,)).fetchone()
     con.close()
     if dup:
         return None
