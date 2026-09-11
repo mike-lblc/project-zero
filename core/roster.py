@@ -227,7 +227,7 @@ def _indexing():
     from core import cdp
     if not cdp.have_credentials():
         return "ключ CDP не настроен — проверку выполнить нечем"
-    SELF = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev"
+    from core.identity import SERVICE_URL as SELF  # адрес один на всю систему
     out = []
     for path in ("/search", "/report", "/alpha", "/dataset"):
         st, d = cdp.call("POST", "/platform/v2/x402/validate", {"resource": SELF + path})

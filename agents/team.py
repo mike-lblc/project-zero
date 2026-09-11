@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
-from core import guard, memory, bus
+from core import guard, memory, bus, identity
 
 ROOT = Path(__file__).resolve().parent.parent
 IDX = ROOT / "data" / "bazaar_index.json"
@@ -100,7 +100,13 @@ def distributor():
             headers={"User-Agent": "P0-distributor/0.1", "Accept": "application/json"})
         d = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
         res = d.get("resources") or d.get("items") or []
-        listed = any("trycloudflare" in str(r.get("url") or r.get("resource") or "") for r in res)
+        # ИЩЕМ СЕБЯ ПО СВОЕМУ АДРЕСУ, а не по адресу, которым пользовались когда-то.
+        # Здесь стояла подстрока «trycloudflare» — имя временного туннеля. Служба
+        # давно переехала на постоянный workers.dev, и проверка не могла совпасть
+        # НИ РАЗУ: она исправно докладывала «нас в индексе нет» и была бы права
+        # только по совпадению. Адрес теперь один на всю систему (core/identity).
+        listed = any(identity.mentions_us(r.get("url") or r.get("resource") or "")
+                     for r in res)
         total = len(res)
     except Exception as e:
         bus.broadcast("distributor", f"Не смог проверить индекс ({type(e).__name__}). "
