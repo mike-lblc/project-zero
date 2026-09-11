@@ -1,0 +1,124 @@
+<title>P0 Agent Floor</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+:root{--bg:#0a0e12;--card:#11171e;--sunk:#0d1319;--line:#1f2a35;--ink:#dde6ee;
+--dim:#78889a;--ok:#3fbf8f;--wait:#c9a227;--bad:#e2614c;--acc:#4a9de0}
+:root[data-theme="light"]{--bg:#eef1f4;--card:#fff;--sunk:#e4e9ee;--line:#d2dae2;
+--ink:#131a21;--dim:#5b6a78;--ok:#0d7d59;--wait:#8a6a12;--bad:#b33a24;--acc:#1f6fb0}
+@media(prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#eef1f4;--card:#fff;
+--sunk:#e4e9ee;--line:#d2dae2;--ink:#131a21;--dim:#5b6a78;--ok:#0d7d59;--wait:#8a6a12;
+--bad:#b33a24;--acc:#1f6fb0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font:15px/1.55 Archivo,system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:38px 22px 80px}
+h1{font-size:30px;font-weight:700;letter-spacing:-.02em;margin:6px 0}
+h2{font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+color:var(--dim);margin:38px 0 12px}
+.lede{color:var(--dim);max-width:66ch;margin:0;font-size:14px}
+.stamp{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;color:var(--dim)}
+.num{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.mission{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;
+background:var(--line);border:1px solid var(--line);margin:26px 0 0}
+.m{background:var(--card);padding:16px 18px}
+.m b{display:block;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:26px;
+font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.m span{display:block;font-size:11px;color:var(--dim);text-transform:uppercase;
+letter-spacing:.08em;margin-top:5px}
+.m.zero b{color:var(--dim)}.m.good b{color:var(--ok)}.m.alert b{color:var(--bad)}
+.chain{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:9px}
+.link{background:var(--card);border:1px solid var(--line);border-left-width:3px;
+padding:11px 13px}
+.link.ok{border-left-color:var(--ok)}.link.wait{border-left-color:var(--wait)}
+.link.bad{border-left-color:var(--bad)}
+.lk-top{display:flex;gap:8px;align-items:baseline;font-size:13px}
+.badge{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:9.5px;
+letter-spacing:.06em;padding:2px 6px;background:var(--sunk);color:var(--dim);white-space:nowrap}
+.link.ok .badge{color:var(--ok)}.link.wait .badge{color:var(--wait)}
+.link.bad .badge{color:var(--bad)}
+.lk-sub{font-size:11.5px;color:var(--dim);margin-top:5px}
+.warn{color:var(--bad)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:26px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+color:var(--dim);padding:0 12px 7px 0;border-bottom:1px solid var(--line);font-weight:600}
+td{padding:8px 12px 8px 0;border-bottom:1px solid var(--line)}
+td.num{text-align:right;padding-right:0}
+.dim{color:var(--dim)}.bad{color:var(--bad)}
+ul{margin:0;padding-left:18px;color:var(--dim);font-size:13.5px}
+li{margin-bottom:6px}
+.note{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--acc);
+padding:15px 17px;font-size:13.5px;color:var(--dim);margin-top:12px}
+.note b{color:var(--ink)}
+</style>
+<div class="wrap">
+<div class="stamp">СНИМОК СОСТОЯНИЯ · живой дашборд работает локально на 127.0.0.1:8402/dashboard</div>
+<h1>P0 &middot; Agent Floor</h1>
+<p class="lede">Что система сделала на самом деле. Каждое число взято из базы
+в момент сборки страницы, ни одно не оценено приблизительно.</p>
+
+<div class="mission">
+  <div class="m zero"><b>0</b><span>платежей</span></div>
+  <div class="m good"><b>0</b><span>потрачено</span></div>
+  <div class="m"><b>20</b><span>шагов за сутки</span></div>
+  <div class="m good"><b>0</b><span>сбоев за сутки</span></div>
+  <div class="m"><b>0/0</b><span>звеньев работают</span></div>
+</div>
+
+<h2>Цепочка от нуля до выручки — проверена вызовом</h2>
+<div class="chain"></div>
+<div class="note">Звено засчитано, только если код есть, его кто-то вызывает,
+вызов прошёл, инструмент доступен, гейт пропустил, в базе появилась строка,
+результат уходит дальше и работу есть чем подтвердить. <b>«Нет входа»</b>
+значит, что звено исправно, но данных туда ещё не приходило: у сервисов лидов
+не нашлось дефектов, платежей не поступало. Это не поломка и не успех.</div>
+
+<div class="cols">
+<div>
+  <h2>Агенты за сутки</h2>
+  <div class="scroll"><table>
+  <thead><tr><th>агент</th><th class="num">прогонов</th><th class="num">сбоев</th></tr></thead>
+  <tbody><tr><td>prospector</td><td class="num">4</td><td class="num dim">0</td></tr><tr><td>craftsman</td><td class="num">4</td><td class="num dim">0</td></tr><tr><td>orchestrator</td><td class="num">3</td><td class="num dim">0</td></tr><tr><td>leads</td><td class="num">3</td><td class="num dim">0</td></tr><tr><td>bounty</td><td class="num">2</td><td class="num dim">0</td></tr><tr><td>scout</td><td class="num">1</td><td class="num dim">0</td></tr><tr><td>salesman</td><td class="num">1</td><td class="num dim">0</td></tr><tr><td>distributor</td><td class="num">1</td><td class="num dim">0</td></tr><tr><td>adversary</td><td class="num">1</td><td class="num dim">0</td></tr></tbody></table></div>
+</div>
+<div>
+  <h2>Открытые пути к деньгам</h2>
+  <div class="scroll"><table>
+  <thead><tr><th>площадка</th><th>класс</th><th class="num">оценка</th></tr></thead>
+  <tbody><tr><td colspan="3" class="dim">открытых путей нет</td></tr></tbody></table></div>
+  <h2>Что закрывает остальные</h2>
+  <ul></ul>
+</div>
+</div>
+
+<h2>Разведка заработка</h2>
+<div class="mission">
+  <div class="m"><b>32</b><span>классов в обходе</span></div>
+  <div class="m alert"><b>31</b><span>не размечено</span></div>
+  <div class="m"><b>1</b><span>площадок проверено</span></div>
+  <div class="m zero"><b>0</b><span>открыто для нас</span></div>
+</div>
+
+<h2>Работа наружу и доказательства</h2>
+<div class="mission">
+  <div class="m"><b>0</b><span>отправлено PR</span></div>
+  <div class="m"><b>0</b><span>утверждений сверено с кодом</span></div>
+  <div class="m"><b>3</b><span>находок</span></div>
+  <div class="m"><b>4</b><span>источников</span></div>
+  <div class="m"><b>0</b><span>починок кода</span></div>
+</div>
+
+<h2>Связь между агентами</h2>
+<div class="mission">
+  <div class="m"><b>0</b><span>вопросов</span></div>
+  <div class="m"><b>0</b><span>ответов</span></div>
+  <div class="m"><b>1</b><span>передач работы</span></div>
+  <div class="m"><b>11</b><span>реплик</span></div>
+</div>
+
+<div class="note">Миссия засчитывается только пока <b>потрачено = 0</b> и платёж
+пришёл от постороннего, а не от владельца. Платежей пока <b>0</b> —
+это главный и единственный незакрытый пункт, и он зависит от третьей стороны,
+а не от объёма нашей работы.</div>
+</div>
