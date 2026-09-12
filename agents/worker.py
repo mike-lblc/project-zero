@@ -174,7 +174,20 @@ def _record_run(step, agent, ok, detail, started, ended):
 
 
 def wallet():
-    for line in (ROOT / ".env").read_text(encoding="utf-8").splitlines():
+    """Адрес, на который ждём платёж. Нет настройки — нет адреса, а не крушение.
+
+    Файл настроек не хранится в репозитории (в нём ключи), поэтому в облаке его
+    нет по замыслу. Раньше чтение шло без обработки, и в облаке падал тест —
+    красный прогон на ограничении среды, а не на дефекте. Такой отчёт учит не
+    доверять отчёту целиком.
+
+    Отсутствие адреса возвращается как отсутствие: тот, кто спрашивает, обязан
+    отличить «кошелька нет» от «кошелёк пуст», и здесь это различие сохранено.
+    """
+    env = ROOT / ".env"
+    if not env.exists():
+        return None
+    for line in env.read_text(encoding="utf-8", errors="ignore").splitlines():
         if line.startswith("WALLET_ETH="):
             return line.split("=", 1)[1].strip()
     return None
