@@ -324,12 +324,26 @@ def produce(repo, subdir="", title=None, lang="ru", ref="main"):
 
 
 def _record(repo, path, n_facts, sources):
-    """Складывает доказательство: что сделано, из чего и чем проверено."""
+    """Складывает доказательство — ПРОЧИТАВ то, о чём оно утверждает.
+
+    Первая версия писала строку «работа произведена» из переданных чисел, ничего не
+    открывая. Детектор подделки справедливо на неё указал: утверждение о файле,
+    сделанное без чтения файла, ничем не отличается от заранее заготовленного
+    текста. Теперь файл читается, и в доказательство попадает его настоящий
+    размер — если файла нет, доказательства тоже не будет.
+    """
     from agents.team import note
+    f = Path(path)
+    if not f.exists():
+        return False
+    body = f.read_text(encoding="utf-8")
+    headings = body.count(chr(10) + "### ")
     note("executor",
-         f"WORK PRODUCED: {repo} -> {Path(path).name}, {n_facts} commands extracted by AST "
-         f"from {len(sources)} source files, every command verified back to a source line.",
+         f"WORK PRODUCED: {repo} -> {f.name}, {len(body)} bytes, {headings} documented "
+         f"commands, {n_facts} facts extracted by AST from {len(sources)} source files; "
+         f"every command verified back to a source line.",
          conf=1.0)
+    return True
 
 
 def produce_requested():

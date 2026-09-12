@@ -1,0 +1,38 @@
+{
+  "at": "2026-09-11T21:35:52.513140+00:00",
+  "tests_passed": true,
+  "findings": [],
+  "recent_failure_patterns": [
+    {
+      "category": "api",
+      "occurrences": 0
+    },
+    {
+      "category": "storage",
+      "occurrences": 0
+    },
+    {
+      "category": "payments",
+      "occurrences": 12
+    },
+    {
+      "category": "access",
+      "occurrences": 0
+    },
+    {
+      "category": "sync",
+      "occurrences": 35
+    }
+  ],
+  "ledger": {
+    "payments": 0,
+    "spend": 0,
+    "subscribers": 0
+  },
+  "settlement_proven": false,
+  "limits": [
+    "No real customer payment created by this test",
+    "No universal zero-bug or availability guarantee",
+    "Unknown code defects require a reviewed patch and regression tests; no blind source rewrites"
+  ]
+}
