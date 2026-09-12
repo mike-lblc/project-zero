@@ -512,6 +512,19 @@ def _improve_code():
     return improver.improve(1)
 
 
+@tool("reach_out", "YELLOW",
+      "оповестить покупателя ЕГО ЖЕ измеренными числами через его публичный "
+      "канал: один адресат — один раз навсегда, не больше одного в сутки",
+      needs=("сеть", "gh"))
+def _reach_out():
+    from agents import outreach
+    r = outreach.reach_out(dry_run=False)
+    if isinstance(r, dict):
+        return (f"написано {r.get(chr(39)+chr(1082)+chr(1086)+chr(1084)+chr(1091)+chr(39))}: {r.get(chr(39)+chr(1089)+chr(1089)+chr(1099)+chr(1083)+chr(1082)+chr(1072)+chr(39))}"
+                if r.get("отправлено") else f"не отправлено: {r.get(chr(39)+chr(1087)+chr(1086)+chr(1095)+chr(1077)+chr(1084)+chr(1091)+chr(39)) or chr(39)+chr(39)}")
+    return str(r)
+
+
 # ═══════════════════════════════════════════════ ОБЩИЕ ПРАВИЛА
 # Этот кусок входит в промпт КАЖДОГО агента. Каждый запрет здесь оплачен
 # конкретной ошибкой, а не выведен из общих соображений.
@@ -724,7 +737,7 @@ register(Agent(
     kpi="число диагнозов, подкреплённых ВОСПРОИЗВОДИМЫМ фактом о сервисе "
         "клиента, а не общим наблюдением о его бизнесе",
     tools=("diagnose_leads", "study_market", "find_channel", "where_visible",
-           "check_distribution"),
+           "check_distribution", "reach_out"),
     system=COMMON + """
 ТЫ — ПРОДАВЕЦ.
 
