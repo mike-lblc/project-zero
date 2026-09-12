@@ -129,29 +129,66 @@ def scan_queues():
     'resolution', а писала её только служба на другом языке, и в рабочем коде
     писателя не было вовсе. Способность существовала и была недостижима.
     """
-    readers, writers = {}, {}
-    rx_read = re.compile(r"topic\s*=\s*['\"]([a-z_]+)['\"]|topic=['\"]([a-z_]+)['\"]")
-    for p in _py_files() + [ROOT / "service" / "server.js"]:
-        if not p.exists():
-            continue
+    # ДВА ПРОХОДА, И ЭТО НЕ ИЗЛИШЕСТВО.
+    #
+    # Первый проход собирает ИМЕНА тем — их видно по чтению вида topic='X'.
+    # Второй ищет, кто эти темы ПИШЕТ, и ищет не по форме записи, а по смыслу:
+    # рядом со вставкой в таблицу сообщений встречается имя темы.
+    #
+    # Почему нельзя одним проходом. Тема в записи часто передаётся позиционно,
+    # без слова topic вовсе: c.execute("INSERT ... VALUES (?,?,?,?,?)",
+    # ("craftsman", "executor", "documentation_request", ...)). Разбор по форме
+    # объявил такого писателя несуществующим — и проверка обвинила код, который
+    # я сам только что написал и проверил живым вызовом. Ложная тревога учит не
+    # доверять проверке целиком, а это дороже пропущенной находки.
+    files = [q for q in _py_files() if q.exists()]
+    js = ROOT / "service" / "server.js"
+    if js.exists():
+        files.append(js)
+
+    texts = {}
+    for q in files:
         try:
-            raw = p.read_text(encoding="utf-8", errors="ignore")
+            texts[q] = q.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        rel = p.relative_to(ROOT).as_posix()
-        for line_no, line in enumerate(raw.splitlines(), 1):
-            for m in rx_read.finditer(line):
-                topic = m.group(1) or m.group(2)
-                if not topic:
-                    continue
-                low = line.lower()
-                bucket = writers if ("insert" in low or "_put(" in low
-                                     or "values" in low) else readers
-                bucket.setdefault(topic, []).append(f"{rel}:{line_no}")
 
-    # Темы, вписанные в обе стороны через общую функцию, писателями считаются.
+    rx_topic = re.compile(r"topic\s*=\s*['\"]([a-z_]+)['\"]")
+    topics = set()
+    for raw in texts.values():
+        topics.update(rx_topic.findall(raw))
+
+    readers, writers = {}, {}
+    for q, raw in texts.items():
+        rel = q.relative_to(ROOT).as_posix()
+        lines = raw.splitlines()
+        for i, line in enumerate(lines, 1):
+            lo = max(0, i - 7)
+            window = " ".join(lines[lo:i + 7]).lower()
+            writes_here = any(k in window for k in
+                              ("insert into messages", "_put(", "send(",
+                               "insert into events", "broadcast("))
+            for topic in topics:
+                if f"'{topic}'" not in line and f'"{topic}"' not in line:
+                    continue
+                (writers if writes_here else readers).setdefault(
+                    topic, []).append(f"{rel}:{i}")
+
+    # Темы, которые кладёт общая функция шины, писателями считаются: там запись
+    # идёт через один helper, и имя темы приходит параметром.
     for helper_topic in ("chat", "ask", "answer", "handoff", "judgment"):
         writers.setdefault(helper_topic, ["core/bus.py"])
+
+    # ЧИТАТЬ МОЖНО И ПО АДРЕСАТУ. Очередь суждений разбирается запросом
+    # WHERE recipient='ESCALATION' — тема в нём не упоминается вовсе. Считать
+    # такую очередь непрочитанной значит объявить сломанным то, что работает
+    # и чем пользуется дашборд.
+    by_recipient = set()
+    for raw in texts.values():
+        for m in re.finditer(r"recipient\s*=\s*['\"]([A-Za-z_]+)['\"]", raw):
+            by_recipient.add(m.group(1))
+    if "ESCALATION" in by_recipient:
+        readers.setdefault("judgment", []).append("читается по адресату ESCALATION")
 
     orphan_reads = {t: loc for t, loc in readers.items() if t not in writers}
     orphan_writes = {t: loc for t, loc in writers.items() if t not in readers}
