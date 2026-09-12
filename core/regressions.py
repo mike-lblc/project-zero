@@ -28,6 +28,7 @@
 из настоящей ошибки, это догадка о будущем, а их у нас и так хватает.
 """
 import re
+import sqlite3
 import sys
 import urllib.error
 import urllib.request
@@ -158,6 +159,19 @@ def _without_comments(text):
     return "\n".join(out)
 
 
+# Особый ответ проверки: она не могла быть выполнена В ЭТОЙ СРЕДЕ.
+#
+# Облачный прогон работает на свежей выгрузке репозитория, где базы нет вовсе.
+# Проверки, читающие базу, падали там с «no such table» — и весь прогон
+# краснел на ограничении среды, а не на дефекте. Красный отчёт, который
+# краснеет по причине, не имеющей отношения к качеству, учит не доверять
+# отчёту целиком; это дороже, чем пропущенная проверка.
+#
+# Поэтому третий исход считается отдельно и НЕ приравнивается ни к успеху, ни
+# к провалу: он честно говорит «здесь это не проверялось».
+NOT_APPLICABLE = "НЕПРИМЕНИМО"
+
+
 def _check_one(inv):
     """Возвращает (прошло, подробность). Никаких исключений наружу."""
     kind, target, expr = inv["kind"], inv["target"], inv["expr"]
@@ -191,8 +205,18 @@ def _check_one(inv):
             c = connect()
             try:
                 row = c.execute(target).fetchone()
-            finally:
+            except sqlite3.OperationalError as e:
                 c.close()
+                if "no such table" in str(e).lower():
+                    # Таблицы нет — значит нет и данных, по которым судить.
+                    # В облаке это норма, дома это увидит другая проверка.
+                    return NOT_APPLICABLE, f"нет таблицы в этой среде: {str(e)[:60]}"
+                raise
+            finally:
+                try:
+                    c.close()
+                except Exception:
+                    pass
             val = row[0] if row else None
             op, _, want = expr.partition(" ")
             want = float(want)
@@ -229,10 +253,15 @@ def run(verbose=True):
     c = _con()
     rows = [dict(r) for r in c.execute("SELECT * FROM invariants ORDER BY id")]
     c.close()
-    ok = bad = 0
+    ok = bad = skipped = 0
     fails = []
     for inv in rows:
         good, detail = _check_one(inv)
+        if good == NOT_APPLICABLE:
+            skipped += 1
+            if verbose:
+                print(f"   ——   {inv['name']} — {detail}")
+            continue
         c = _con()
         if good:
             ok += 1
@@ -254,7 +283,11 @@ def run(verbose=True):
         c.commit(); c.close()
         if verbose:
             print(f"   {'ok  ' if good else 'FAIL'} {inv['name']} — {detail}")
-    return ok, bad, fails
+    # Четвёртым — сколько проверок не удалось выполнить В ЭТОЙ СРЕДЕ. Прежние
+    # вызовы распаковывают три значения и продолжают работать: расширение
+    # кортежа с конца ничего не ломает, а сокрытие числа скрыло бы то, что
+    # часть проверок здесь просто не запускалась.
+    return ok, bad, fails, skipped
 
 
 def count():
@@ -358,9 +391,10 @@ if __name__ == "__main__":
     print(f"КАТАЛОГ ИНВАРИАНТОВ — {count()} проверок"
           + (f", из них новых {new}" if new else ""))
     print("=" * 74)
-    ok, bad, fails = run()
+    ok, bad, fails, skipped = run()
     print("=" * 74)
-    print(f"ИТОГ: {ok} прошло, {bad} упало")
+    tail = f", {skipped} неприменимо в этой среде" if skipped else ""
+    print(f"ИТОГ: {ok} прошло, {bad} упало{tail}")
     if fails:
         print("\nЧТО ЧИНИТЬ (и почему эта проверка вообще существует):")
         for name, detail, origin in fails:

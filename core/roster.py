@@ -125,10 +125,11 @@ def _house():
       "прогнать растущий каталог инвариантов — проверок, выведенных из прошлых поломок")
 def _inv():
     from core import regressions
-    ok, bad, _ = regressions.run(verbose=False)
+    ok, bad, _, skipped = regressions.run(verbose=False)
     if bad:
         raise RuntimeError(f"Invariant failures: {bad}")
-    return f"инвариантов {regressions.count()}: прошло {ok}, упало {bad}"
+    return (f"инвариантов {regressions.count()}: прошло {ok}, упало {bad}"
+            + (f", неприменимо здесь {skipped}" if skipped else ""))
 
 
 
