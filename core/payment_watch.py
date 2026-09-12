@@ -29,9 +29,37 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from core import payment  # noqa: E402
 
-UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-      "Accept": "application/json"}
+# ЧЕСТНЫЙ ЗАГОЛОВОК. Раньше здесь стоял заголовок браузера Chrome. Проверено
+# 2026-09-13: все пять обозревателей отвечают 200 и честному роботу, так что
+# маскировка не была нужна — а маскироваться под человека мы не должны вовсе.
+UA = {"User-Agent": "P0-payment-watch/1.0 (read-only)", "Accept": "application/json"}
+
+# ПРИЗНАННЫЕ ТОКЕНЫ — по адресу контракта, а НЕ по символу.
+#
+# Прежняя версия записывала доходом любой ERC-20 перевод на наш адрес и брала
+# название валюты из символа токена. Любой может выпустить токен с символом
+# «USDC» и разослать его на публичные адреса — такие рассылки обычное дело.
+# Система записала бы его как настоящий USDC и объявила: «ПЛАТЁЖ! миссия
+# доказана». Главное доказательство миссии подделывалось бы бесплатно.
+#
+# Адреса проверены живым запросом к обозревателю каждой сети 2026-09-13:
+# символ USDC/USDC.E, миллионы держателей.
+OFFICIAL_TOKENS = {
+    "base": {"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": ("USDC", 6)},
+    "ethereum": {"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": ("USDC", 6)},
+    "polygon": {"0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": ("USDC", 6),
+                "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": ("USDC.e", 6)},
+    "arbitrum": {"0xaf88d065e77c8cc2239327c5edb3a432268e5831": ("USDC", 6),
+                 "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8": ("USDC.e", 6)},
+}
+NATIVE = {"base": "ETH", "ethereum": "ETH", "arbitrum": "ETH", "polygon": "POL"}
+
+NATIVE_TXS = {
+    "base": "https://base.blockscout.com/api/v2/addresses/{addr}/transactions?filter=to",
+    "ethereum": "https://eth.blockscout.com/api/v2/addresses/{addr}/transactions?filter=to",
+    "polygon": "https://polygon.blockscout.com/api/v2/addresses/{addr}/transactions?filter=to",
+    "arbitrum": "https://arbitrum.blockscout.com/api/v2/addresses/{addr}/transactions?filter=to",
+}
 
 # Бесплатные обозреватели без ключа. Ключ означал бы аккаунт, а аккаунты
 # агентам заводить запрещено.
@@ -88,13 +116,15 @@ def verify_routes():
     return out
 
 
-def _incoming_evm(net, addr):
-    """Входящие переводы токенов в сети EVM. ТОЛЬКО входящие."""
-    d = _get(TRANSFERS[net].format(addr=addr))
-    if d.get("__error__"):
-        return None, d["__error__"]
-    found = []
-    for t in (d.get("items") or []):
+def parse_token_transfers(items, net, addr):
+    """Входящие переводы ПРИЗНАННЫХ токенов. Возвращает (найдено, отброшено).
+
+    Отброшенное не молчит: число непризнанных токенов и нулевых переводов
+    уходит в отчёт. Нулевой перевод — приём «отравления адреса», а не платёж.
+    """
+    known = OFFICIAL_TOKENS.get(net, {})
+    found, ignored = [], {"непризнанный токен": 0, "нулевая сумма": 0}
+    for t in items or []:
         to = ((t.get("to") or {}).get("hash") or "").lower()
         if to != addr.lower():
             continue          # исходящий перевод доходом не является
@@ -102,35 +132,85 @@ def _incoming_evm(net, addr):
         if not h:
             continue
         tok = t.get("token") or {}
-        dec = int(tok.get("decimals") or 18)
+        contract = (tok.get("address_hash") or tok.get("address") or "").lower()
+        if contract not in known:
+            ignored["непризнанный токен"] += 1
+            continue
+        symbol, dec = known[contract]
         raw = (t.get("total") or {}).get("value") or t.get("value") or "0"
         try:
             amount = int(raw) / (10 ** dec)
         except (TypeError, ValueError):
             continue
-        found.append({"proof": h, "amount": amount,
-                      "currency": tok.get("symbol") or "?", "network": net,
+        if amount <= 0:
+            ignored["нулевая сумма"] += 1
+            continue
+        found.append({"proof": h, "amount": amount, "currency": symbol, "network": net,
                       "from": ((t.get("from") or {}).get("hash") or "")})
-    return found, None
+    return found, ignored
 
 
-def _incoming_btc(addr):
-    """Входящие переводы биткоина. Разбор другой: там нет токенов и адресатов."""
-    d = _get(TRANSFERS["bitcoin"].format(addr=addr))
-    if isinstance(d, dict) and d.get("__error__"):
-        return None, d["__error__"]
+def parse_native_txs(items, net, addr):
+    """Входящие переводы родной монеты сети. Только успешные и ненулевые."""
     found = []
-    for tx in (d if isinstance(d, list) else []):
-        h = tx.get("txid")
+    for t in items or []:
+        if ((t.get("to") or {}).get("hash") or "").lower() != addr.lower():
+            continue
+        if t.get("status") != "ok" or t.get("result") not in (None, "success"):
+            continue          # упавшая транзакция денег не принесла
+        try:
+            amount = int(t.get("value") or 0) / 1e18
+        except (TypeError, ValueError):
+            continue
+        if amount <= 0 or not t.get("hash"):
+            continue
+        found.append({"proof": t["hash"], "amount": amount, "currency": NATIVE[net],
+                      "network": net, "from": ((t.get("from") or {}).get("hash") or "")})
+    return found
+
+
+def parse_btc_txs(txs, addr):
+    """Входящие биткоин-переводы. Неподтверждённые — не деньги, а ожидание.
+
+    Транзакция в мемпуле может не войти в блок никогда. Записать её полученной
+    значит принять PAYMENT_PENDING за PAID — ровно то смешение состояний денег,
+    которое директива запрещает.
+    """
+    found, pending = [], 0
+    for tx in txs or []:
+        h = tx.get("txid") or ""
         if not h:
             continue
         sats = sum(o.get("value", 0) for o in (tx.get("vout") or [])
                    if o.get("scriptpubkey_address") == addr)
         if sats <= 0:
             continue
+        if not (tx.get("status") or {}).get("confirmed"):
+            pending += 1
+            continue
         found.append({"proof": h, "amount": sats / 1e8, "currency": "BTC",
                       "network": "bitcoin", "from": ""})
-    return found, None
+    return found, pending
+
+
+def _incoming_evm(net, addr):
+    """Входящие по сети EVM: признанные токены и родная монета."""
+    d = _get(TRANSFERS[net].format(addr=addr))
+    if d.get("__error__"):
+        return None, d["__error__"], {}
+    found, ignored = parse_token_transfers(d.get("items"), net, addr)
+    n = _get(NATIVE_TXS[net].format(addr=addr))
+    if n.get("__error__"):
+        return None, f"родная монета: {n['__error__']}", ignored
+    return found + parse_native_txs(n.get("items"), net, addr), None, ignored
+
+
+def _incoming_btc(addr):
+    d = _get(TRANSFERS["bitcoin"].format(addr=addr))
+    if isinstance(d, dict) and d.get("__error__"):
+        return None, d["__error__"], 0
+    found, pending = parse_btc_txs(d if isinstance(d, list) else [], addr)
+    return found, None, pending
 
 
 def watch():
@@ -143,15 +223,21 @@ def watch():
     if not verified:
         return "проверенных маршрутов нет — сперва проверка маршрутов"
 
-    seen, failed, added = 0, [], 0
-    for r in verified:
-        net = r.get("network")
-        if not net or net not in TRANSFERS:
-            continue
+    seen, failed, added, pending = 0, [], 0, 0
+    ignored = {}
+    route_of = {(r["currency"], r["network"]): r.get("id") for r in payment.routes()}
+    # Одна сеть — один опрос: маршрутов в сети может быть несколько (USDC и
+    # родная монета), а поступления в ней общие.
+    for net in sorted({r.get("network") for r in verified if r.get("network") in TRANSFERS}):
         addr = (payment.OWNER_DESTINATIONS["btc"] if net == "bitcoin"
                 else payment.OWNER_DESTINATIONS["evm"])
-        items, err = (_incoming_btc(addr) if net == "bitcoin"
-                      else _incoming_evm(net, addr))
+        if net == "bitcoin":
+            items, err, pend = _incoming_btc(addr)
+            pending += pend or 0
+        else:
+            items, err, ign = _incoming_evm(net, addr)
+            for k, v in (ign or {}).items():
+                ignored[k] = ignored.get(k, 0) + v
         if err:
             failed.append(f"{net}: {err}")
             continue
@@ -159,13 +245,18 @@ def watch():
         for it in items:
             res = payment.record_receipt(
                 proof=it["proof"], proof_kind="tx_hash", gross=it["amount"],
-                currency=it["currency"], from_party=it["from"] or None)
+                currency=it["currency"], from_party=it["from"] or None,
+                network=net, route_id=route_of.get((it["currency"], net)))
             if res.get("ok"):
                 added += 1
 
     parts = [f"маршрутов проверено {len(verified)}",
              f"входящих найдено {seen}",
              f"новых записано {added}"]
+    if pending:
+        parts.append(f"неподтверждённых биткоин-переводов {pending} — это ожидание, не деньги")
+    if any(ignored.values()):
+        parts.append("ОТБРОШЕНО: " + ", ".join(f"{k} {v}" for k, v in ignored.items() if v))
     if failed:
         parts.append("НЕ ОТВЕТИЛИ: " + "; ".join(failed[:3]))
     return "; ".join(parts)

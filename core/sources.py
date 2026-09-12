@@ -116,6 +116,9 @@ def hackathons(min_prize=500, limit=12):
             "url": h.get("url"),
             "prize_usd": amount,
             "deadline": h.get("submission_period_dates"),
+            # без них шанс на приз не оценить: фонд один, а участников тысячи
+            "registrations": h.get("registrations_count"),
+            "cash_prizes": (h.get("prizes_counts") or {}).get("cash"),
             "themes": [t.get("name") for t in (h.get("themes") or [])][:4],
             "note": "конкурс: платят одному победителю",
         })

@@ -260,93 +260,75 @@ app.get('/confirm', (req, res) => {
 import { DatabaseSync } from 'node:sqlite';
 const DB = path.join(ROOT, 'data', 'brain.db');
 
+function readRegistry() {
+  try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'registry.json'), 'utf8')); }
+  catch { return {}; }
+}
+
 function agentState() {
   const db = new DatabaseSync(DB, { readOnly: true });
   const one = (q, ...a) => { try { return db.prepare(q).get(...a); } catch { return {}; } };
   const all = (q, ...a) => { try { return db.prepare(q).all(...a); } catch { return []; } };
   const n = (q, ...a) => (one(q, ...a) || {}).c || 0;
 
-  const agents = [
-    { id: 'scout',        role: 'Разведчик',        job: 'ищет данные и подшивает источники',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='scout'`) + n(`SELECT COUNT(*) c FROM sources`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='scout'`) || {}).t },
-    { id: 'proposer',        role: 'Предлагающий',        job: 'вносит предложения с фальсификатором',
-      work: n(`SELECT COUNT(*) c FROM proposals`),
-      last: (one(`SELECT MAX(created_at) t FROM proposals`) || {}).t },
-    { id: 'verifier',        role: 'Проверяющий',        job: 'независимо перепроверяет факты',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='frontier-escalation'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='frontier-escalation'`) || {}).t },
-    { id: 'adversary',        role: 'Оппонент',        job: 'пытается убить предложение',
-      work: n(`SELECT COUNT(*) c FROM objections`),
-      last: (one(`SELECT MAX(created_at) t FROM objections`) || {}).t },
-    { id: 'judge',        role: 'Судья',        job: 'решает, разобрав сильнейший довод',
-      work: n(`SELECT COUNT(*) c FROM rulings`),
-      last: (one(`SELECT MAX(created_at) t FROM rulings`) || {}).t },
-    { id: 'orchestrator', role: 'Оркестратор', job: 'маршрутизация, гейты, журнал',
-      work: n(`SELECT COUNT(*) c FROM messages`),
-      last: (one(`SELECT MAX(created_at) t FROM messages`) || {}).t },
-    { id: 'explorer',  role: 'Исследователь', job: 'ищет свободные ниши и другие пути',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='explorer'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='explorer'`) || {}).t },
-    { id: 'critic',    role: 'Критик', job: 'проверяет работу остальных агентов',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='critic'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='critic'`) || {}).t },
-    { id: 'optimizer', role: 'Оптимизатор', job: 'измеряет систему и улучшает её',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='optimizer'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='optimizer'`) || {}).t },
-    { id: 'merchant', role: 'Коммерсант', job: 'цены и тарифы по рынку',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='merchant'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='merchant'`) || {}).t },
-    { id: 'distributor', role: 'Дистрибьютор', job: 'обнаружимость и каналы',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='distributor'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='distributor'`) || {}).t },
-    { id: 'scribe', role: 'Писарь', job: 'отчёты и тексты из данных',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='scribe'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='scribe'`) || {}).t },
-    { id: 'leads', role: 'Разведка клиентов', job: 'находит компании, которые уже платят',
-      work: n(`SELECT COUNT(*) c FROM leads`),
-      last: (one(`SELECT MAX(found_at) t FROM leads`) || {}).t },
-    { id: 'salesman', role: 'Продавец', job: 'ставит диагноз клиенту и готовит предложение',
-      work: n(`SELECT COUNT(*) c FROM lead_problems`),
-      last: (one(`SELECT MAX(found_at) t FROM lead_problems`) || {}).t },
-    { id: 'postman', role: 'Почтальон', job: 'подписчики, теги, запуск серии писем',
-      work: n(`SELECT COUNT(*) c FROM subscribers`) + n(`SELECT COUNT(*) c FROM email_events`),
-      last: (one(`SELECT MAX(created_at) t FROM messages WHERE sender='postman'`) || {}).t },
-    { id: 'craftsman', role: 'Мастеровой', job: 'сверяет утверждения с кодом и стережёт PR',
-      work: n(`SELECT COUNT(*) c FROM claim_checks`) + n(`SELECT COUNT(*) c FROM pull_requests`),
-      last: (one(`SELECT MAX(checked_at) t FROM claim_checks`) || {}).t },
-    { id: 'bounty', role: 'Охотник за баунти', job: 'ищет оплачиваемые задачи в открытых репозиториях',
-      work: n(`SELECT COUNT(*) c FROM bounties`),
-      last: (one(`SELECT MAX(found_at) t FROM bounties`) || {}).t },
-    { id: 'mechanic', role: 'Механик', job: 'чинит код, откатывает при провале аудита',
-      work: n(`SELECT COUNT(*) c FROM code_fixes`),
-      last: (one(`SELECT MAX(at) t FROM code_fixes`) || {}).t },
-    { id: 'browser_scout', role: 'Браузерный разведчик', job: 'читает площадки, которые рисуются скриптом и не видны обычному запросу',
-      work: n(`SELECT COUNT(*) c FROM agent_decisions WHERE agent='browser_scout'`),
-      last: (one(`SELECT MAX(decided_at) t FROM agent_decisions WHERE agent='browser_scout'`) || {}).t },
-    { id: 'prospector', role: 'Разведчик заработка', job: 'ищет ВСЕ способы заработать и щупает их о наши стены',
-      work: n(`SELECT COUNT(*) c FROM money_paths`),
-      last: (one(`SELECT MAX(checked_at) t FROM money_paths`) || {}).t },
-    { id: 'improver', role: 'Улучшатель', job: 'правит код других агентов языковой моделью, откатывая всё, что ухудшает аудит',
-      work: n(`SELECT COUNT(*) c FROM code_fixes WHERE outcome LIKE '%моделью%'`),
-      last: (one(`SELECT MAX(at) t FROM code_fixes`) || {}).t },
-    { id: 'executor', role: 'Исполнитель', job: 'делает работу: извлекает интерфейс проекта разбором кода и сверяет каждое утверждение с исходником',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='executor'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='executor'`) || {}).t },
-    { id: 'supplier', role: 'Снабженец', job: 'держит перекличку бесплатных источников: что живо, что умерло и почему',
-      work: n(`SELECT COUNT(*) c FROM agent_decisions WHERE agent='supplier'`),
-      last: (one(`SELECT MAX(decided_at) t FROM agent_decisions WHERE agent='supplier'`) || {}).t },
-    { id: 'watchdog', role: 'Сторож', job: 'следит за живостью агентов',
-      work: n(`SELECT COUNT(*) c FROM evidence WHERE agent='watchdog'`),
-      last: (one(`SELECT MAX(created_at) t FROM evidence WHERE agent='watchdog'`) || {}).t }
-  ];
+  // СОСТАВ ИЗ РЕЕСТРА. Здесь был массив из двадцати четырёх карточек,
+  // вписанных руками, при восемнадцати агентах в составе: десять призраков,
+  // четыре настоящих агента не видны, а счётчик «проверяющего» читал записи
+  // frontier-escalation — чужую работу. Рукописный список расходится с
+  // составом всегда, поэтому состав берётся из data/registry.json, который
+  // выгружает core/roster.py, а работа — из журнала прогонов по имени агента.
+  const registry = readRegistry();
+  const runStats = {};
+  for (const r of all(`SELECT agent, COUNT(*) runs,
+                         SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) ok,
+                         SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) err,
+                         MAX(started_at) last FROM runs GROUP BY agent`)) runStats[r.agent] = r;
+  const decStats = {};
+  for (const r of all(`SELECT agent, COUNT(*) n, SUM(ok) ok, MAX(model) model,
+                         MAX(decided_at) last FROM agent_decisions GROUP BY agent`)) decStats[r.agent] = r;
+  const card = (id, role, job, group, extra = {}) => {
+    const r = runStats[id] || {}, d = decStats[id] || {};
+    return { id, role, job, group, work: r.runs || 0, ok: r.ok || 0, err: r.err || 0,
+             decisions: d.n || 0, model: d.model || null,
+             last: [r.last, d.last].filter(Boolean).sort().pop() || null, ...extra };
+  };
+  const inRoster = new Set((registry.agents || []).map(a => a.name));
+  const agents = (registry.agents || []).map(a =>
+    card(a.name, a.role, a.kpi, 'agent', { tools: a.tools }));
+  // Служебные процессы: оставляют следы в журнале, но в составе агентов с
+  // языковой моделью их нет. Показываются отдельно и так и подписаны — не как
+  // агенты. Список берётся из журнала, а не придумывается.
+  const PROCESS_ROLE = {
+    orchestrator: 'цикл воркера: очередь, события, журнал',
+    scout: 'снимок рынка x402 и поиск источников', judge: 'проверка здоровья службы',
+    postman: 'почтовый список по согласию', merchant: 'ценовые полосы рынка',
+    distributor: 'видимость в каталогах', scribe: 'летопись изменений',
+    mechanic: 'механическая правка кода с откатом',
+  };
+  for (const id of Object.keys(runStats).sort()) {
+    if (inRoster.has(id)) continue;
+    agents.push(card(id, PROCESS_ROLE[id] || 'служебный процесс', 'без языковой модели', 'process'));
+  }
+  const day = new Date(Date.now() - 864e5).toISOString();
+  // ПЛАТЕЖИ СЧИТАЮТСЯ ТАМ, КУДА ИХ ПИШУТ. Фронт читал st.payments и st.spend с
+  // верхнего уровня, а сервер отдавал их внутри mission — на дашборде всегда
+  // стоял ноль, а «потрачено 0» светилось зелёным, даже будь траты. Приёмник
+  // пишет в payment_receipts; прежняя payments — зеркало для старых читателей.
+  const receipts = Math.max(n(`SELECT COUNT(*) c FROM payment_receipts`),
+                            n(`SELECT COUNT(*) c FROM payments`));
   const state = {
+    payments: receipts,
+    spend: n(`SELECT COUNT(*) c FROM spend`),
+    runs_24h: n(`SELECT COUNT(*) c FROM runs WHERE started_at > '${day}'`),
+    errors_24h: n(`SELECT COUNT(*) c FROM runs WHERE status='error' AND started_at > '${day}'`),
+    registry_at: registry.exported_at || null,
+    registry_missing: !registry.agents,
     agents,
     // Если каталога рынка нет, об этом надо СКАЗАТЬ. Иначе пустая выдача
     // поиска выглядит как пустой рынок, а это разные вещи.
     catalog: { size: CATALOG.length, note: catalogNote },
     mission: {
-      payments:  n(`SELECT COUNT(*) c FROM payments`),
+      payments:  receipts,
       spend:     n(`SELECT COUNT(*) c FROM spend`),
       human:     n(`SELECT COUNT(*) c FROM human_interventions`),
       evidence:  n(`SELECT COUNT(*) c FROM evidence`),
@@ -456,6 +438,53 @@ app.get('/api/execution', (_req, res) => {
     pipeline_value: (() => { try {
       return db.prepare(`SELECT COALESCE(SUM(price_usd),0) c FROM lead_problems`).get().c; }
       catch { return 0; } })(),
+    // РАЗБИВКА ПО GND §6. Не одна сеть и не одна сумма, а каждый способ
+    // заработка, каждое состояние сделки и каждый маршрут оплаты отдельно.
+    revenue: (() => {
+      const reg = readRegistry();
+      const gndOf = {};
+      for (const [num, cat] of Object.entries(reg.gnd_methods || {})) {
+        if (cat) (gndOf[cat] = gndOf[cat] || []).push(Number(num));
+      }
+      const methods = all(`SELECT pc.category, pc.searched_at, pc.tried_at,
+                             COUNT(mp.id) found,
+                             SUM(CASE WHEN mp.open_to_us=1 THEN 1 ELSE 0 END) qualified,
+                             SUM(CASE WHEN mp.open_to_us=0 THEN 1 ELSE 0 END) closed
+                           FROM path_categories pc LEFT JOIN money_paths mp ON mp.category=pc.category
+                           GROUP BY pc.category ORDER BY found DESC, pc.category`)
+        .map(m => ({ ...m, qualified: m.qualified || 0, closed: m.closed || 0,
+                     gnd: gndOf[m.category] || [],
+                     // строка в базе без класса в реестре — переименованный класс,
+                     // искать по ней нечем; показывается как сирота, а не как способ
+                     orphan: Array.isArray(reg.classes) && !reg.classes.includes(m.category) }));
+      const money = (q) => n(q);
+      return {
+        methods,
+        classes_total: reg.classes_total ?? methods.length,
+        never_answered: methods.filter(m => !m.searched_at && !m.orphan).length,
+        orphans: methods.filter(m => m.orphan).map(m => m.category),
+        pipeline: all(`SELECT state, COUNT(*) n FROM tasks GROUP BY state ORDER BY n DESC`),
+        money_states: {
+          promised: money(`SELECT COUNT(*) c FROM payment_requests WHERE state='PAYMENT_REQUESTED'`),
+          accrued: money(`SELECT COUNT(*) c FROM platform_balances WHERE amount > 0`),
+          withdrawable: money(`SELECT COUNT(*) c FROM platform_balances WHERE withdrawable=1 AND amount > 0`),
+          received: money(`SELECT COUNT(*) c FROM payment_receipts`),
+          withdrawn: money(`SELECT COUNT(*) c FROM withdrawal_status WHERE state='WITHDRAWN'`),
+        },
+        routes: all(`SELECT id, provider, method, currency, network, status, verified_at,
+                       failure_reason, withdrawal_available FROM payment_routes
+                     ORDER BY CASE status WHEN 'verified' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,
+                              network, currency`),
+        receipts_by_route: all(`SELECT currency, COALESCE(network,'') network, provider_kind,
+                                  COUNT(*) n, SUM(gross) gross, SUM(fees) fees, SUM(net) net,
+                                  MAX(received_at) last, MAX(proof) last_proof
+                                FROM (SELECT r.*, r.proof_kind provider_kind FROM payment_receipts r)
+                                GROUP BY currency, network, provider_kind`),
+        services: all(`SELECT name, status, executor, reason, gnd_ref FROM services
+                       ORDER BY status, name`),
+        last_run: (all(`SELECT MAX(started_at) t FROM runs`)[0] || {}).t || null,
+      };
+    })(),
     external: {
       known: n(`SELECT COUNT(*) c FROM external_agents`),
       messages: n(`SELECT COUNT(*) c FROM external_messages`),
@@ -473,7 +502,7 @@ app.get('/api/economics', (_req, res) => {
   const one = (q, ...a) => { try { return db.prepare(q).get(...a) || {}; } catch { return {}; } };
   const n = (q) => (one(q).c || 0);
 
-  const revenue = (one(`SELECT COALESCE(SUM(CAST(amount AS REAL)),0) c FROM payments`).c) || 0;
+  const revenue = (one(`SELECT COALESCE(SUM(CAST(amount AS REAL)),0) c FROM payments WHERE asset IN ('USDC','USDC.e','USDT','DAI','USD')`).c) || 0;
   const spend = n(`SELECT COUNT(*) c FROM spend`);
   const stages = [[0,'СТАДИЯ 0 — доказательство','выручки нет; цель: первый сторонний платёж'],
                   [0.01,'СТАДИЯ 1 — первая выручка','деньги пришли; цель: повторить'],

@@ -277,6 +277,7 @@ def _contests():
     from agents import bounty
     new, seen = bounty.ingest(
         [{"url": r["url"], "title": r["title"], "amount_usd": r["prize_usd"],
+          "participants": r.get("registrations"), "prizes": r.get("cash_prizes"),
           "note": "конкурс: платят одному победителю из многих"} for r in rows],
         source="devpost.com",
         note="конкурс: призовой фонд объявлен организатором, платят победителю")
@@ -553,6 +554,15 @@ def _money_report():
     return collector.money_report()
 
 
+@tool("services_catalog", "GREEN",
+      "какие услуги мы действительно умеем исполнить: у каждой проверяется "
+      "исполнитель и способ оплаты; невыполнимые — отдельным списком с причиной",
+      needs=())
+def _services_catalog():
+    from core import services
+    return services.report()
+
+
 @tool("check_replies", "GREEN",
       "ответил ли кто-нибудь на наши обращения; молчание API не считать "
       "молчанием адресата",
@@ -800,7 +810,7 @@ register(Agent(
     kpi="число диагнозов, подкреплённых ВОСПРОИЗВОДИМЫМ фактом о сервисе "
         "клиента, а не общим наблюдением о его бизнесе",
     tools=("diagnose_leads", "study_market", "find_channel", "where_visible",
-           "check_distribution", "reach_out"),
+           "check_distribution", "reach_out", "services_catalog"),
     system=COMMON + """
 ТЫ — ПРОДАВЕЦ.
 
@@ -1190,3 +1200,40 @@ register(Agent(
 ЧЕГО ТЕБЕ НЕЛЬЗЯ: записывать подготовленное письмо как отправленное, создавать
 ложные личности и обходить проверки, отличающие человека от машины.
 """))
+
+
+# ═══════════════════════════════════════════════ ВЫГРУЗКА ДЛЯ ДАШБОРДА
+def export(path=None):
+    """Состав и реестр способов заработка — в файл, который читает дашборд.
+
+    Дашборд держал двадцать четыре карточки, вписанные в код руками, а в
+    составе было восемнадцать агентов. Десять карточек показывали агентов,
+    которых нет, четырёх настоящих не было видно, а у «проверяющего» счётчик
+    читал чужие записи. Рукописный список расходится с составом всегда: его
+    забывают поправить. Поэтому дашборд берёт состав отсюда, из того же
+    реестра, по которому агенты работают.
+    """
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from core.agent import REGISTRY
+    try:
+        from agents import prospector
+        methods = {str(k): v for k, v in prospector.GND_METHODS.items()}
+        classes = len(prospector.CATEGORIES)
+        names = sorted(prospector.CATEGORIES)
+    except Exception as e:          # реестр способов не должен ронять выгрузку состава
+        methods, classes, names = {"ошибка": f"{type(e).__name__}: {e}"}, None, []
+    out = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "agents": [{"name": a.name, "role": a.role, "kpi": a.kpi,
+                    "tools": list(a.tools), "max_class": a.max_class}
+                   for a in REGISTRY.values()],
+        "gnd_methods": methods,
+        "classes_total": classes,
+        "classes": names,
+    }
+    p = Path(path) if path else Path(__file__).resolve().parent.parent / "data" / "registry.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    return f"состав выгружен: агентов {len(out['agents'])}, классов обхода {classes}"

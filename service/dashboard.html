@@ -189,10 +189,12 @@ const AGENTS = [
   {id:"craftsman",    label:"МАСТЕРОВОЙ",       color:0xf97316, form:"prism"},
   {id:"prospector",   label:"РАЗВЕДЧИК ДЕНЕГ",  color:0xa78bfa, form:"probe"},
   {id:"browser_scout",label:"БРАУЗЕРНЫЙ",       color:0x60a5fa, form:"eye"},
-  {id:"proposer",     label:"ПРЕДЛАГАЮЩИЙ",     color:0x7dd3fc, form:"prism"},
   {id:"executor", label:"ИСПОЛНИТЕЛЬ", color:0x59ccaa, form:"ring"},
   {id:"supplier",     label:"СНАБЖЕНЕЦ",        color:0x2dd4bf, form:"ring"},
   {id:"improver",     label:"УЛУЧШАТЕЛЬ",      color:0xf472b6, form:"spike"},
+  {id:"collector",    label:"СБОРЩИК ПЛАТЕЖЕЙ", color:0x35d6a4, form:"ring"},
+  {id:"closer",       label:"ЗАКРЫВАЮЩИЙ",      color:0x4ade80, form:"prism"},
+  {id:"channel_manager", label:"КАНАЛЫ",        color:0x818cf8, form:"eye"},
 ];
 
 /* Объявлено ДО animate(): цикл отрисовки стартует раньше блока данных, и
@@ -544,6 +546,55 @@ function renderMoney(){
            (st.spend ?? 0) ? "bad" : "ok");
 
   if(ex.restricted){ h += `<div class="empty">Подробности работ доступны в основном журнале. Здесь показана публичная телеметрия облачного цикла.</div>`; $("v-money").innerHTML=h; return; }
+  const rv = ex.revenue || {};
+  if (rv.money_states) {
+    // Пять состояний денег по отдельности: обещание и начисление не прибыль.
+    const ms = rv.money_states;
+    h += "<h3>Деньги по состояниям</h3>";
+    [["обещано (запрос оплаты)", ms.promised], ["начислено на площадке", ms.accrued],
+     ["доступно к выводу", ms.withdrawable], ["получено с доказательством", ms.received],
+     ["выведено владельцу", ms.withdrawn]].forEach(([t, v]) =>
+      h += row(t, num(v), null, v ? "ok" : ""));
+  }
+  if ((rv.routes || []).length) {
+    // Ни одна сеть не основная: показаны все маршруты, каждый со своим статусом.
+    const nets = {};
+    rv.routes.forEach(r => {
+      const k = r.network || r.provider;
+      nets[k] = nets[k] || {ok: [], wait: [], bad: []};
+      nets[k][r.status === "verified" ? "ok" : (r.status === "blocked" ? "bad" : "wait")].push(r.currency || r.method);
+    });
+    const got = {};
+    (rv.receipts_by_route || []).forEach(x => {
+      const k = x.network || "—"; got[k] = (got[k] || []).concat(`${num(x.n)} × ${esc(x.currency)} net ${x.net}`);
+    });
+    h += `<h3>Маршруты оплаты · ${rv.routes.filter(r => r.status === "verified").length} проверено из ${rv.routes.length}</h3>`;
+    Object.entries(nets).sort((a, b) => b[1].ok.length - a[1].ok.length).forEach(([k, v]) => {
+      const sub = [v.ok.length ? "проверено: " + v.ok.join(", ") : "",
+                   v.wait.length ? "не проверено: " + v.wait.join(", ") : "",
+                   v.bad.length ? "закрыто: " + v.bad.join(", ") : ""].filter(Boolean).join(" · ");
+      h += row(esc(k), got[k] ? got[k].join("; ") : "поступлений 0", esc(sub), v.ok.length ? "ok" : "hold");
+    });
+  }
+  if ((rv.services || []).length) {
+    const exe = rv.services.filter(x => x.status === "executable");
+    h += `<h3>Услуги · исполнимых ${exe.length}, пока не умеем ${rv.services.length - exe.length}</h3>`;
+    exe.forEach(x => h += row(esc(x.name), "исполнима", esc(x.executor), "ok"));
+  }
+  if ((rv.methods || []).length) {
+    const live = rv.methods.filter(m => !m.orphan);
+    h += `<h3>Способы заработка · ${num(rv.classes_total)} классов</h3>`;
+    h += row("Ни разу не дали ответа поиска", num(rv.never_answered),
+             rv.never_answered ? "в очереди обхода; пустой ответ поисковика не значит «денег нет»" : null,
+             rv.never_answered ? "hold" : "ok");
+    if ((rv.orphans || []).length)
+      h += row("Строк без класса в реестре", num(rv.orphans.length), esc(rv.orphans.join(", ")), "hold");
+    live.filter(m => m.found).slice(0, 8).forEach(m =>
+      h += row(esc(m.category), `${num(m.found)} найдено · ${num(m.qualified)} открыто`,
+               m.gnd.length ? "способ GND № " + m.gnd.join(", ") : "класс сверх списка GND",
+               m.qualified ? "ok" : ""));
+  }
+
   h += "<h3>Открытые пути к деньгам</h3>";
   const open = (ex.money_paths || []).filter(p => p.open_to_us === 1);
   if (!open.length) h += `<div class="empty">открытых путей сейчас нет</div>`;
@@ -576,8 +627,18 @@ function renderMoney(){
 function renderChain(){
   if(state.ex?.restricted){ $("v-chain").innerHTML = `<div class="empty">Детали задач не публикуются в открытом доступе.</div>`; return; }
   const m = (state.ex || {}).matrix || [];
-  if (!m.length) { $("v-chain").innerHTML = `<div class="empty">матрица не построена</div>`; return; }
-  let h = "<h3>От нуля до выручки</h3>";
+  let h = "";
+  const pipe = ((state.ex || {}).revenue || {}).pipeline || [];
+  if (pipe.length) {
+    // Состояния из GND §7 — заглавными; строчные — внутренние задачи агентов.
+    h += "<h3>Конвейер: задачи и сделки по состояниям</h3>";
+    pipe.forEach(x => h += row(esc(x.state), num(x.n),
+      x.state === x.state.toUpperCase() ? "сделка" : "внутренняя задача агентов",
+      ["PAID","WITHDRAWABLE","WITHDRAWN","done"].includes(x.state) ? "ok"
+        : (["REJECTED","FAILED","cancelled"].includes(x.state) ? "" : "hold")));
+  }
+  if (!m.length) { $("v-chain").innerHTML = h + `<div class="empty">матрица не построена</div>`; return; }
+  h += "<h3>От нуля до выручки</h3>";
   m.forEach(x => {
     const ok = x.verdict === "РАБОТАЕТ", wait = x.verdict === "НЕТ ВХОДА";
     h += `<div class="card ${ok?"ok":(wait?"":"bad")}">`
@@ -596,17 +657,30 @@ function renderAgents(){
   runs.forEach(r => { byAgent[r.agent] = byAgent[r.agent] || {n:0,e:0};
                       byAgent[r.agent].n++; if (r.status==="error") byAgent[r.agent].e++; });
   const max = Math.max(1, ...Object.values(byAgent).map(v => v.n));
-  let h = `<h3>Кто чем занят</h3>`;
-  ags.forEach(a => {
+  const st0 = state.st || {};
+  const team = ags.filter(a => a.group !== "process"), procs = ags.filter(a => a.group === "process");
+  let h = "";
+  if (st0.registry_missing)
+    h += `<div class="empty">состав не выгружен (data/registry.json) — показаны только следы в журнале</div>`;
+  const draw = a => {
     const st = byAgent[a.id] || {n:0,e:0};
     const col = "#" + ((AGENTS.find(x=>x.id===a.id)||{}).color||0x7a8aa6).toString(16).padStart(6,"0");
-    h += `<div class="row ${st.e?"bad":""}">`
+    return `<div class="row ${st.e?"bad":""}">`
        + `<div class="t"><span class="pill" style="background:${col}22;color:${col}">${esc(a.id)}</span>`
        + `${esc(a.role||"")}</div>`
        + `<div class="v">${st.n||a.work||0}${st.e?` · ${st.e}✕`:""}</div>`
        + `<div class="bar"><i style="width:${Math.round((st.n/max)*100)}%;background:${col}"></i></div>`
+       + `<div class="s">${esc((a.job||"").slice(0,140))}${a.decisions ? ` · решений ${num(a.decisions)}${a.model ? " · " + esc(a.model) : ""}` : ""}</div>`
        + `</div>`;
-  });
+  };
+  // Состав берётся из реестра агентов, а не из списка на странице: рукописный
+  // список показывал 24 карточки при 18 агентах.
+  h += `<h3>Агенты состава · ${team.length}</h3>`;
+  team.forEach(a => h += draw(a));
+  if (procs.length) {
+    h += `<h3>Служебные процессы без языковой модели · ${procs.length}</h3>`;
+    procs.forEach(a => h += draw(a));
+  }
   $("v-agents").innerHTML = h;
 }
 

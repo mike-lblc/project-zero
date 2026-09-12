@@ -222,7 +222,7 @@ STAGES = [
 
 def stage():
     c = _con()
-    rev = c.execute("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments").fetchone()[0] or 0.0
+    rev = c.execute("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments WHERE asset IN ('USDC','USDC.e','USDT','DAI','USD')").fetchone()[0] or 0.0
     spend = c.execute("SELECT COUNT(*) FROM spend").fetchone()[0]
     c.close()
     cur = STAGES[0]
@@ -243,7 +243,7 @@ def briefing():
     q = lambda s, *a: c.execute(s, a).fetchone()[0]
     day = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     data = {
-        "verified_revenue_usd": q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments"),
+        "verified_revenue_usd": q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments WHERE asset IN ('USDC','USDC.e','USDT','DAI','USD')"),
         "payments_count": q("SELECT COUNT(*) FROM payments"),
         "spend_usd": q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM spend"),
         "cost_units_24h": q("SELECT COALESCE(SUM(units),0) FROM agent_costs WHERE occurred_at > ?", day),

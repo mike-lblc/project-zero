@@ -183,7 +183,11 @@ def stop():
         for pid in pids:
             subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True,
                            creationflags=0x08000000)
-        print(f"  {label}: {'остановлен, № ' + ', '.join(pids) if pids else 'уже не работал'}")
+        # Воркер видит KILL_SWITCH на ближайшем обороте и часто успевает
+        # остановиться сам раньше, чем до него дойдёт снятие.
+        idle = ("остановился сам по выключателю или не работал" if label == "воркер"
+                else "уже не работала")
+        print(f"  {label}: {'остановлен, № ' + ', '.join(pids) if pids else idle}")
     models = _unload_models()
     if models is None:
         print("  локальные модели: Ollama не отвечает — выгружать нечего")

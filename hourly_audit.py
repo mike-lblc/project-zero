@@ -147,7 +147,7 @@ def measure():
     q = lambda s, *a: (c.execute(s, a).fetchone() or [0])[0]
     st = {
         "payments": q("SELECT COUNT(*) FROM payments"),
-        "revenue_usd": q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments"),
+        "revenue_usd": q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments WHERE asset IN ('USDC','USDC.e','USDT','DAI','USD')"),
         "spend": q("SELECT COUNT(*) FROM spend"),
         "prs_open": q("SELECT COUNT(*) FROM pull_requests WHERE state='OPEN' OR state IS NULL"),
         "prs_merged": q("SELECT COUNT(*) FROM pull_requests WHERE state='MERGED'"),

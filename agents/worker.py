@@ -102,9 +102,15 @@ def note(agent, claim, source_id=None, conf=None):
 AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
-            "health_check":"judge","explore":"explorer","study_market":"verifier",
+            "health_check":"judge","explore":"explorer","study_market":"salesman",
             "critique":"critic","audit":"adversary","optimize":"optimizer",
-            "explore_alternatives":"explorer"}
+            "explore_alternatives":"explorer",
+            # РОЛИ ИЗ ДИРЕКТИВЫ. Без этих строк их шаги писались в журнал как
+            # orchestrator, а карточка verifier в дашборде считала чужой шаг
+            # study_market — работу продавца, приписанную не тому агенту.
+            "verify_routes":"collector", "money_report":"collector",
+            "check_replies":"closer", "verify_evidence":"verifier",
+            "channel_health":"channel_manager", "services_catalog":"salesman"}
 
 
 def _iso(t):
@@ -725,6 +731,16 @@ def advance_tasks():
     if row and row[0] == "failed":
         execution.unblock(t["id"], "новая попытка после провала")
     execution.start(t["id"], "взята в работу очередью")
+    # ОДНА ЭСКАЛАЦИЯ НА ЦЕЛЬ. Владелец получал по эскалации на каждую копию
+    # задачи: одиннадцать одинаковых вопросов про одну и ту же премию.
+    # Тело пишется json.dumps с экранированием кириллицы, поэтому LIKE по
+    # русскому тексту не совпал бы никогда — сравниваем после разбора.
+    open_same = next((e["id"] for e in council.pending_escalations()
+                      if t["objective"] in (json.loads(e["body"] or "{}").get("question") or "")),
+                     None)
+    if open_same:
+        return (f"#{t['id']} взята в работу; вопрос по этой цели уже ждёт решения "
+                f"(№{open_same}) — второй не отправлен")
     qid = council.escalate(
         "orchestrator",
         f"Задача #{t['id']}: {t['objective']}. Следующее действие: "
@@ -847,7 +863,10 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("check_replies", _src("check_replies")),
               ("verify_evidence", _src("verify_evidence")),
               ("channel_health", _src("channel_health")),
-              ("money_report", _src("money_report"))]
+              ("money_report", _src("money_report")),
+              # Каталог услуг перепроверяет исполнимость каждой строки: исполнитель
+              # импортируется, способ оплаты есть в маршрутизаторе.
+              ("services_catalog", _src("services_catalog"))]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 
 # ═══════════════════════════════════════ ЧТО МОЖЕТ РАБОТАТЬ В ОБЛАКЕ
@@ -918,6 +937,7 @@ CLOUD_STEPS = [
     "verify_evidence",     # доказательство должно доказывать
     "channel_health",      # канал доказан отправкой или это не канал
     "money_report",        # шесть состояний денег по отдельности
+    "services_catalog",    # какие услуги исполнимы на деле
 ]
 
 # Чего в облаке нет и почему — без умолчаний:
@@ -1090,6 +1110,13 @@ def run_forever(interval=90):
     # которую хочется подкрутить вместо того, чтобы чинить систему.
     record_run("worker_start", "orchestrator", True,
                f"цикл {interval}с, шагов {len(CYCLE)}+{len(SLOW_CYCLE)}", now(), now())
+    # Состав — в файл для дашборда, чтобы карточки агентов брались из реестра,
+    # а не из рукописного списка, который расходится с составом всегда.
+    try:
+        from core import roster as _roster
+        print(f"[worker] {_roster.export()}", flush=True)
+    except Exception as e:
+        print(f"[worker] состав для дашборда не выгружен: {type(e).__name__}: {e}", flush=True)
     i = 0
     # Очередь редких шагов продолжается с того места, где её прервали.
     slow_at = _slow_cursor()

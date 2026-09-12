@@ -90,6 +90,15 @@ class Tool:
 def tool(name, action_class, describe, needs=()):
     """Объявляет функцию инструментом, доступным агентам."""
     def deco(fn):
+        # ПОВТОРНОЕ ИМЯ — ОШИБКА, как и у агентов. Второй инструмент с тем же
+        # именем молча затирал первый: агент звал одну функцию, а исполнялась
+        # другая. Повторная регистрация ТОЙ ЖЕ функции (перезагрузка модуля)
+        # разрешена — это не столкновение.
+        old = TOOLS.get(name)
+        if old and old.fn is not None and (old.fn.__module__, old.fn.__qualname__) !=                 (fn.__module__, fn.__qualname__):
+            raise ValueError(f"инструмент «{name}» уже объявлен в "
+                             f"{old.fn.__module__}.{old.fn.__qualname__}; второй с тем же "
+                             f"именем затёр бы первый молча")
         TOOLS[name] = Tool(name, action_class, describe, fn, needs)
         return fn
     return deco

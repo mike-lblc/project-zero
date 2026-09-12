@@ -191,10 +191,10 @@ jobs:
                   return []
           d = {
             'payments': q('SELECT COUNT(*) FROM payments'),
-            'revenue': q('SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments'),
+            'revenue': q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments WHERE asset IN ('USDC','USDC.e','USDT','DAI','USD')"),
             'spend': q('SELECT COUNT(*) FROM spend'),
-            'runs_24h': q("SELECT COUNT(*) FROM runs WHERE started_at > datetime('now','-1 day')"),
-            'errors_24h': q("SELECT COUNT(*) FROM runs WHERE status='error' AND started_at > datetime('now','-1 day')"),
+            'runs_24h': q("SELECT COUNT(*) FROM runs WHERE started_at > strftime('%Y-%m-%dT%H:%M:%S','now','-1 day')"),
+            'errors_24h': q("SELECT COUNT(*) FROM runs WHERE status='error' AND started_at > strftime('%Y-%m-%dT%H:%M:%S','now','-1 day')"),
             'evidence': q('SELECT COUNT(*) FROM evidence'),
             'sources': q('SELECT COUNT(*) FROM sources'),
             'leads': q('SELECT COUNT(*) FROM leads'),
@@ -212,7 +212,7 @@ jobs:
                          rows('SELECT stage,owner_agent,verdict,blocker FROM capability_matrix ORDER BY ord')]
           d['agents'] = [dict(zip(('agent','runs','errors'), r)) for r in
                          rows("SELECT agent,COUNT(*),SUM(status='error') FROM runs "
-                              "WHERE started_at>datetime('now','-1 day') GROUP BY agent "
+                              "WHERE started_at>strftime('%Y-%m-%dT%H:%M:%S','now','-1 day') GROUP BY agent "
                               "ORDER BY COUNT(*) DESC")]
           d['open_paths'] = [dict(zip(('platform','category','score'), r)) for r in
                              rows('SELECT platform,category,score FROM money_paths '
@@ -226,6 +226,9 @@ jobs:
           open('data/snapshot.json','w',encoding='utf-8').write(
               json.dumps(d, ensure_ascii=False, indent=1))
           PY
+          # Состав для дашборда берётся из реестра агентов, а не из рукописного
+          # списка в server.js — там было 24 карточки при 18 агентах.
+          python -c "import sys; sys.path.insert(0, '.'); from core import roster; print(roster.export())"
           python ops/build_snapshot.py docs/floor.html
           echo "дашборд собран для публикации"
 

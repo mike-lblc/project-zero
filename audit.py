@@ -225,34 +225,46 @@ check("скоринг возможностей (10)", lambda: (
     f"{_n('SELECT COUNT(*) FROM opportunities')} возможностей оценено"))
 check("гейт «продай до постройки» (11)", lambda: (
     _n("SELECT COUNT(*) FROM opportunities WHERE gate_passed IS NOT NULL") > 0, "гейт применён"))
+def _api_agents():
+    st, body = http("/api/status")
+    d = json.loads(body) if st == 200 else {}
+    return {a["id"]: a for a in d.get("agents", [])}, d
+
+
 def dashboard_in_sync():
     """Дашборд не должен отставать от системы.
 
     Дважды случалось: агент появлялся в API, но не в 3D-сцене, и владелец
     видел неполную картину. Проверка делает рассинхрон невозможным незаметно.
+
+    Сверка идёт с СОСТАВОМ, а не с текстом server.js. Раньше и сервер, и
+    проверка держали рукописные списки, и они совпадали между собой при
+    восемнадцати агентах в составе и двадцати четырёх карточках: десять
+    призраков проверка честно признавала синхронными.
     """
     import re as _re
-    srv = (ROOT / "service" / "server.js").read_text(encoding="utf-8")
+    from core import roster  # noqa: F401
+    from core.agent import REGISTRY
+    api, _ = _api_agents()
     dash = (ROOT / "service" / "dashboard.html").read_text(encoding="utf-8")
-    in_api = set(_re.findall(r"id: '([a-z_]+)'", srv))
     in_3d = set(_re.findall(r'\{id:"([a-z_]+)"', dash))
-    missing = in_api - in_3d
-    extra = in_3d - in_api
-    if missing or extra:
-        return False, (f"в API но не в сцене: {missing or '—'}; "
-                       f"в сцене но не в API: {extra or '—'}")
-    return True, f"{len(in_api)} агентов совпадают в API и в сцене"
+    team = set(REGISTRY)
+    not_in_api = team - set(api)
+    not_in_scene = team - in_3d
+    ghosts = in_3d - set(api)          # узел сцены без агента и без следа в журнале
+    if not_in_api or not_in_scene or ghosts:
+        return False, (f"состава нет в API: {not_in_api or '—'}; нет в сцене: "
+                       f"{not_in_scene or '—'}; призраки сцены: {ghosts or '—'}")
+    return True, f"состав {len(team)} — в API и в сцене; призраков нет"
 
 
 def cycle_agents_shown():
-    """Каждый агент, который что-то делает в цикле, обязан быть виден."""
-    import re as _re
+    """Каждый, кому цикл приписывает шаги, обязан быть виден в выдаче дашборда."""
     from agents import worker
-    srv = (ROOT / "service" / "server.js").read_text(encoding="utf-8")
+    api, _ = _api_agents()
     owners = set(worker.AGENT_OF.values())
-    in_api = set(_re.findall(r"id: '([a-z_]+)'", srv))
-    missing = owners - in_api
-    return (not missing), (f"все {len(owners)} рабочих агентов в API"
+    missing = owners - set(api)
+    return (not missing), (f"все {len(owners)} исполнителей шагов в API"
                            if not missing else f"НЕ показаны: {missing}")
 
 
@@ -340,16 +352,20 @@ for path, key in [("/api/status", "agents"), ("/api/queue", "interventions"),
 
 
 def nine_agents():
-    st, body = http("/api/status")
-    d = json.loads(body)
-    ids = [a["id"] for a in d.get("agents", [])]
-    need = {"scout", "proposer", "verifier", "adversary", "judge", "orchestrator",
-            "explorer", "critic", "optimizer", "merchant", "distributor", "scribe", "watchdog"}
-    missing = need - set(ids)
-    return (not missing), (f"{len(ids)} агентов" if not missing else f"нет: {missing}")
+    """Весь состав — в API. Список берётся из реестра, а не вписан сюда.
+
+    Здесь было тринадцать имён руками, включая «proposer», которого нет ни в
+    составе, ни в журнале: проверка требовала показывать призрака.
+    """
+    from core import roster  # noqa: F401
+    from core.agent import REGISTRY
+    api, d = _api_agents()
+    missing = set(REGISTRY) - set(api)
+    return (not missing and not d.get("registry_missing")), (
+        f"{len(REGISTRY)} агентов состава в API" if not missing else f"нет: {missing}")
 
 
-check("все 13 агентов в API", nine_agents)
+check("весь состав агентов в API", nine_agents)
 
 # ---------------------------------------------------------------- 7. ВНЕШНИЕ
 print("\n7. ВНЕШНИЕ ЗАВИСИМОСТИ")

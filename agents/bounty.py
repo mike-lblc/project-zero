@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS bounties (
   -- писали только дату ПЕРВОЙ встречи, и со стороны казалось, что поиск
   -- стоит на месте.
   last_seen TEXT,
+  prizes INTEGER,                    -- у конкурса: число призовых мест
   declared INTEGER,
   declared_proof TEXT,
   status TEXT NOT NULL DEFAULT 'found',   -- found | shortlisted | attempted | won | lost
@@ -70,6 +71,8 @@ OUR_STACK = {"python": 1.0, "javascript": 0.9, "typescript": 0.9, "shell": 0.8,
 # на $500-1250 — то есть 74% найденной суммы оказалось мусором.
 SPAM_HINTS = ("bounty-", "-bounty", "bounties", "airdrop", "reward-hub",
               "-test", "test-", "playground-farm", "radar")
+AGGREGATOR_HINTS = ("bounty alert", "bounty-alert", "new opportunities", "bountyscout",
+                    "opportunities digest", "weekly bounties", "bounty digest")
 MIN_STARS_FOR_BIG = 40      # крупная сумма от малоизвестного репозитория недостоверна
 # Нижний предел известности для ЛЮБОЙ суммы. Репозиторий, не нашедший и десятка
 # читателей, вряд ли найдёт деньги: метка bounty на своей же задаче ничего не
@@ -454,13 +457,18 @@ def enrich_and_score(rows):
             is_contest = any(w in body.lower() for w in
                              ("приз", "prize", "соревнован", "contest", "competition"))
             expect = amount * (0.02 if is_contest else 0.6)
+            from core import priority
+            est = priority.bounty_estimate(amount, None, True, trust=0.5, stack_fit=0.5,
+                                           rivals=0, comments=0, is_contest=is_contest,
+                                           offsite=True)
             out.append({
                 "url": d["u"], "repo": repo, "title": d["t"][:180],
                 "amount": round(expect, 2), "stars": 0, "language": "",
                 "rivals": 0,
                 "payout": "неизвестно",
                 "labels": ",".join(d.get("l", []))[:120],
-                "fit": round(expect * 0.5, 1),
+                # формула GND §9, а не «ожидание × 0.5»
+                "fit": priority.score(est),
                 # НАГРАДУ ЗДЕСЬ ОБЪЯВИЛ САМ ОРГАНИЗАТОР. Признак ставится в этой
                 # ветке, а не в общей: записи с площадок уходят отсюда с
                 # continue и до общей проверки не доходили вовсе — поэтому у
@@ -477,7 +485,8 @@ def enrich_and_score(rows):
                 "note": (f"вне GitHub. Объявленная сумма ${amount:,.0f}"
                          + (", но это КОНКУРС: платят только победителю, "
                             "поэтому ожидание срезано в пятьдесят раз"
-                            if is_contest else "")),
+                            if is_contest else "")
+                         + f". Приоритет: {priority.explain(est)}"),
             })
             continue
 
@@ -491,6 +500,15 @@ def enrich_and_score(rows):
         ri = repo_cache[repo]
         stars = ri.get("s", 0) or 0
         lang = (ri.get("l") or "").lower()
+
+        # АГРЕГАТОР — НЕ ЗАДАЧА. «🎯 Micro Bounty Alert: 20 New Opportunities» из
+        # репозитория BountyScout прошёл все фильтры: $25 дёшево рискнуть, метка
+        # «bounty-alert» выглядела как метка проекта. Это пересказ чужих задач, и
+        # заявка на него — шум, который при постоянном разрешении подавать заявки
+        # агенты отправили бы сами.
+        marks = " ".join([d["t"].lower(), " ".join(d.get("l") or []).lower(), repo.lower()])
+        if any(k in marks for k in AGGREGATOR_HINTS):
+            continue
 
         # отсев ферм: имя ради баунти, либо крупная сумма при малой известности
         low = repo.lower()
@@ -577,14 +595,23 @@ def enrich_and_score(rows):
         # ней не запрещена (вклад в открытый проект имеет смысл сам по себе),
         # но считать её выручкой нельзя, и в очередь она идёт последней.
         declared_factor = 1.0 if declared is True else (0.5 if declared is None else 0.08)
-        fit = round(amount * stack_fit * (0.35 + 0.65 * trust) * crowd
-                    * pay_factor * declared_factor, 1)
+        # ПРИОРИТЕТ ПО ФОРМУЛЕ GND §9. Прежнее произведение уже содержало
+        # почти все слагаемые, но не делило на срок до денег и на труд: задача
+        # на $500 на две недели стояла выше задачи на $50 на вечер. Директива
+        # требует обратного при прочих равных — небольшой задачи с быстрой
+        # приёмкой. Валюта и сеть в расчёт не передаются вовсе.
+        from core import priority
+        est = priority.bounty_estimate(amount, pay, declared, trust, stack_fit,
+                                       rivals, d.get("cm", 0) or 0)
+        fit = priority.score(est)
+        _ = (crowd, pay_factor, declared_factor)   # слагаемые перешли в priority
         out.append({"url": d["u"], "repo": repo, "title": d["t"][:180],
                     "amount": amount, "stars": stars, "language": lang, "rivals": rivals,
                     "payout": ("крипта/Algora" if pay is True else "неизвестно"),
                     "declared": declared,
                     "declared_proof": proof[:160],
-                    "labels": ",".join(d.get("l", []))[:120], "fit": fit})
+                    "labels": ",".join(d.get("l", []))[:120], "fit": fit,
+                    "note": f"приоритет: {priority.explain(est)}"})
     out.sort(key=lambda r: -r["fit"])
     # Не больше MAX_PER_REPO задач из одного репозитория: ферма иначе забьёт
     # весь список. Но АГРЕГАТОР — не ферма: mlcontests.com публикует чужие
@@ -711,6 +738,39 @@ def search_offsite(per_site=8):
     return rows
 
 
+# Конкурс опознаётся по источнику и пометке, а не по сумме.
+CONTEST_SQL = ("repo LIKE '%devpost%' OR repo LIKE '%mlcontests%' "
+               "OR note LIKE '%конкурс%' OR note LIKE '%КОНКУРС%'")
+
+
+def rescore(c):
+    """Пересчитывает приоритет у всего, что лежит в очереди, по формуле GND §9.
+
+    Без этого старые записи сохраняли прежний приоритет, пока их источник не
+    отзовётся: конкурс с призом $740 000 держал «приз × 0,02 = 14 800» и стоял
+    выше любой настоящей задачи, потому что Devpost в тот час не отвечал.
+    """
+    import math
+    from core import priority
+    rows = c.execute(f"SELECT id, amount_usd, stars, language, rivals, payout, declared, "
+                     f"({CONTEST_SQL}), prizes FROM bounties WHERE status='found'").fetchall()
+    for bid, amount, stars, lang, rivals, payout, declared, contest, prizes in rows:
+        reach = True if (payout or "").startswith("крипта") else None
+        dec = None if declared is None else bool(declared)
+        if contest:
+            e = priority.bounty_estimate(amount or 0, reach, True, 0.5, 0.5, 0, 0,
+                                         is_contest=True, offsite=True,
+                                         participants=rivals or None, prizes=prizes)
+        else:
+            trust = min(1.0, math.log10(1 + (stars or 0)) / 2.4)
+            e = priority.bounty_estimate(amount or 0, reach, dec, trust,
+                                         OUR_STACK.get((lang or "").lower(), 0.25),
+                                         rivals or 0, 0)
+        c.execute("UPDATE bounties SET fit_score=? WHERE id=?", (priority.score(e), bid))
+    c.commit()
+    return len(rows)
+
+
 def ingest(rows, source, declared=True, note=""):
     """Кладёт находки стороннего источника в общий конвейер работы.
 
@@ -737,8 +797,17 @@ def ingest(rows, source, declared=True, note=""):
             continue
         exists = c.execute("SELECT id FROM bounties WHERE url=?", (url,)).fetchone()
         amount = float(r.get("amount_usd") or 0)
+        from core import priority
+        contest = "конкурс" in ((note or "") + (r.get("note") or "")).lower()
+        participants = r.get("participants")
+        prizes = r.get("prizes")
+        est = priority.bounty_estimate(amount, None, True if declared else None,
+                                       trust=0.5, stack_fit=0.5, rivals=0, comments=0,
+                                       is_contest=contest, offsite=True,
+                                       participants=participants, prizes=prizes)
+        # участники конкурса и есть соперники: пишем их в rivals
         payload = (url, source, str(r.get("title") or "")[:180], amount, "USD",
-                   0, "", source, round(amount * 0.02, 1), 0, "неизвестно",
+                   0, "", source, priority.score(est), int(participants or 0), "неизвестно",
                    (note or r.get("note") or "")[:300], now(),
                    1 if declared else 0,
                    r.get("declared_proof") or f"опубликовано площадкой {source}")
@@ -749,8 +818,13 @@ def ingest(rows, source, declared=True, note=""):
                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                          ON CONFLICT(url) DO UPDATE SET
                            amount_usd=excluded.amount_usd,
+                           fit_score=excluded.fit_score,
+                           rivals=excluded.rivals,
+                           note=excluded.note,
                            status='found',
                            last_seen=excluded.found_at""", payload)
+            if prizes:
+                c.execute("UPDATE bounties SET prizes=? WHERE url=?", (int(prizes), url))
             new += 0 if exists else 1
             seen += 1 if exists else 0
         except Exception:
@@ -779,7 +853,7 @@ def hunt(limit=60):
                      labels,fit_score,rivals,payout,note,found_at,declared,declared_proof)
                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                      ON CONFLICT(url) DO UPDATE SET amount_usd=?, fit_score=?, stars=?,
-                     rivals=?, status='found', declared=excluded.declared,
+                     rivals=?, status='found', note=excluded.note, declared=excluded.declared,
                      declared_proof=excluded.declared_proof""",
                   (r["url"], r["repo"], r["title"], r["amount"], "USD", r["stars"],
                    r["language"], r["labels"], r["fit"], r.get("rivals", 0),
@@ -814,9 +888,15 @@ def hunt(limit=60):
                       ("не прошла повторную проверку: разобрана, выплачена или недостижима", url))
             dropped += 1
     c.commit()
+    rescore(c)
     tot = c.execute("SELECT COUNT(*) FROM bounties WHERE status='found'").fetchone()[0]
-    money = c.execute("SELECT COALESCE(SUM(amount_usd),0) FROM bounties "
-                      "WHERE status='found'").fetchone()[0]
+    # ПРИЗОВОЙ ФОНД — НЕ ДОСТУПНЫЕ ДЕНЬГИ. Сводка складывала премии за задачи
+    # с призовыми фондами конкурсов и докладывала «доступно 17 на $1 293 302»:
+    # три задачи на $67 и четырнадцать конкурсов, где платят одному победителю.
+    money = c.execute("SELECT COALESCE(SUM(amount_usd),0) FROM bounties WHERE status='found' "
+                      f"AND NOT ({CONTEST_SQL})").fetchone()[0]
+    n_contests, pools = c.execute("SELECT COUNT(*), COALESCE(SUM(amount_usd),0) FROM bounties "
+                                  f"WHERE status='found' AND ({CONTEST_SQL})").fetchone()
     top = c.execute("SELECT title,amount_usd,repo FROM bounties WHERE status='found' "
                     "ORDER BY fit_score DESC LIMIT 1").fetchone()
     c.close()
@@ -826,10 +906,13 @@ def hunt(limit=60):
                                 f"выплаченные. Рынок баунти забит конкурирующими агентами — "
                                 f"нужен менее людный источник работы.")
         return f"просмотрено {len(raw)}, доступных нет, снято {dropped}"
-    bus.broadcast("bounty", f"Доступных задач: {tot}, суммарно ${money:.0f}"
+    contests = (f"; конкурсов {n_contests} с призовыми фондами ${pools:,.0f} — "
+                f"платят одному победителю, это не доступные деньги" if n_contests else "")
+    bus.broadcast("bounty", f"Доступных задач с наградой: {tot - n_contests} на ${money:.0f}"
+                            + contests
                             + (f", снято с очереди {dropped}" if dropped else "")
-                            + f". Лучшая: {top[2]} — ${top[1]:.0f}.")
-    return f"доступно {tot} на ${money:.0f}, снято {dropped}"
+                            + f". Первая по приоритету: {top[2]} — ${top[1]:.0f}.")
+    return (f"задач с наградой {tot - n_contests} на ${money:.0f}{contests}, снято {dropped}")
 
 
 def shortlist(n=10):

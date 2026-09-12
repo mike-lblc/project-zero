@@ -112,10 +112,22 @@ PATTERNS = [
 ]
 
 
+def _code_files():
+    """Код, в котором живут SQL и логика: не только Python.
+
+    Образцы искались лишь в *.py, и окно времени в чужом формате пережило
+    починку семи мест в облачном workflow — три запроса SQL внутри YAML
+    сканер не видел вовсе.
+    """
+    extra = [q for pat in ("*.yml", "*.yaml", "*.js") for q in ROOT.rglob(pat)
+             if not any(s in q.parts for s in SKIP) and "docs" not in q.parts]
+    return _py_files() + extra
+
+
 def scan_patterns():
     """Ищет повторения известных поломок. Каждая находка — с файлом и строкой."""
     found = []
-    for p in _py_files():
+    for p in _code_files():
         try:
             raw = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -286,7 +298,10 @@ def critical_path():
 
     n_found = q("SELECT COUNT(*) FROM bounties WHERE status='found'")
     n_claims = q("SELECT COUNT(*) FROM actions WHERE kind='bounty_claim' AND dry_run=0")
-    n_merged = q("SELECT COUNT(*) FROM pull_requests WHERE state='merged'")
+    # GitHub пишет состояние заглавными: MERGED. Сравнение со строчным
+    # 'merged' давало ноль, и критический путь показывал обрыв на шаге 4 уже
+    # после того, как PR в omi был слит и одобрен.
+    n_merged = q("SELECT COUNT(*) FROM pull_requests WHERE UPPER(state)='MERGED'")
     n_pay = q("SELECT COUNT(*) FROM payments")
     n_award = q("SELECT COUNT(*) FROM evidence WHERE claim LIKE '%awarded%' "
                 "OR claim LIKE '%payout to us%'")

@@ -188,16 +188,42 @@ def _con():
 
 
 # ---------------------------------------------------------------- создание
+# Состояния, из которых задача уже не вернётся в работу.
+TERMINAL = {"done", "cancelled", "REJECTED", "FAILED", "WITHDRAWN"}
+
+
+def active_duplicate(objective, exclude_id=None):
+    """Живая задача с той же целью, если она есть."""
+    c = _con()
+    q = ("SELECT id FROM tasks WHERE objective=? AND state NOT IN (%s)"
+         % ",".join("?" * len(TERMINAL)))
+    args = [objective, *TERMINAL]
+    if exclude_id is not None:
+        q += " AND id<>?"
+        args.append(exclude_id)
+    r = c.execute(q + " ORDER BY updated_at DESC LIMIT 1", args).fetchone()
+    c.close()
+    return r[0] if r else None
+
+
 def create(objective, next_action, owner_agent, money_proximity=3, parent_id=None):
     """Раздел 4: задача без следующего ИСПОЛНИМОГО действия не создаётся.
 
     money_proximity (раздел 23): 1 = деньги напрямую, 5 = далеко от денег.
     Очередь всегда отдаёт то, что ближе к деньгам.
+
+    ВТОРОЙ ЖИВОЙ ЗАДАЧИ С ТОЙ ЖЕ ЦЕЛЬЮ НЕ БУДЕТ. Возвращается номер уже
+    существующей. Без этого очередь размножалась: девять целей за двое суток
+    превратились в тридцать восемь задач, и каждая слала владельцу отдельную
+    эскалацию.
     """
     if not next_action or not next_action.strip():
         raise ValueError("задача без next_action не принимается: это не задача, а пожелание")
     if not (1 <= int(money_proximity) <= 5):
         raise ValueError("money_proximity должен быть от 1 до 5")
+    dup = active_duplicate(objective, exclude_id=parent_id)
+    if dup:
+        return dup
     c = _con()
     tid = c.execute("""INSERT INTO tasks(objective,next_action,owner_agent,money_proximity,
                        parent_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)""",
@@ -282,8 +308,14 @@ def fail(task_id, reason, next_action=None, money_proximity=None):
     row = c.execute("SELECT objective, owner_agent, money_proximity FROM tasks WHERE id=?",
                     (task_id,)).fetchone()
     c.close()
-    return create(row[0], next_action, row[1],
-                  money_proximity or row[2], parent_id=task_id)
+    child = create(row[0], next_action, row[1],
+                   money_proximity or row[2], parent_id=task_id)
+    # РОДИТЕЛЬ ЗАКРЫВАЕТСЯ. Раньше он оставался в failed, очередь поднимала его
+    # снова наравне с новой попыткой — и каждые шесть часов задач становилось
+    # вдвое больше. Попытка, у которой есть преемник, закончена.
+    if child != task_id:
+        _transition(task_id, "cancelled", f"заменена новой попыткой #{child}")
+    return child
 
 
 # ---------------------------------------------------------------- блокер
@@ -318,8 +350,13 @@ def unblock(task_id, note=None):
 def next_task(agent=None):
     """Раздел 23: очередь всегда отдаёт то, что БЛИЖЕ К ДЕНЬГАМ."""
     c = _con()
-    q = ("SELECT id,objective,next_action,owner_agent,money_proximity,attempts FROM tasks "
-         "WHERE state IN ('queued','failed')")
+    # Упавшая задача с преемником не берётся, и цель, по которой уже идёт
+    # работа, второй раз не начинается.
+    q = ("SELECT id,objective,next_action,owner_agent,money_proximity,attempts FROM tasks t "
+         "WHERE state IN ('queued','failed') "
+         "AND NOT EXISTS (SELECT 1 FROM tasks ch WHERE ch.parent_id=t.id) "
+         "AND NOT EXISTS (SELECT 1 FROM tasks o WHERE o.objective=t.objective "
+         "AND o.id<>t.id AND o.state IN ('running','WORKING'))")
     args = ()
     if agent:
         q += " AND owner_agent=?"

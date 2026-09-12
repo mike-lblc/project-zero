@@ -96,6 +96,46 @@ def rank_of(domain):
     return None
 
 
+def verify_rank(domain, claimed):
+    """Проверяет заявленное место НЕЗАВИСИМЫМ счётом, а не повторным вызовом rank_of.
+
+    Повторить ту же функцию и сравнить с ней самой — не проверка: ошибка в
+    счёте воспроизведётся дважды и совпадёт. Здесь место считается иначе —
+    как «сколько служб набрали строго больше вызовов» — и при равенстве
+    вызовов допускается любое место внутри группы равных.
+
+    Возвращает {ok, почему, sha256 каталога} — хеш нужен, чтобы адресат мог
+    проверить число по тому же снимку.
+    """
+    import hashlib
+    catalog = ROOT / "worker" / "catalog.slim.json"
+    if not catalog.exists() or not claimed:
+        return {"ok": False, "почему": "нет каталога или нечего проверять"}
+    raw = catalog.read_bytes()
+    calls = {}
+    for r in json.loads(raw.decode("utf-8")):
+        u = r.get("u") or ""
+        if "//" in u:
+            h = u.split("//", 1)[1].split("/", 1)[0]
+            calls[h] = calls.get(h, 0) + int(r.get("c") or 0)
+    if domain not in calls:
+        return {"ok": False, "почему": f"{domain} нет в каталоге"}
+    mine = calls[domain]
+    greater = sum(1 for v in calls.values() if v > mine)
+    equal = sum(1 for v in calls.values() if v == mine)
+    place = claimed.get("место")
+    problems = []
+    if not (greater + 1 <= (place or 0) <= greater + equal):
+        problems.append(f"место {place}, а по счёту выходит {greater + 1}"
+                        + (f"–{greater + equal}" if equal > 1 else ""))
+    if claimed.get("вызовов") != mine:
+        problems.append(f"вызовов {claimed.get('вызовов')}, а в каталоге {mine}")
+    if claimed.get("всего служб") != len(calls):
+        problems.append(f"всего служб {claimed.get('всего служб')}, а в каталоге {len(calls)}")
+    return {"ok": not problems, "почему": "; ".join(problems) or "сходится",
+            "sha256": hashlib.sha256(raw).hexdigest()}
+
+
 def compose(lead, rank):
     """Собирает сообщение из ЕГО чисел. Без чисел сообщения не бывает."""
     domain, services, calls, payers, price = lead

@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS payment_receipts (
   fees REAL,
   net REAL,
   currency TEXT,
+  network TEXT,                      -- в какой сети пришло; без неё нет разбивки по маршрутам
   proof TEXT NOT NULL,
   proof_kind TEXT NOT NULL,
   from_party TEXT,
@@ -202,22 +203,26 @@ SEED_CURRENCIES = [
 
 
 def seed():
-    """Заводит маршруты, сети и валюты. Все — непроверенными."""
+    """Заводит маршруты, сети и валюты. Все — непроверенными.
+
+    Запись идёт через db.write с повтором: воркер пишет в ту же базу, и голый
+    execute однажды отказал с «database is locked» посреди заведения каталога.
+    """
     c = _con()
     added = 0
     for provider, method, currency, network, dest in SEED_ROUTES:
-        cur = c.execute(
-            "INSERT INTO payment_routes(provider,method,currency,network,destination,status) "
-            "VALUES (?,?,?,?,?,'unverified') "
-            "ON CONFLICT(provider,method,currency,network) DO NOTHING",
-            (provider, method, currency, network, dest))
-        added += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        before = c.total_changes
+        write(c, "INSERT INTO payment_routes(provider,method,currency,network,destination,status) "
+                 "VALUES (?,?,?,?,?,'unverified') "
+                 "ON CONFLICT(provider,method,currency,network) DO NOTHING",
+              (provider, method, currency, network, dest))
+        added += c.total_changes - before
     for name, chain, asset, gas, note in SEED_NETWORKS:
-        c.execute("INSERT INTO networks(name,chain_id,native_asset,needs_gas,note) "
+        write(c, "INSERT INTO networks(name,chain_id,native_asset,needs_gas,note) "
                   "VALUES (?,?,?,?,?) ON CONFLICT(name) DO NOTHING",
                   (name, chain, asset, gas, note))
     for code, kind, liquid, note in SEED_CURRENCIES:
-        c.execute("INSERT INTO currencies(code,kind,liquid,note) VALUES (?,?,?,?) "
+        write(c, "INSERT INTO currencies(code,kind,liquid,note) VALUES (?,?,?,?) "
                   "ON CONFLICT(code) DO NOTHING", (code, kind, liquid, note))
     c.commit(); c.close()
     return added
@@ -289,7 +294,7 @@ def request_payment(opportunity, amount, currency, route_id=None, instructions=N
 
 
 def record_receipt(proof, proof_kind, gross, currency, fees=0.0,
-                   request_id=None, route_id=None, from_party=None):
+                   request_id=None, route_id=None, from_party=None, network=None):
     """Записывает ПОЛУЧЕННЫЕ деньги. Только с настоящим доказательством.
 
     Три правила, каждое из горького опыта:
@@ -309,13 +314,25 @@ def record_receipt(proof, proof_kind, gross, currency, fees=0.0,
         raise ValueError("платёж от самого владельца прибылью не является")
 
     net = round(float(gross) - float(fees or 0), 8)
+    if net <= 0:
+        raise ValueError("нулевое или отрицательное поступление деньгами не является")
+    stamp = now()
     c = _con()
     try:
-        c.execute(
-            "INSERT INTO payment_receipts(request_id,route_id,gross,fees,net,currency,"
-            "proof,proof_kind,from_party,received_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (request_id, route_id, gross, fees or 0, net, currency,
-             str(proof), proof_kind, from_party, now()))
+        write(c, "INSERT INTO payment_receipts(request_id,route_id,gross,fees,net,currency,"
+                 "network,proof,proof_kind,from_party,received_at) "
+                 "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              (request_id, route_id, gross, fees or 0, net, currency, network,
+               str(proof), proof_kind, from_party, stamp))
+        # ЗЕРКАЛО В ПРЕЖНЮЮ ТАБЛИЦУ. Её читают четырнадцать мест — дашборд,
+        # экономика, облачная проверка миссии, аудиты, — а писать в неё
+        # перестали, когда появился этот приёмник. Настоящий платёж на
+        # дашборде показался бы нулём. Один писатель на обе таблицы надёжнее,
+        # чем правка четырнадцати читателей, из которых одного забудут.
+        if proof_kind == "tx_hash":
+            write(c, "INSERT OR IGNORE INTO payments(chain,tx_hash,amount,asset,"
+                     "received_at,attributed_to) VALUES (?,?,?,?,?,?)",
+                  (network or "", str(proof), str(net), currency, stamp, from_party))
         c.commit()
     except Exception as e:
         c.close()
@@ -364,7 +381,7 @@ def state_of_money():
 def routes(status=None):
     c = _con()
     q = ("SELECT provider,method,currency,network,status,kyc_required,"
-         "withdrawal_available,failure_reason,verified_at FROM payment_routes")
+         "withdrawal_available,failure_reason,verified_at,id FROM payment_routes")
     args = ()
     if status:
         q += " WHERE status=?"
@@ -372,7 +389,7 @@ def routes(status=None):
     rows = c.execute(q + " ORDER BY provider", args).fetchall()
     c.close()
     keys = ("provider", "method", "currency", "network", "status",
-            "kyc", "withdrawal", "failure", "verified_at")
+            "kyc", "withdrawal", "failure", "verified_at", "id")
     return [dict(zip(keys, r)) for r in rows]
 
 
