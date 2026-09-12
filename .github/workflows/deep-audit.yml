@@ -1,0 +1,65 @@
+name: Deep audit
+
+# ГЛУБОКИЙ АУДИТ КАЖДЫЕ ДВА ЧАСА, НЕЗАВИСИМО ОТ НОУТБУКА ВЛАДЕЛЬЦА.
+#
+# Такая же задача заведена и в планировщике Windows. Дублирование намеренное и
+# не бессмысленное: домашняя проверяет ЖИВУЮ систему со всеми её процессами,
+# локальной моделью и службой, а облачная — КОД в том виде, в каком он лежит в
+# репозитории. Они смотрят на разное и ловят разное.
+#
+# Домашняя увидит, что воркер стоит или модель не отвечает. Облачная увидит,
+# что кто-то отправил правку, ломающую проверки, — даже если дома всё хорошо,
+# потому что дома просто не перезапускали.
+#
+# Отчёт кладётся в артефакт прогона. В репозиторий он НЕ коммитится: отчёт
+# каждые два часа — это сотня коммитов в неделю, которые никто не читает, и
+# они только мешают видеть настоящие изменения.
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: deep-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Установить зависимости проверок
+        run: pip install --quiet cryptography
+
+      - name: Растущий каталог инвариантов
+        run: python core/regressions.py
+
+      - name: Образцы уже случившихся поломок
+        run: python ops/deep_checks.py
+
+      - name: Целостность, тесты и книга
+        run: python ops/deep_audit.py
+        continue-on-error: true
+
+      - name: Тесты
+        run: python -m unittest discover -s evals -p 'test_*.py' -v
+
+      # Часть проверок обращается к локальной службе и локальной модели,
+      # которых в облаке нет. Запускать их здесь значило бы получать красный
+      # прогон на ограничении среды, а не на дефекте — и перестать доверять
+      # отчёту целиком.
+      - name: Отчёт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-audit-report
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn

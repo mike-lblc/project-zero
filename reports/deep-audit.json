@@ -1,27 +1,31 @@
 {
-  "at": "2026-09-11T21:35:52.513140+00:00",
+  "at": "2026-09-12T09:38:21.692646+00:00",
   "tests_passed": true,
   "findings": [],
   "recent_failure_patterns": [
     {
+      "category": "code",
+      "keyword_matches_not_diagnoses": 148
+    },
+    {
       "category": "api",
-      "occurrences": 0
+      "keyword_matches_not_diagnoses": 0
     },
     {
       "category": "storage",
-      "occurrences": 0
+      "keyword_matches_not_diagnoses": 0
     },
     {
       "category": "payments",
-      "occurrences": 12
+      "keyword_matches_not_diagnoses": 12
     },
     {
       "category": "access",
-      "occurrences": 0
+      "keyword_matches_not_diagnoses": 0
     },
     {
       "category": "sync",
-      "occurrences": 35
+      "keyword_matches_not_diagnoses": 35
     }
   ],
   "ledger": {
