@@ -78,7 +78,36 @@ def add(name, kind, target, expr, origin):
           (name, kind, target, expr, origin.strip(), now()))
     added = c.total_changes > 0
     c.commit(); c.close()
+
+    # ВЫГРУЗКА СРАЗУ, А НЕ ПОТОМ. Каталог рос только в локальной базе, и в
+    # облаке работали 12 проверок вместо 54: сорок два урока, купленных
+    # настоящими поломками, жили в единственном экземпляре на одном диске.
+    # Полагаться на то, что кто-то вспомнит выгрузить, нельзя — забывчивость
+    # не чинится напоминанием. Поэтому запись урока и его сохранение снаружи
+    # стали одним действием: разорвать их теперь можно только намеренно.
+    if added:
+        _persist_to_repo()
     return added
+
+
+def _persist_to_repo():
+    """Кладёт каталог в файл репозитория. Отказ записи не роняет добавление.
+
+    Урок, записанный в базу, но не выгруженный, всё равно лучше незаписанного:
+    ронять добавление из-за проблем с файлом значит терять и то, и другое.
+    """
+    try:
+        import json as _json
+        c = _con()
+        rows = [dict(r) for r in c.execute(
+            "SELECT name, kind, target, expr, origin FROM invariants ORDER BY name")]
+        c.close()
+        out = ROOT / "data" / "invariants.json"
+        out.parent.mkdir(exist_ok=True)
+        out.write_text(_json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+        return True
+    except Exception:
+        return False
 
 
 

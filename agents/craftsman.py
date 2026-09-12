@@ -61,8 +61,22 @@ def now():
 
 
 def _con():
+    """Соединение со схемой ВСЕХ таблиц, которые здесь читаются.
+
+    Мастеровой читает не только свои таблицы, но и bounties — чужую. Схему при
+    этом применял только свою, и когда у находок появился новый столбец, запрос
+    падал с «no such column»: таблица в базе была старой формы, потому что
+    обновить её мог только тот модуль, которому она принадлежит, а он в этом
+    процессе не открывался.
+
+    Правило простое: читаешь таблицу — отвечай за её форму. Иначе порядок
+    импорта модулей начинает решать, работает код или нет, а это худший вид
+    зависимости: он не виден в коде и меняется сам собой.
+    """
     c = connect()
     ensure_schema(c, SCHEMA)
+    from agents import bounty
+    ensure_schema(c, bounty.SCHEMA)
     return c
 
 
@@ -306,8 +320,18 @@ def find_doc_work():
     """Баунти класса «документация и перевод»: результат проверяем механически."""
     guard.check_action("research", "GREEN")
     c = _con()
+    # ТОЛЬКО ТО, ЗА ЧТО ОБЕЩАЛИ ЗАПЛАТИТЬ. Владелец сказал прямо: делать работу,
+    # которая никому не нужна, — бред. Он прав, и раньше этого условия здесь не
+    # было: мы написали руководство по задаче, где сумму назначил посторонний
+    # соискатель, а мейнтейнеры на неё не ответили ни разу. Работа вышла
+    # хорошая и никем не оплаченная.
+    #
+    # declared=1 означает, что награду объявил САМ ПРОЕКТ — меткой или словами
+    # человека с правами в репозитории. NULL значит «не выяснили»: такие тоже
+    # не берём, но по другой причине — невыясненное не то же, что отвергнутое,
+    # и разведка обязана его дочистить.
     rows = c.execute("""SELECT url,repo,title,amount_usd FROM bounties
-                        WHERE status='found'
+                        WHERE status='found' AND declared=1
                           AND (lower(title) LIKE '%doc%' OR lower(title) LIKE '%readme%'
                             OR lower(title) LIKE '%quickstart%' OR lower(title) LIKE '%translat%'
                             OR lower(title) LIKE '%guide%' OR lower(title) LIKE '%jsdoc%'
@@ -601,11 +625,23 @@ def pursue(dry_run=True):
     guard.check_action("research", "GREEN")
 
     c = _con()
+    # Здесь то же условие и по той же причине: цепочка ведёт работу к деньгам,
+    # а работа без плательщика к деньгам не ведёт никуда.
     rows = c.execute("""SELECT url,repo,title,amount_usd FROM bounties
-                        WHERE status='found' ORDER BY fit_score DESC LIMIT 8""").fetchall()
+                        WHERE status='found' AND declared=1
+                        ORDER BY fit_score DESC LIMIT 8""").fetchall()
     c.close()
     if not rows:
-        return "доступных задач нет — цепочке нечего вести"
+        # Разница важна: «задач нет» и «задач с подтверждённым плательщиком нет»
+        # ведут к разным действиям. Первое — искать шире, второе — дочищать
+        # разведку по уже найденному.
+        c2 = _con()
+        total = c2.execute("SELECT COUNT(*) FROM bounties WHERE status='found'").fetchone()[0]
+        unknown = c2.execute("SELECT COUNT(*) FROM bounties WHERE status='found' "
+                             "AND declared IS NULL").fetchone()[0]
+        c2.close()
+        return (f"задач с ПОДТВЕРЖДЁННЫМ плательщиком нет: найдено {total}, "
+                f"из них не выяснено {unknown}; работать за «может быть» не станем")
 
     doable = [r for r in rows if we_can_do(r[2])]
     if not doable:

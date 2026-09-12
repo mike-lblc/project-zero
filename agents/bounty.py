@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS bounties (
   fit_score REAL,
   rivals INTEGER DEFAULT 0,
   payout TEXT,
+  -- ОБЪЯВИЛ ЛИ НАГРАДУ САМ ПРОЕКТ. Признак вычислялся и терялся сразу
+  -- после оценки, поэтому дальше по конвейеру никто не мог отличить
+  -- объявленную награду от суммы, которую написал посторонний.
+  declared INTEGER,
+  declared_proof TEXT,
   status TEXT NOT NULL DEFAULT 'found',   -- found | shortlisted | attempted | won | lost
   note TEXT,
   found_at TEXT NOT NULL
@@ -586,13 +591,16 @@ def hunt(limit=60):
     c = _con()
     for r in rows:
         c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,stars,language,
-                     labels,fit_score,rivals,payout,note,found_at)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     labels,fit_score,rivals,payout,note,found_at,declared,declared_proof)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                      ON CONFLICT(url) DO UPDATE SET amount_usd=?, fit_score=?, stars=?,
-                     rivals=?, status='found'""",
+                     rivals=?, status='found', declared=excluded.declared,
+                     declared_proof=excluded.declared_proof""",
                   (r["url"], r["repo"], r["title"], r["amount"], "USD", r["stars"],
                    r["language"], r["labels"], r["fit"], r.get("rivals", 0),
                    r.get("payout"), r.get("note"), now(),
+                   None if r.get("declared") is None else (1 if r["declared"] else 0),
+                   r.get("declared_proof"),
                    r["amount"], r["fit"], r["stars"], r.get("rivals", 0)))
     # ЧИСТКА. Задача, не прошедшая фильтры в этот заход, больше не «доступная»:
     # премию могли выплатить, толпа могла набежать. Оставлять её в очереди —
