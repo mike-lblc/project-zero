@@ -121,6 +121,43 @@ def _files(target):
     return out
 
 
+def _without_comments(text):
+    """Убирает комментарии, оставляя строки на месте (номера не сдвигаются).
+
+    ЗАЧЕМ. Проверки вида «этого в коде быть не должно» ловили СОБСТВЕННОЕ
+    объяснение: в комментарии рядом с починкой мы цитируем ту самую строку,
+    которую запрещаем, — иначе через месяц никто не поймёт, что чинили.
+    Проверка считала цитату нарушением и падала на исправном коде.
+
+    Ложная тревога хуже пропуска: пропуск оставляет дефект незамеченным, а
+    ложная тревога учит не доверять всей проверке целиком. Мы уже дважды
+    чинили детекторы, врущие про честный код.
+
+    Кавычки учитываются: решётка внутри строки — это данные, а не комментарий.
+    """
+    out = []
+    for line in text.splitlines():
+        q = None
+        cut = None
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if q:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == q:
+                    q = None
+            elif ch in "\"'":
+                q = ch
+            elif ch == "#" or (ch == "/" and line[i:i + 2] == "//"):
+                cut = i
+                break
+            i += 1
+        out.append(line[:cut] if cut is not None else line)
+    return "\n".join(out)
+
+
 def _check_one(inv):
     """Возвращает (прошло, подробность). Никаких исключений наружу."""
     kind, target, expr = inv["kind"], inv["target"], inv["expr"]
@@ -138,6 +175,11 @@ def _check_one(inv):
             hits = []
             for f in files:
                 text = f.read_text(encoding="utf-8")
+                # «Не должно встречаться» проверяется по КОДУ, а не по
+                # объяснениям: комментарий, цитирующий починенную ошибку, —
+                # это память о ней, а не сама ошибка.
+                if kind == "absent":
+                    text = _without_comments(text)
                 for m in rx.finditer(text):
                     hits.append(f"{f.name}:{text.count(chr(10), 0, m.start()) + 1}")
             if kind == "absent":
