@@ -43,7 +43,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from core import guard, bus, router, telemetry  # noqa: E402
+from core import guard, bus, telemetry  # noqa: E402
 from core.db import connect  # noqa: E402
 
 OUT_DIR = ROOT / "work"          # сюда кладутся готовые работы
@@ -90,6 +90,32 @@ def survey(repo, subdir="", ref="main"):
                    and any(k in p.lower() for k in
                            ("main", "cli", "command", "app", "__init__"))]
     docs = [p for p in paths if p.lower().endswith((".md", ".mdx"))]
+
+    # ЕСЛИ ПАПКУ НЕ УКАЗАЛИ — НАЙДЁМ САМИ. Задание может прийти без подпапки:
+    # тот, кто его ставит, знает репозиторий, но не устройство чужого дерева.
+    # Раньше это кончалось отказом «команд не извлеклось» — верным по букве и
+    # бесполезным по существу, потому что команды в репозитории были, просто
+    # лежали в sdks/python-cli. Ищем каталог, где плотнее всего файлов с
+    # объявлением команд, и берём его.
+    if not subdir and interesting:
+        from collections import Counter
+        # ПО ПРИЗНАКУ, А НЕ ПО КОЛИЧЕСТВУ. Первая попытка брала каталог с
+        # наибольшим числом файлов и выбрала backend/tests/unit: тестов в
+        # большом проекте всегда больше, чем команд. Плотность файлов не имеет
+        # отношения к тому, где объявлен интерфейс.
+        candidates = [p for p in interesting
+                      if not any(t in p.lower() for t in
+                                 ("/test", "test_", "/spec", "/migrations"))]
+        cli_like = [p for p in candidates
+                    if any(k in p.lower() for k in ("cli", "/commands/", "console"))]
+        pool = cli_like or candidates
+        if pool:
+            roots = Counter("/".join(p.split("/")[:3]) for p in pool)
+            best, n = roots.most_common(1)[0]
+            narrowed = [p for p in pool if p.startswith(best)]
+            if narrowed:
+                return {"sources": narrowed[:20], "docs": docs[:20],
+                        "total": len(paths), "narrowed_to": best}
     return {"sources": interesting[:20], "docs": docs[:20], "total": len(paths)}
 
 
@@ -346,6 +372,26 @@ def _record(repo, path, n_facts, sources):
     return True
 
 
+def _release(request_id, why):
+    """Закрывает задание, которое выполнить не вышло, с причиной.
+
+    Незакрытое задание берётся снова каждый оборот и даёт тот же отказ — это
+    счётчик оборотов, а не работа. Причина пишется рядом, чтобы отличить
+    «проект устроен иначе» от «у нас сломался разбор».
+    """
+    c = connect()
+    try:
+        c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (bus.now(), request_id))
+        c.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) "
+                  "VALUES (?,?,?,?,?)",
+                  ("executor", "craftsman", "documentation_failed",
+                   json.dumps({"request_id": request_id, "why": why}, ensure_ascii=False),
+                   bus.now()))
+        c.commit()
+    finally:
+        c.close()
+
+
 def produce_requested():
     """Consume an explicitly scoped request; never invent a paying assignment."""
     c = connect()
@@ -359,7 +405,12 @@ def produce_requested():
         raise ValueError("Documentation request requires exact repository")
     result = produce(repo, request.get("subdir", ""), ref=request.get("ref", "main"))
     if not result.get("ok"):
-        raise RuntimeError(result.get("why", "Document production failed"))
+        # НЕ СМОГ — ЭТО ОТВЕТ, А НЕ КРУШЕНИЕ. Раньше отказ производства поднимал
+        # исключение, и цикл записывал его как сбой шага: честное «в этом проекте
+        # команд не нашлось» становилось неотличимо от поломки кода. Задание при
+        # этом оставалось неснятым и бралось снова каждый оборот.
+        _release(row[0], result.get("why", "не удалось произвести"))
+        return f"задание №{row[0]} не выполнено: {result.get('why')}"
     c = connect()
     try:
         c.execute("BEGIN IMMEDIATE")
