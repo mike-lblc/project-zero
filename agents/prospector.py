@@ -70,6 +70,48 @@ CREATE TABLE IF NOT EXISTS path_categories (
 # платят за результат, а не за присутствие», потому что присутствовать где-то
 # круглосуточно мы можем, а быть человеком — нет.
 CATEGORIES = {
+    # ── ЧТО ВЛАДЕЛЕЦ НАЗВАЛ ОТДЕЛЬНО, И ЧЕСТНЫЙ ОТВЕТ ПО КАЖДОМУ ────────
+    #
+    # «Оплачиваемые ссылки за клики». Класс существует и делится надвое.
+    # Законная половина — партнёрские программы, где платят за настоящее
+    # действие настоящего человека, пришедшего по нашей ссылке. Незаконная —
+    # накрутка кликов ботами: это мошенничество, за него отключают и требуют
+    # деньги назад, и мы этим заниматься не будем ни при каких условиях.
+    # Поэтому ищем именно партнёрские программы с выплатой в крипте и без
+    # проверки личности, а не «заработок на кликах».
+    "партнёрские отчисления": ["affiliate program pays crypto no kyc",
+                               "referral program usdc payout developers"],
+    "партнёрские сети разработчиков": ["developer affiliate program recurring commission",
+                                       "saas referral program pays crypto"],
+
+    # «Имейл-рассылки для заработка». Тоже делится надвое, и грань резкая.
+    # Рассылка на СОБРАННЫЕ адреса — нарушение закона (GDPR, CAN-SPAM) и
+    # правил любого почтового сервиса: аккаунт закрывают, домен попадает в
+    # чёрные списки навсегда. Законная половина — свой список, собранный по
+    # двойному согласию, где человек сам подтвердил подписку. У нас такой
+    # список есть и в нём ноль человек, поэтому задача здесь не «разослать»,
+    # а «довести до первого подписчика».
+    "почтовые рассылки по согласию": ["newsletter monetization double opt-in sponsorship",
+                                      "paid newsletter sponsorship marketplace"],
+
+    # ── классы, которых в обходе не было вовсе ──────────────────────────
+    "микрозадачи и разметка": ["microtask platform pays crypto no identity check",
+                               "data labeling platform api access payout"],
+    "продажа api через агентские платежи": ["x402 paid api directory agents",
+                                            "agent payment protocol sell api calls"],
+    "каталоги платных api": ["rapidapi monetize api revenue share",
+                             "api marketplace developers earn per request"],
+    "спонсорство открытого кода": ["github sponsors alternative crypto payout",
+                                   "open source funding platform no kyc"],
+    "вознаграждения за отчёты": ["responsible disclosure reward program crypto",
+                                 "vulnerability report bounty without account"],
+    "продажа готовых наборов": ["dataset marketplace sell data crypto payout",
+                                "sell scraped public dataset legally"],
+    "переводы и субтитры": ["translation marketplace pays per word crypto",
+                            "subtitle translation platform payout"],
+    "тестирование продуктов": ["automated testing bounty platform payout",
+                               "beta testing rewards developers crypto"],
+
     # ── платят за решённую задачу ─────────────────────────────────────
     "баунти за код": ["open source bounty platform pay contributors",
                       "github issue bounty crypto payout"],
