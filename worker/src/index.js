@@ -3,7 +3,8 @@
  *
  * Зачем переписан: Express-обвязка в Workers не работает, поэтому протокол x402
  * реализован здесь напрямую. Логика та же, что в service/server.js:
- *   нет заголовка X-PAYMENT  -> 402 с требованиями оплаты
+ *   нет заголовка PAYMENT-SIGNATURE (v2) или X-PAYMENT (v1)
+ *                              -> 402 с требованиями оплаты
  *   есть заголовок           -> verify + settle через фасилитатор, затем отдаём данные
  *
  * Деньги идут напрямую на self-custody кошелёк владельца. Фасилитатор только
@@ -497,7 +498,13 @@ export default {
     if (request.method === "OPTIONS")
       return new Response(null, { headers: {
         "access-control-allow-origin": "*",
-        "access-control-allow-headers": "x-payment, content-type" } });
+        // Браузерный клиент версии 2 не пришлёт PAYMENT-SIGNATURE, если его нет
+        // в разрешённых: предварительный запрос просто не пройдёт, и оплата
+        // сорвётся до того, как дойдёт до нас.
+        "access-control-allow-headers":
+          "payment-signature, x-payment, content-type",
+        "access-control-expose-headers":
+          "payment-required, payment-response, x-payment-response" } });
 
     // ---- бесплатное: агент должен уметь оценить сервис ДО оплаты
     if (path === "/" ) return json({
@@ -561,7 +568,20 @@ export default {
     if (TIERS[path]) {
       const t = TIERS[path];
       const reqs = requirements(path, payTo, t.what);
-      const header = request.headers.get("x-payment");
+      // ЧИТАЕМ ОБА ЗАГОЛОВКА — И ЭТО НЕ ПЕРЕСТРАХОВКА.
+      //
+      // Служба объявляла себя версией 2 и понимала только заголовок версии 1.
+      // Современный платящий агент отправляет PAYMENT-SIGNATURE, не получает
+      // ответа и видит 402 СНОВА — даже приложив совершенно правильную подпись.
+      // То есть заплатить нам было физически невозможно, а со стороны это
+      // выглядело как «никто не покупает».
+      //
+      // Порядок именно такой: сначала заголовок версии, которую мы объявляем,
+      // потом старый. Старый не выбрасываем — им пользуются уже написанные
+      // клиенты, и ломать их ради чистоты значит менять одну несовместимость
+      // на другую.
+      const header = request.headers.get("payment-signature")
+                  || request.headers.get("x-payment");
       if (!header) {
         // ЗАГОЛОВОК, А НЕ ТОЛЬКО ТЕЛО. Проверка CDP сказала прямо: «индексатор
         // читает для версии 2 только заголовок». Мы отдавали требование оплаты
@@ -589,8 +609,14 @@ export default {
       if (!r.ok)
         return json({ x402Version: 2, error: "Payment failed", reason: r.why, accepts: [reqs] }, 402);
 
-      return json(payload(path, url), 200,
-                  r.tx ? { "x-payment-response": JSON.stringify({ transaction: r.tx }) } : {});
+      // ПОДТВЕРЖДЕНИЕ ТОЖЕ В ОБОИХ ВИДАХ. Клиент версии 2 ищет PAYMENT-RESPONSE
+      // и, не найдя его, считает оплату неподтверждённой — даже получив товар.
+      // Отдаём оба: лишний заголовок никому не мешает, отсутствующий ломает.
+      const confirm = r.tx
+        ? { "payment-response": JSON.stringify({ transaction: r.tx }),
+            "x-payment-response": JSON.stringify({ transaction: r.tx }) }
+        : {};
+      return json(payload(path, url), 200, confirm);
     }
 
     return json({ error: "not found", try: ["/", "/health", "/sample", "/join", ...Object.keys(TIERS)],

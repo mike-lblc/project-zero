@@ -1,1926 +1,682 @@
-ULTIMATE OPERATIONAL READINESS MISSION
-PROVE THE AI ECOSYSTEM CAN ACTUALLY ACHIEVE ITS GOAL END-TO-END FROM $0
-
-You are working on an EXISTING autonomous multi-agent AI ecosystem.
-
-The architecture, agents, workflows, dashboard, memory, tools, event system, and economic logic may already exist.
-
-Your task now is NOT primarily to redesign it.
-
-Your task is to determine whether the ecosystem is ACTUALLY CAPABLE of achieving its primary objective in the real world from beginning to end.
-
-PRIMARY OBJECTIVE:
-
-STARTING CAPITAL: $0
-
-↓
-
-DISCOVER A REAL OPPORTUNITY
-
-↓
-
-VALIDATE REAL DEMAND
-
-↓
-
-CREATE A REAL SELLABLE OFFER
-
-↓
-
-IDENTIFY REAL POTENTIAL CUSTOMERS
-
-↓
-
-OBTAIN REAL CONTACT ROUTES
-
-↓
-
-CREATE PERSONALIZED OUTREACH
-
-↓
-
-EXECUTE AUTHORIZED OUTREACH
-
-↓
-
-RECEIVE AND PROCESS RESPONSES
-
-↓
-
-HANDLE OBJECTIONS
-
-↓
-
-MOVE PROSPECTS THROUGH SALES
-
-↓
-
-CREATE PROPOSAL / PAYMENT PATH
-
-↓
-
-RECEIVE REAL EXTERNAL PAYMENT
-
-↓
-
-VERIFY THE PAYMENT
-
-↓
-
-FULFILL THE PROMISED VALUE
-
-↓
-
-CONFIRM CUSTOMER OUTCOME
-
-↓
-
-LEARN FROM RESULTS
-
-↓
-
-REPEAT THE PROCESS
-
-↓
-
-GENERATE REPEATABLE REVENUE
-
-↓
-
-BECOME SELF-FUNDING
-
-↓
-
-BECOME PROFITABLE.
-
-The ecosystem is NOT operationally complete until it has the technical capability to perform this entire path, except where a genuinely external human authorization or credential is unavoidable.
-
-==================================================
-1. DO NOT ASSUME THE SYSTEM WORKS
-==================================================
-
-Do not trust:
-
-previous implementation summaries
-existing documentation
-existing agent names
-dashboard statuses
-"success" percentages
-previous claims of completion
-previous tests unless rerun
-prompts saying agents should execute.
-
-Verify actual behavior.
-
-For every important capability:
-
-CODE EXISTS
-+
-IS CONNECTED
-+
-CAN BE INVOKED
-+
-HAS REQUIRED TOOLS
-+
-HAS REQUIRED PERMISSIONS
-+
-CAN CHANGE REAL STATE
-+
-CAN PASS RESULTS DOWNSTREAM
-+
-CAN RECOVER FROM FAILURE
-+
-HAS PROOF OF EXECUTION.
-
-Anything less is incomplete.
-
-==================================================
-2. START WITH A FULL CAPABILITY MAP
-==================================================
-
-Construct the complete chain required to move from $0 to verified revenue.
-
-For EVERY step determine:
-
-WHO owns it?
-
-WHICH agent executes it?
-
-WHICH tools are required?
-
-WHICH data is required?
-
-WHERE results are stored?
-
-WHAT event triggers the next step?
-
-WHAT proves completion?
-
-WHAT happens if it fails?
-
-WHAT happens if the responsible agent disappears?
-
-WHAT permission is required?
-
-CAN THE CURRENT SYSTEM ACTUALLY DO IT?
-
-Create an internal matrix covering the complete revenue journey.
-
-Classify every capability as:
-
-FULLY OPERATIONAL
-PARTIAL
-BROKEN
-MISSING
-UNCONNECTED
-NO TOOL
-NO PERMISSION
-NO PERSISTENCE
-NO DOWNSTREAM TRIGGER
-FAKE / SIMULATED.
-
-Do not stop to report the matrix.
-
-Use it to repair the ecosystem.
-
-==================================================
-3. COMPLETE REVENUE PATH THAT MUST EXIST
-==================================================
-
-Verify the system can execute each stage:
-
-STAGE A — UNDERSTAND RESOURCES
-
-Inventory:
-
-existing skills
-existing tools
-existing accounts
-existing code
-existing websites
-existing domains
-existing audiences
-existing relationships
-existing content
-existing products
-existing business capabilities
-existing free infrastructure.
-
-Output:
-
-REAL RESOURCE / ASSET REGISTRY.
-
---------------------------------------------------
-
-STAGE B — OPPORTUNITY DISCOVERY
-
-The ecosystem must be capable of finding legitimate opportunities requiring $0 upfront capital.
-
-Examples may include:
-
-services
-productized services
-automation
-software
-digital products
-affiliate opportunities
-partnerships
-revenue share
-consulting
-lead generation
-customer-funded development
-existing asset monetization.
-
-Output:
-
-REAL STRUCTURED OPPORTUNITY RECORDS.
-
---------------------------------------------------
-
-STAGE C — OPPORTUNITY VALIDATION
-
-Agents must verify:
-
-buyer exists
-problem exists
-problem has economic value
-buyer can be reached
-solution can be delivered
-zero-capital constraint is satisfied
-time to first revenue is reasonable.
-
-Output:
-
-VALIDATED / REJECTED decision with evidence.
-
---------------------------------------------------
-
-STAGE D — OFFER CREATION
-
-System must create an actual sellable offer:
-
-specific buyer
-specific problem
-specific deliverable
-specific outcome
-specific pricing
-specific scope
-specific CTA
-delivery method.
-
-Output:
-
-REAL OFFER OBJECT.
-
---------------------------------------------------
-
-STAGE E — PROSPECT DISCOVERY
-
-The system must ACTUALLY locate real prospects.
-
-Not:
-
-"we should find leads."
-
-It must create actual records.
-
-Output:
-
-PERSISTENT LEAD DATASET.
-
---------------------------------------------------
-
-STAGE F — PROSPECT QUALIFICATION
-
-Verify:
-
-fit
-need
-relevance
-contactability
-offer match
-priority.
-
-Output:
-
-QUALIFIED PROSPECT QUEUE.
-
---------------------------------------------------
-
-STAGE G — CONTACT ENRICHMENT
-
-Where legitimate and available, identify:
-
-company
-person
-role
-website
-public business contact
-source
-personalization information.
-
-Output:
-
-OUTREACH-READY PROSPECTS.
-
---------------------------------------------------
-
-STAGE H — OUTREACH CREATION
-
-Create actual personalized messages.
-
-Not templates alone.
-
-Each targeted prospect should receive a suitable message based on real context.
-
-Output:
-
-READY-TO-SEND OUTREACH BATCH.
-
---------------------------------------------------
-
-STAGE I — OUTREACH EXECUTION
-
-If an authorized communication tool exists:
-
-SEND.
-
-If human authorization is required:
-
-prepare EVERYTHING first and request only the final approval.
-
-Record proof:
-
-message ID
-recipient
-channel
-time
-campaign
-status.
-
---------------------------------------------------
-
-STAGE J — RESPONSE MONITORING
-
-System must be capable of monitoring authorized channels for responses.
-
-Response received
-→ event created
-→ correct agent wakes.
-
---------------------------------------------------
-
-STAGE K — RESPONSE ANALYSIS
-
-Classify:
-
-interested
-question
-objection
-not interested
-wrong person
-follow-up
-unsubscribe
-other.
-
-Automatically determine next action.
-
---------------------------------------------------
-
-STAGE L — SALES CONVERSATION
-
-The Revenue Owner / Коммерсант must be able to continue a legitimate sales process.
-
-It should:
-
-answer questions
-handle objections
-clarify offer
-adjust proposal within authority
-request another agent where needed
-move prospect toward decision.
-
---------------------------------------------------
-
-STAGE M — PROPOSAL / CHECKOUT / PAYMENT PATH
-
-The ecosystem must know how a customer can actually pay.
-
-Verify:
-
-payment mechanism exists
-offer/payment mapping exists
-payment instructions/path exist
-payment status can be checked.
-
-Do not assume "sale" is complete before payment.
-
---------------------------------------------------
-
-STAGE N — PAYMENT VERIFICATION
-
-Only a real external payment counts.
-
-Verify through actual available financial/payment system when connected.
-
-Store:
-
-payment reference
-amount
-date
-customer
-offer
-fees where known
-revenue status.
-
---------------------------------------------------
-
-STAGE O — FULFILLMENT
-
-The system must actually deliver what was sold.
-
-Verify appropriate fulfillment agents/tools exist.
-
-Payment must not be the end of the workflow.
-
-Payment verified
-→ fulfillment automatically starts.
-
---------------------------------------------------
-
-STAGE P — CUSTOMER COMPLETION
-
-Verify delivery.
-
-Capture:
-
-customer outcome
-problems
-feedback
-refund risk
-follow-up
-potential upsell/referral.
-
---------------------------------------------------
-
-STAGE Q — ECONOMIC ANALYSIS
-
-Calculate:
-
-revenue
-direct cost
-AI/tool cost
-human effort where measurable
-gross contribution
-profitability.
-
---------------------------------------------------
-
-STAGE R — LEARNING
-
-Record:
-
-what worked
-what failed
-which offer
-which segment
-which message
-which channel
-which agents
-which models
-which tools
-cost
-economic outcome.
-
---------------------------------------------------
-
-STAGE S — REPEAT
-
-The ecosystem must use successful evidence to initiate the next cycle automatically.
-
-A successful transaction should not end the organization.
-
-It should produce:
-
-repeat
-improve
-scale
-or test adjacent opportunity.
-
-==================================================
-4. THERE MUST BE NO CAPABILITY GAP
-==================================================
-
-For every required stage:
-
-there must be either:
-
-A capable existing agent
-
-OR
-
-a deterministic subsystem
-
-OR
-
-a newly created specialist agent.
-
-If nobody owns a required capability:
-
-FIX THE GAP.
-
-First ask:
-
-Can an existing agent be upgraded?
-
-If YES:
-
-upgrade it.
-
-If NO:
-
-determine whether deterministic infrastructure is better.
-
-If NOT:
-
-ADD A NEW AGENT.
-
-Continue adding/upgrading agents until the complete end-to-end path has an accountable owner for every necessary capability.
-
-DO NOT stop because the existing architecture looks complete.
-
-The question is:
-
-CAN IT ACHIEVE THE GOAL?
-
-Not:
-
-DOES IT HAVE MANY AGENTS?
-
-==================================================
-5. ADD AGENTS UNTIL CAPABILITY COVERAGE IS COMPLETE
-==================================================
-
-You are explicitly authorized to add additional agents where genuine capability gaps exist.
-
-Examples of potentially missing operational roles:
-
-Asset Monetization Agent
-
-Zero-Capital Opportunity Hunter
-
-Customer Problem Research Agent
-
-Offer Architect
-
-Pricing Agent
-
-Lead Generation Agent
-
-Prospect Enrichment Agent
-
-Prospect Qualification Agent
-
-Outreach Personalization Agent
-
-Outreach Execution Agent
-
-Reply Monitoring Agent
-
-Response Intelligence Agent
-
-Follow-Up Agent
-
-Sales Conversation Agent
-
-Proposal Agent
-
-Payment Verification Agent
-
-Fulfillment Coordinator
-
-Customer Success Agent
-
-Revenue Analyst
-
-Experiment Agent
-
-Revenue Bottleneck Agent
-
-Execution Supervisor.
-
-These are examples.
-
-Do not blindly add them.
-
-Audit existing responsibilities first.
-
-If existing Разведчик can genuinely generate leads:
-
-upgrade Разведчик.
-
-If existing Коммерсант can handle closing:
-
-upgrade Коммерсант.
-
-If existing Исследователь can validate demand:
-
-use it.
-
-Never duplicate capable agents.
-
-==================================================
-6. CREATE EXECUTORS, NOT ADVISERS
-==================================================
-
-Any new agent must be able to produce ACTION.
-
-Do not create another agent whose main capability is:
-
-"give advice."
-
-New operational agents should have:
-
-TOOLS
-PERMISSIONS
-INPUTS
-OUTPUTS
-EVENTS
-STATE
-PROOF
-KPIs.
-
-Example:
-
-LEAD GENERATION AGENT
-
-does NOT output:
-
-"Here are some ideas for finding leads."
-
-It outputs:
-
-54 validated prospect records.
-
-OUTREACH AGENT
-
-does NOT output:
-
-"You should contact them."
-
-It outputs:
-
-54 messages prepared
-
-and when authorized:
-
-54 actual send attempts with receipts.
-
-==================================================
-7. REVENUE OWNER MUST HAVE END-TO-END ACCOUNTABILITY
-==================================================
-
-Ensure exactly one primary Revenue Owner exists.
-
-Prefer upgrading existing:
-
-КОММЕРСАНТ
-
-if appropriate.
-
-Its mission:
-
-GET THE NEXT VERIFIED EXTERNAL PAYMENT.
-
-It owns the overall commercial pipeline.
-
-It does NOT personally need to perform every task.
-
-It must ensure the responsible agents perform them.
-
-It must continuously know:
-
-current commercial strategy
-best active opportunity
-offer
-number of qualified leads
-number contacted
-number of replies
-active conversations
-proposals
-customers
-payments
-verified revenue
-current bottleneck
-next external action.
-
-If one stage stops:
-
-Коммерсант must detect it.
-
-Then:
-
-resume
-delegate
-repair
-change strategy
-or escalate real blocker.
-
-==================================================
-8. CREATE AN EXECUTION SUPERVISOR IF NEEDED
-==================================================
-
-Audit whether the Master Orchestrator reliably notices when agents TALK instead of ACT.
-
-If not, upgrade it or create a separate Execution Supervisor.
-
-This capability monitors active goals and asks:
-
-What real state changed?
-
-What was supposed to happen?
-
-What is the next executable step?
-
-Why hasn't it started?
-
-Who owns it?
-
-Does the agent have a tool?
-
-Is this a real blocker?
-
-Should another agent take over?
-
-The Execution Supervisor should detect:
-
-stalled goals
-narrative-only completion
-unexecuted recommendations
-idle revenue tasks
-missing downstream events
-agents waiting unnecessarily
-repeated research
-fake progress.
-
-It must then cause corrective action.
-
-==================================================
-9. CAPABILITY SELF-HEALING
-==================================================
-
-If an agent repeatedly fails to perform its responsibility:
-
-do not endlessly retry the same prompt.
-
-Diagnose WHY.
-
-Possible causes:
-
-bad prompt
-wrong model
-missing tool
-wrong permission
-missing data
-bad routing
-bad task schema
-missing event
-insufficient specialization
-context overload
-tool failure
-capability genuinely absent.
-
-Then:
-
-repair prompt
-change model
-add tool
-change permissions if policy permits
-fix routing
-create deterministic subsystem
-delegate
-split responsibility
-or create new specialist agent.
-
-The ecosystem must repair capability gaps, not normalize failure.
-
-==================================================
-10. FUNCTIONAL AGENT REQUIREMENTS
-==================================================
-
-Every operational agent must be capable of:
-
-receiving tasks
-understanding objective
-retrieving relevant memory
-using tools
-producing structured output
-changing persistent state
-communicating with agents
-delegating when needed
-receiving results
-continuing workflow
-reporting proof
-handling errors
-recovering/retrying appropriately
-being evaluated.
-
-An agent existing only as:
-
-prompt
-database row
-dashboard card
-name
-persona
-
-does NOT count as operational.
-
-==================================================
-11. TOOL COVERAGE AUDIT
-==================================================
-
-A capable model without tools cannot achieve real-world goals.
-
-Create a complete TOOL CAPABILITY MAP.
-
-Determine whether the ecosystem can actually:
-
-search public web
-browse pages
-extract structured information
-store leads
-write files
-modify code
-execute code
-query databases
-write databases
-send authorized email
-read authorized email
-use other communication channels
-publish permitted content
-create landing pages
-deploy software
-use payment APIs
-verify payment
-monitor responses
-schedule follow-ups
-record analytics.
-
-If a critical capability is missing:
-
-look for:
-
-existing integrations
-available APIs
-free solutions
-open-source solutions
-local solutions
-existing account connections.
-
-Implement appropriate integrations where technically possible.
-
-If external authorization is required:
-
-prepare integration code completely first.
-
-Then ask owner only to authorize/connect.
-
-==================================================
-12. TOOL ROUTING MUST BE AUTOMATIC
-==================================================
-
-Agents should not need the owner to tell them:
-
-"use search"
-
-"use browser"
-
-"use email"
-
-"use database."
-
-The system should map:
-
-TASK REQUIREMENT
-→ CAPABILITY
-→ TOOL
-→ AGENT.
-
-If an agent lacks the appropriate tool but another agent has it:
-
-delegate.
-
-==================================================
-13. DO NOT CALL THE OWNER TOO EARLY
-==================================================
-
-Owner intervention is the LAST resort.
-
-Before asking the owner:
-
-search memory
-search available tools
-check other agents
-try allowed methods
-prepare all prerequisite work.
-
-Example:
-
-If Gmail connection is missing:
-
-DO NOT stop at:
-
-"We need Gmail."
-
-First complete:
-
-offer
-lead list
-qualification
-personalization
-messages
-follow-up sequence
-send queue.
-
-Then report:
-
-"Everything is ready. Gmail authorization is the sole remaining blocker."
-
-==================================================
-14. COMPLETE TASK ≠ COMPLETE GOAL
-==================================================
-
-Task completion must automatically reevaluate the parent goal.
-
-Example:
-
-Task:
-generate leads.
-
-Complete.
-
-Parent goal:
-first payment.
-
-Not complete.
-
-Therefore automatically create/trigger:
-
-qualification
-→ outreach
-→ responses
-→ closing
-→ payment.
-
-The ecosystem must continue until:
-
-GOAL ACHIEVED
-
-or
-
-STRATEGY INVALIDATED
-
-or
-
-REAL EXTERNAL BLOCKER.
-
-==================================================
-15. CREATE HARD STATE MACHINES
-==================================================
-
-Do not rely exclusively on agents remembering workflow steps.
-
-Implement deterministic state machines where useful.
-
-Commercial state example:
+Ты — главный архитектор и исполнитель автономной экосистемы P0:
+
+C:\Users\chebo\Desktop\Brain
+
+ПОЛНОСТЬЮ ЗАМЕНИ предыдущую установку, согласно которой Base/USDC является основной платёжной сетью.
+
+У P0 НЕТ основной платёжной сети, основной валюты, единственной бизнес-модели или фиксированного списка способов заработка.
+
+P0 — payment-agnostic, platform-agnostic и business-model-agnostic система.
+
+Base/USDC, BTC, ETH, x402, Coinbase, GitHub и EmailOctopus — отдельные инструменты и адаптеры. Ни один из них не является центром системы.
+
+============================================================
+1. ГЛАВНАЯ ЦЕЛЬ
+============================================================
+
+Найти и реализовать любые законные способы получить настоящую прибыль, начиная с $0 и не расходуя средства владельца.
+
+Система должна:
+
+DISCOVER
+→ QUALIFY
+→ CONTACT OR APPLY
+→ AGREE
+→ EXECUTE
+→ VERIFY
+→ DELIVER
+→ REQUEST PAYMENT
+→ RECEIVE PAYMENT
+→ VERIFY RECEIPT
+→ LEARN
+→ SCALE
+
+Цель считается достигнутой, когда сторонний плательщик действительно перечислил деньги или другой ликвидный актив в доступный владельцу кошелёк, аккаунт либо платёжный сервис.
+
+Не ограничивать цель переводом в конкретную сеть.
+
+Различать:
+
+- обещанную награду;
+- выигранную награду;
+- начисление на платформе;
+- доступный для вывода баланс;
+- фактически полученные средства;
+- фактически выведенные средства.
+
+Обещание, invoice, pending payout и неподтверждённая награда не считаются полученной прибылью.
+
+============================================================
+2. ДОСТУПНЫЕ ПЛАТЁЖНЫЕ АДАПТЕРЫ
+============================================================
+
+Учитывай как отдельные возможные маршруты:
+
+- BTC;
+- ETH;
+- USDC на Base;
+- USDC на Ethereum;
+- USDC на Polygon;
+- USDC на Arbitrum;
+- USDC и другие поддерживаемые активы в иных сетях;
+- выплаты Coinbase;
+- выплаты bounty-платформ;
+- баланс freelance-платформы;
+- банковский перевод;
+- платёжный процессор;
+- marketplace payout;
+- gift card только там, где она законна, передаваема и полезна владельцу;
+- грант;
+- денежный приз;
+- donation или tip;
+- affiliate payout;
+- revenue share;
+- sponsorship;
+- escrow;
+- иной законный способ, найденный системой.
+
+Текущие известные адреса являются доступными адаптерами:
+
+EVM:
+0xECa891e34b3E5873181Fb779672564E198C55354
+
+BTC:
+bc1qqwgyyqv6raq2jnghals2n2aujgwd4e9p64g4hr
+
+Не считать EVM-адрес доказательством поддержки любой сети. Для каждой сети отдельно проверять:
+
+- актив;
+- chain ID;
+- контракт токена;
+- совместимость кошелька;
+- минимальную выплату;
+- комиссии;
+- необходимость газа;
+- возможность вывода;
+- ограничения страны;
+- KYC;
+- срок получения;
+- риск блокировки.
+
+Не обходить KYC, CAPTCHA, географические ограничения или правила платформ. VPN не изменяет юридическую доступность сервиса.
+
+============================================================
+3. PAYMENT ROUTER
+============================================================
+
+Создай универсальный Payment Router.
+
+Он не должен перемещать средства или торговать ими. Его функции:
+
+- хранить доступные способы получения оплаты;
+- проверять совместимость способа выплаты с конкретной возможностью;
+- выбирать лучший разрешённый маршрут;
+- формировать инструкции для плательщика;
+- создавать payment request;
+- отслеживать поступление;
+- проверять transaction hash или provider receipt;
+- связывать платёж с заказом;
+- различать gross, fees и net;
+- определять возможность вывода;
+- предотвращать двойной учёт;
+- не учитывать самостоятельные платежи владельца.
+
+Создай сущности:
+
+payment_routes
+payment_requests
+payment_receipts
+platform_balances
+withdrawal_status
+currencies
+networks
+payout_requirements
+
+Пример полей payment_routes:
+
+- provider;
+- method;
+- currency;
+- network;
+- destination;
+- country_eligibility;
+- kyc_required;
+- account_ready;
+- minimum_payout;
+- estimated_fee;
+- settlement_time;
+- withdrawal_available;
+- verified_at;
+- status;
+- failure_reason.
+
+Не отклонять работу только потому, что она не платит в Base/USDC.
+
+Отклонять её только тогда, когда после проверки установлено, что выплата действительно недоступна владельцу.
+
+============================================================
+4. НЕ ОГРАНИЧИВАТЬСЯ ТРЕМЯ СТРАТЕГИЯМИ
+============================================================
+
+Поддерживать динамический реестр способов заработка.
+
+Начальный список включает:
+
+1. Платные API.
+2. MCP-инструменты.
+3. x402-сервисы.
+4. Разовые B2B-услуги.
+5. Регулярное B2B-обслуживание.
+6. Freelance-заказы.
+7. GitHub bounties.
+8. Bug bounties в пределах разрешённой программы.
+9. Хакатоны.
+10. Конкурсы.
+11. Гранты.
+12. Open-source sponsorship.
+13. Платная документация.
+14. Локализация.
+15. Обработка PDF.
+16. Извлечение данных.
+17. Очистка данных.
+18. Создание отчётов.
+19. Конкурентная разведка.
+20. Мониторинг рынков.
+21. SEO-контент.
+22. Технический SEO.
+23. Accessibility-аудит.
+24. Аудит сайтов.
+25. Аудит API.
+26. Автоматизация бизнес-процессов.
+27. Создание клиентских AI-агентов.
+28. Создание баз знаний.
+29. Customer support.
+30. Lead generation.
+31. Персонализация деловых писем.
+32. Social media management.
+33. Reputation monitoring.
+34. Podcast repurposing.
+35. Video repurposing.
+36. Создание шаблонов.
+37. Создание небольших утилит.
+38. Продажа лицензий.
+39. Подписочные отчёты.
+40. Affiliate marketing.
+41. Referral commissions.
+42. Revenue share.
+43. Sponsorship.
+44. Donations и tips.
+45. Продажа разрешённых цифровых продуктов.
+46. Платное тестирование продуктов.
+47. Платные исследования.
+48. Платная подготовка презентаций и документов.
+49. Работа с таблицами и бизнес-данными.
+50. Любой новый законный способ, найденный агентами.
+
+Список не является закрытым.
+
+Prospector обязан регулярно находить новые классы заработка и добавлять их в реестр после проверки.
+
+Не создавать искусственную цель вроде «проверять только 50 способов». Количество должно расти вместе с новыми доказательствами.
+
+============================================================
+5. SERVICE PACKS ИЗ ПРЕДОСТАВЛЕННЫХ СКРИНШОТОВ
+============================================================
+
+Добавь следующие полноценные услуги:
+
+1. Social Media Service
+   - анализ аудитории;
+   - контент-план;
+   - создание публикаций;
+   - адаптация под платформу;
+   - публикация в авторизованный аккаунт;
+   - ответы;
+   - аналитика;
+   - поиск клиентов на ведение аккаунтов.
+
+2. Lead Generation
+   - поиск публичных деловых данных;
+   - квалификация;
+   - поиск канала связи;
+   - персональное предложение;
+   - передача заинтересованного контакта closer.
+
+3. Customer Support
+   - база знаний;
+   - классификация обращений;
+   - подготовка ответа;
+   - решение стандартных вопросов;
+   - эскалация сложных случаев.
+
+4. Data Extraction
+   - извлечение;
+   - очистка;
+   - нормализация;
+   - дедупликация;
+   - CSV/JSON/XLSX;
+   - отчёт об источниках;
+   - разовая и регулярная доставка.
+
+5. Reputation Management
+   - мониторинг упоминаний;
+   - анализ жалоб;
+   - подготовка ответов;
+   - выявление системных проблем;
+   - регулярный отчёт.
+
+6. SEO Blog
+   - анализ спроса;
+   - content brief;
+   - статья;
+   - fact-check;
+   - metadata;
+   - internal links;
+   - публикация;
+   - измерение трафика и лидов.
+
+7. Podcast Repurposing
+   - транскрипция;
+   - главы;
+   - show notes;
+   - статья;
+   - email;
+   - публикации;
+   - сценарии коротких видео;
+   - субтитры.
+
+8. Cold Email Personalization
+   - исследование компании;
+   - поиск публичного business contact;
+   - персональное предложение;
+   - отправка через авторизованный канал;
+   - receipt;
+   - follow-up;
+   - suppression list;
+   - обработка ответа.
+
+9. PDF Document Processing
+   - текст;
+   - OCR;
+   - таблицы;
+   - формы;
+   - сравнение;
+   - классификация;
+   - структурированный экспорт;
+   - визуальный QA.
+
+Цены со скриншотов считать предположениями. Проверять их по реальным бюджетам, заказам и конкурентам.
+
+============================================================
+6. ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ
+============================================================
+
+Добавь:
+
+- website QA;
+- API QA;
+- documentation;
+- localization;
+- MCP integration;
+- x402 integration;
+- workflow automation;
+- competitive intelligence;
+- data cleaning;
+- knowledge-base creation;
+- accessibility audit;
+- technical SEO audit;
+- spreadsheet processing;
+- presentation production;
+- market research;
+- productized monitoring;
+- micro-tool development;
+- permitted security testing;
+- open-source maintenance;
+- customer onboarding automation.
+
+Каждая услуга обязана иметь:
+
+- целевого покупателя;
+- доказанную проблему;
+- способ найти клиента;
+- способ связаться;
+- коммерческое предложение;
+- критерии приёмки;
+- исполнителя;
+- QA;
+- способ доставки;
+- минимум один возможный способ оплаты;
+- доказательство каждого действия.
+
+============================================================
+7. УНИВЕРСАЛЬНЫЙ REVENUE PIPELINE
+============================================================
+
+Используй единое состояние:
 
 DISCOVERED
-→ RESEARCHING
-→ VALIDATED
-→ OFFER_READY
-→ PROSPECTING
-→ OUTREACH_READY
-→ CONTACTED
-→ REPLIED
-→ QUALIFIED_CONVERSATION
-→ PROPOSAL
-→ WON
-→ PAYMENT_PENDING
-→ PAID
-→ FULFILLING
-→ DELIVERED
-→ RETAIN / UPSELL / REFERRAL.
-
-Each transition should have:
-
-allowed trigger
-required evidence
-responsible agent
-next event.
-
-==================================================
-16. PROOF-OF-WORK FOR EVERYTHING IMPORTANT
-==================================================
-
-Execution must generate proof.
-
-Examples:
-
-Opportunity:
-record ID + evidence.
-
-Lead:
-database IDs + sources.
-
-Email:
-message IDs.
-
-Reply:
-provider message ID.
-
-Code:
-diff/commit + tests.
-
-Deployment:
-deployment ID/URL + health check.
-
-Payment:
-transaction reference.
-
-Fulfillment:
-delivery artifact/reference.
-
-No proof:
-
-do not claim completion.
-
-==================================================
-17. SIMULATIONS DO NOT PROVE OPERATIONAL READINESS
-==================================================
-
-Mock tests are useful but insufficient.
-
-Run:
-
-UNIT TESTS
-INTEGRATION TESTS
-END-TO-END TESTS
-REAL TOOL TESTS where safe
-PERSISTENCE TESTS
-RESTART TESTS
-EVENT TESTS.
-
-Clearly distinguish:
-
-SIMULATED SUCCESS
-
-from
-
-REAL INTEGRATION VERIFIED.
-
-Do not mark a real-world capability operational because a mocked API responded successfully.
-
-==================================================
-18. RUN A COMPLETE DRY RUN FROM $0
-==================================================
-
-Create a realistic zero-capital objective.
-
-Example:
-
-"Find one realistic service we can sell using existing capabilities and move it toward first external revenue."
-
-Run through:
-
-resource inventory
-→ opportunity discovery
-→ validation
-→ offer
-→ prospects
-→ qualification
-→ outreach preparation.
-
-Continue further with real authorized integrations where possible.
-
-At every stage:
-
-record actual artifacts/state.
-
-Identify every point where the system cannot continue.
-
-Then FIX that point.
-
-Repeat the dry run.
-
-==================================================
-19. RUN FAILURE INJECTION TESTS
-==================================================
-
-Deliberately test failures.
-
-Examples:
-
-Research Agent fails.
-
-Lead Generator returns invalid records.
-
-Tool times out.
-
-One agent crashes.
-
-Model unavailable.
-
-Database temporarily fails.
-
-Duplicate task created.
-
-Event delivered twice.
-
-Outreach provider unavailable.
-
-Agent returns narrative instead of structured execution.
-
-Verify the ecosystem recovers.
-
-There must be no single ordinary agent whose failure permanently stops the mission.
-
-==================================================
-20. ELIMINATE SINGLE POINTS OF FAILURE
-==================================================
-
-For critical revenue capabilities:
-
-create fallback behavior.
-
-Examples:
-
-primary research agent unavailable
-→ fallback agent/model.
-
-primary tool unavailable
-→ alternate allowed method.
-
-agent returns invalid output
-→ retry / repair / specialist.
-
-worker crashes
-→ job persists and resumes.
-
-Do not create redundant duplicate agents permanently without reason.
-
-Fallback capability may be dynamic.
-
-==================================================
-21. VERIFY 24/7 REAL OPERATION
-==================================================
-
-The ecosystem must keep progressing when the dashboard is closed.
-
-Verify:
-
-persistent workers
-scheduler
-event bus
-task queue
-wake conditions
-persistent state
-retry
-recovery
-follow-up timers
-response monitoring
-health checks.
-
-Restart the backend.
-
-Verify unfinished work resumes.
-
-If closing a browser stops the organization:
-
-FIX IT.
-
-==================================================
-22. ECONOMIC RESOURCE MANAGEMENT
-==================================================
-
-Starting business capital remains:
-
-$0.
-
-AI resources are scarce.
-
-The system must maximize:
-
-USEFUL EXECUTION PER TOKEN.
-
-Agents should sleep when not needed.
-
-Do not keep agents chatting merely to appear active.
-
-Prefer:
-
-event-driven execution
-structured messages
-cheap models
-deterministic software
-cached research
-shared knowledge.
-
-==================================================
-23. AGENT PERFORMANCE MUST INCLUDE CAPABILITY SUCCESS
-==================================================
-
-For each agent track:
-
-tasks assigned
-execution attempts
-state changes
-proof-backed completions
-tool success
-failures
-retries
-handoffs
-token cost
-latency
-rework
-economic contribution.
-
-100% response generation is NOT 100% agent success.
-
-==================================================
-24. TEST AGENT COOPERATION
-==================================================
-
-Prove agents cooperate rather than exist independently.
-
-A single opportunity should generate a trace similar to:
-
-Orchestrator
-→ Opportunity Hunter
-
-Opportunity Hunter
-→ Research
-
-Research
-→ Offer Architect
-
-Offer Architect
-→ Revenue Owner
-
-Revenue Owner
-→ Lead Generation
-
-Lead Generation
-→ Prospect Qualification
-
-Qualification
-→ Outreach
-
-Outreach
-→ Response Monitoring
-
-Response
-→ Revenue Owner
-
-Revenue Owner
-→ Payment
-
-Payment
-→ Verification
-
-Verification
-→ Fulfillment
-
-Fulfillment
-→ Customer Success
-
-Customer Success
-→ Knowledge
-
-Knowledge
-→ Strategy.
-
-Verify shared IDs/state across the chain.
-
-==================================================
-25. EVERY AGENT MUST KNOW ITS BOUNDARIES
-==================================================
-
-Agents need explicit responsibility boundaries.
-
-They must know:
-
-what they own
-what they do NOT own
-who receives their output
-who they can delegate to
-which events they consume
-which events they emit.
-
-No important work should fall into:
-
-"somebody else probably handles that."
-
-==================================================
-26. DETECT UNOWNED WORK
-==================================================
-
-Implement a mechanism for identifying tasks/capabilities that have NO responsible agent.
-
-If a required action has no owner:
-
-Orchestrator must:
-
-assign an existing capable agent
-
-or
-
-upgrade capability
-
-or
-
-spawn/create a specialist.
-
-No mission-critical task may remain ownerless.
-
-==================================================
-27. DYNAMIC SPECIALIST CREATION
-==================================================
-
-Where architecture supports it safely:
-
-allow controlled creation of specialist agents when recurring capability gaps are detected.
-
-Before creating one:
-
-prove no existing agent can perform the task adequately.
-
-Every dynamically proposed agent must define:
-
-purpose
-tools
-manager
-inputs
-outputs
-permissions
-cost
-lifetime
-success criterion.
-
-Temporary problem:
-
-temporary specialist.
-
-Recurring critical capability:
-
-consider permanent agent.
-
-==================================================
-28. AGENT CREATOR DOES NOT HAVE UNLIMITED AUTHORITY
-==================================================
-
-Do NOT allow uncontrolled agent multiplication.
-
-Any Agent Creator capability must respect:
-
-maximum agent budgets
-no duplicates
-economic justification
-security limits
-model budgets
-human governance.
-
-Adding agents is a means to complete missing capabilities.
-
-It is NOT a success metric.
-
-==================================================
-29. REASSESS THE CURRENT AGENT ORGANIZATION
-==================================================
-
-Review every current agent and ask:
-
-Is this agent required for the complete $0 → revenue path?
-
-Does it perform real execution?
-
-Does its output feed another agent?
-
-Does it have the tools it needs?
-
-Does another agent already do the same job?
-
-Would a specialist be better?
-
-Would deterministic infrastructure be better?
-
-Can the ecosystem still complete the mission if this agent fails?
-
-Improve accordingly.
-
-==================================================
-30. OPERATIONAL READINESS SCORE
-==================================================
-
-Create an internal operational-readiness assessment.
-
-Evaluate at minimum:
-
-Opportunity Discovery
-
-Opportunity Validation
-
-Offer Creation
-
-Lead Generation
-
-Prospect Enrichment
-
-Qualification
-
-Outreach Preparation
-
-Outreach Execution
-
-Response Monitoring
-
-Response Analysis
-
-Sales Progression
-
-Payment Path
-
-Payment Verification
-
-Fulfillment
-
-Customer Success
-
-Economic Accounting
-
-Memory
-
-Task Continuation
-
-Inter-Agent Delegation
-
-Tool Availability
-
-Persistence
-
-24/7 Operation
-
-Failure Recovery
-
-Agent Self-Improvement.
-
-Each must eventually become:
-
-VERIFIED OPERATIONAL
-
-or
-
-EXTERNAL BLOCKER.
-
-PARTIAL is not final acceptance.
-
-==================================================
-31. EXTERNAL BLOCKERS ARE ALLOWED — INTERNAL BLOCKERS ARE NOT
-==================================================
-
-External blockers include:
-
-missing account authorization
-human identity verification
-payment account setup requiring owner
-CAPTCHA
-external provider outage.
-
-Internal blockers include:
-
-missing agent
-missing code
-missing routing
-bad prompt
-missing database field
-missing event
-missing scheduler
-missing test
-incorrect state transition.
-
-INTERNAL BLOCKERS MUST BE FIXED.
-
-Do not report them as reasons to stop.
-
-==================================================
-32. FIX BEFORE REPORTING
-==================================================
-
-When you discover a deficiency:
-
-DO NOT immediately tell me.
-
-FIX IT.
-
-Then test it.
-
-Then continue.
-
-Only final unresolved external blockers belong in the final report.
-
-==================================================
-33. ITERATE UNTIL END-TO-END CAPABILITY EXISTS
-==================================================
-
-Use this loop:
-
-AUDIT
-↓
-RUN SYSTEM
-↓
-FIND GAP
-↓
-ROOT CAUSE
-↓
-UPGRADE EXISTING AGENT / INFRASTRUCTURE
-OR
-ADD REQUIRED AGENT
-↓
-CONNECT
-↓
-TEST
-↓
-RUN END-TO-END PATH AGAIN
-↓
-FIND NEXT GAP.
-
-Repeat until the entire achievable journey is operational.
-
-==================================================
-34. SECOND INDEPENDENT AUDIT
-==================================================
-
-Once you believe the ecosystem is complete:
-
-DO NOT STOP.
-
-Perform a new audit as if another engineering team implemented it.
-
-Assume mistakes exist.
-
-Verify:
-
-agents
-tools
-permissions
-events
-queues
-database
-memory
-revenue pipeline
-execution
-background workers
-failure handling
-dashboard
-tests.
-
-Fix anything discovered.
-
-==================================================
-35. THIRD-PARTY / EXTERNAL AGENT SUPPORT
-==================================================
-
-If integrations such as Moltbook or other agent networks exist:
-
-they may be used as external intelligence/collaboration resources.
-
-They must never become a required single point of failure.
-
-Internal agents remain responsible for:
-
-verification
-decision
-execution.
-
-External agents may improve the system, but cannot control:
-
-secrets
-permissions
-money
-production
-private memory.
-
-==================================================
-36. DASHBOARD MUST SHOW TRUE CAPABILITY
-==================================================
-
-Upgrade dashboard where needed so owner can see:
-
-PRIMARY REVENUE OWNER
-
-CURRENT STRATEGY
-
-CURRENT BOTTLENECK
-
-NEXT EXECUTABLE ACTION
-
-NEXT EXTERNAL ACTION
-
-OPPORTUNITIES
-
-VALIDATED OPPORTUNITIES
-
-OFFERS
-
-LEADS
-
-QUALIFIED LEADS
-
+QUALIFIED
+CONTACT_READY
 CONTACTED
-
-RESPONSES
-
-CONVERSATIONS
-
-PROPOSALS
-
-CUSTOMERS
-
-PAYMENTS
-
-VERIFIED REVENUE
-
-ACTIVE AGENTS
-
-SLEEPING AGENTS
-
-BLOCKED AGENTS
-
-CURRENT TASK PER AGENT
-
-RESPONSIBILITY PER AGENT
-
-AGENT ECONOMIC ROLE
-
-EXECUTION SCORE
-
-SYSTEM HEALTH.
-
-Do not show fake success.
-
-==================================================
-37. PRIMARY ACCEPTANCE TEST
-==================================================
-
-The ultimate question is:
-
-IF I GIVE THE ECOSYSTEM ONLY THIS GOAL:
-
-"START WITH $0 AND FIND A LEGITIMATE WAY TO MAKE THE FIRST REAL DOLLAR."
-
-CAN IT DETERMINE THE REST ITSELF?
-
-Can it:
-
-choose what to sell?
-
-identify who buys it?
-
-research them?
-
-build an offer?
-
-price it?
-
-find prospects?
-
-collect actual leads?
-
-qualify them?
-
-prepare personalized outreach?
-
-execute authorized outreach?
-
-monitor responses?
-
-reply appropriately?
-
-follow up?
-
-handle objections?
-
-create proposals?
-
-provide a payment path?
-
-detect payment?
-
-verify payment?
-
-fulfill the order?
-
-measure profit?
-
-remember what worked?
-
-repeat the process?
-
-WITHOUT ME HAVING TO MANUALLY TELL IT EACH NEXT STEP?
-
-If the answer to ANY internally solvable part is NO:
-
-THE ECOSYSTEM IS NOT COMPLETE.
-
-FIX IT.
-
-Add or upgrade agents/tools/workflows until the answer becomes YES.
-
-==================================================
-38. DO NOT REQUIRE THE HUMAN TO OPERATE THE AI ORGANIZATION
-==================================================
-
-The owner gives objectives, permissions, credentials where necessary, and major decisions.
-
-The owner should NOT need to act as:
-
-task router
-agent manager
-workflow manager
-research coordinator
-lead researcher
-follow-up reminder
-pipeline manager.
-
-The ecosystem must manage its own ordinary operational progression.
-
-==================================================
-39. FINAL DEFINITION OF FULLY OPERATIONAL
-==================================================
-
-FULLY OPERATIONAL means:
-
-Agents are real.
-
-Agents are connected.
-
-Agents have tools.
-
-Agents execute.
-
-Agents persist work.
-
-Agents continue goals.
-
-Agents recover from failure.
-
-Agents hand work downstream.
-
-No required capability is ownerless.
-
-Missing capabilities trigger repair or specialist creation.
-
-Commercial pipelines contain real objects.
-
-External execution has evidence.
-
-Revenue is verified rather than imagined.
-
-Fulfillment follows sales.
-
-Learning follows outcomes.
-
-The ecosystem can operate continuously.
-
-The ecosystem can autonomously pursue a $0 → revenue objective through every technically accessible stage.
-
-==================================================
-40. FINAL DELIVERABLE
-==================================================
-
-Do not provide the final report until:
-
-all internal issues discovered have been fixed where technically possible
-
-all required missing agents/capabilities have been implemented
-
-all connections have been tested
-
-the end-to-end path has been rerun
-
-a second audit has been completed.
-
-Then report only factual verified results:
-
-FULLY OPERATIONAL CAPABILITIES
-
-AGENTS UPGRADED
-
-NEW AGENTS ADDED
-
-AGENTS MERGED / REMOVED / CONVERTED TO DYNAMIC
-
-TOOLS ADDED / FIXED
-
-PIPELINE CHANGES
-
-EXECUTION CHANGES
-
-24/7 OPERATION STATUS
-
-FAILURE RECOVERY STATUS
-
-END-TO-END TEST RESULTS
-
-REAL INTEGRATIONS VERIFIED
-
-SIMULATED-ONLY INTEGRATIONS
-
-EXTERNAL BLOCKERS
-
-EXACT OWNER ACTION REQUIRED FOR EACH EXTERNAL BLOCKER
-
-CURRENT NEXT EXECUTABLE ACTION
-
-CURRENT PATH TO FIRST REVENUE.
-
-==================================================
-ULTIMATE DIRECTIVE
-==================================================
-
-DO NOT ASK:
-
-"DO WE HAVE ENOUGH AGENTS?"
-
-ASK:
-
-"CAN THE SYSTEM COMPLETE THE MISSION?"
-
-DO NOT ASK:
-
-"DO THE AGENTS UNDERSTAND WHAT TO DO?"
-
-ASK:
-
-"CAN THEY ACTUALLY DO IT?"
-
-DO NOT ACCEPT:
-
-ADVICE IN PLACE OF EXECUTION.
-
-DO NOT ACCEPT:
-
-A PROMPT IN PLACE OF A CAPABILITY.
-
-DO NOT ACCEPT:
-
-A DASHBOARD CARD IN PLACE OF A WORKING AGENT.
-
-DO NOT ACCEPT:
-
-A MOCK TEST IN PLACE OF A WORKING INTEGRATION.
-
-DO NOT ACCEPT:
-
-A COMPLETED SUBTASK IN PLACE OF AN ACHIEVED GOAL.
-
-DO NOT ACCEPT:
-
-"WE NEED X"
-
-WHEN THE SYSTEM CAN CREATE X ITSELF.
-
-IF A REQUIRED CAPABILITY DOES NOT EXIST:
-
-BUILD IT.
-
-IF AN EXISTING AGENT CAN BE IMPROVED:
-
-IMPROVE IT.
-
-IF A SPECIALIST AGENT IS REQUIRED:
-
-ADD IT.
-
-IF AN AGENT IS DUPLICATED:
-
-MERGE IT.
-
-IF AN AGENT CANNOT EXECUTE:
-
-FIX IT.
-
-IF A WORKFLOW STOPS:
-
-REPAIR IT.
-
-IF A TOOL IS MISSING:
-
-IMPLEMENT OR INTEGRATE THE BEST AVAILABLE ZERO-COST OPTION WHERE POSSIBLE.
-
-THEN TEST EVERYTHING AGAIN.
-
-THE FINAL STANDARD IS NOT THAT THE ECOSYSTEM KNOWS THE PATH FROM $0 TO REVENUE.
-
-THE FINAL STANDARD IS THAT THE ECOSYSTEM CAN ACTUALLY EXECUTE THE ENTIRE AVAILABLE PATH FROM $0 TO REAL EXTERNAL REVENUE AND CONTINUE OPERATING AFTERWARD, WITH THE OWNER REQUIRED ONLY FOR GENUINE EXTERNAL AUTHORIZATION, CREDENTIALS, OR HIGH-RISK DECISIONS.
-
-KEEP AUDITING, FIXING, EXPANDING, CONNECTING, TESTING, AND RE-TESTING UNTIL THAT STANDARD IS MET.
+REPLIED
+NEGOTIATING
+AGREED
+WORKING
+QA
+DELIVERED
+PAYMENT_REQUESTED
+PAYMENT_PENDING
+PAID
+WITHDRAWABLE
+WITHDRAWN
+REJECTED
+FAILED
+EXTERNAL_BLOCKER
+
+Правила доказательств:
+
+- CONTACTED требует message ID, email receipt или публичный URL.
+- REPLIED требует настоящий ответ.
+- AGREED требует предмет работы, цену и условия.
+- DELIVERED требует URL, файл, PR или хеш результата.
+- PAYMENT_REQUESTED требует сумму и маршрут.
+- PAID требует transaction hash или receipt платёжного провайдера.
+- WITHDRAWABLE требует подтверждение доступности вывода.
+- WITHDRAWN требует подтверждение поступления в контролируемое владельцем место.
+
+Черновик не является отправкой.
+
+Лид не является клиентом.
+
+HTTP 402 не является платежом.
+
+Начисление, которое невозможно вывести, не является доступной прибылью.
+
+============================================================
+8. ПОИСК ВОЗМОЖНОСТЕЙ
+============================================================
+
+Искать шире GitHub, Bazaar и Coinbase:
+
+- freelance marketplaces;
+- bounty boards;
+- bug bounty programs;
+- public job boards;
+- contractor requests;
+- open-source issues;
+- hackathons;
+- contests;
+- grants;
+- community job boards;
+- startup request boards;
+- public requests for automation;
+- documentation needs;
+- localization needs;
+- product support requests;
+- data requests;
+- API integration requests;
+- social media requests;
+- podcast and video production requests;
+- public business contacts;
+- inbound traffic;
+- MCP registries;
+- x402 catalogs;
+- client referrals;
+- affiliate programs;
+- sponsorship opportunities.
+
+Для каждой возможности проверять:
+
+- работа реально открыта;
+- заказчик существует;
+- бюджет реален;
+- конкуренция;
+- соответствие нашим возможностям;
+- время выполнения;
+- вероятность принятия;
+- способ выплаты;
+- возможность получить и вывести выплату;
+- необходимые аккаунты;
+- KYC;
+- ограничения страны;
+- минимальный порог;
+- комиссии;
+- ожидаемую чистую прибыль;
+- time to cash.
+
+============================================================
+9. ПРИОРИТИЗАЦИЯ
+============================================================
+
+Не отдавать приоритет криптовалюте только потому, что она криптовалюта.
+
+Не отдавать приоритет Base только потому, что адаптер уже существует.
+
+Ранжировать возможности по:
+
+expected_net_value
+× probability_of_acceptance
+× payout_reachability
+÷ time_to_cash
+÷ execution_cost
+÷ competition
+
+При равных условиях выбирать:
+
+1. работу с уже объявленным бюджетом;
+2. небольшую задачу с быстрой приёмкой;
+3. заказ с доступным способом выплаты;
+4. услугу, которую можно выполнить существующими инструментами;
+5. повторяемую услугу;
+6. продукт, который затем можно продавать многократно.
+
+============================================================
+10. АГЕНТЫ
+============================================================
+
+Не создавать отдельного агента для каждой валюты или сети.
+
+Создай способности и адаптеры.
+
+Существующие агенты должны покрывать:
+
+- prospector: все способы заработка;
+- leads: покупатели;
+- salesman: проблема и предложение;
+- closer: контакт, ответ и договорённость;
+- executor: выполнение;
+- craftsman: технический QA;
+- verifier: проверка доказательств;
+- adversary: поиск причин отказа;
+- distributor: видимость;
+- postman/channel_manager: реальная доставка сообщений;
+- merchant: цена;
+- payment_router/payment_collector: выбор и проверка выплаты;
+- watchdog: зависшие задачи;
+- mechanic/improver: технические дефекты;
+- orchestrator: маршрутизация.
+
+Каждый агент должен иметь:
+
+- модель рассуждения;
+- system prompt;
+- инструменты;
+- память;
+- состояние;
+- события;
+- state machine;
+- permissions;
+- retry;
+- журнал;
+- KPI;
+- cloud scheduler;
+- тесты.
+
+============================================================
+11. OUTREACH
+============================================================
+
+Использовать только законные и авторизованные каналы:
+
+- Gmail OAuth;
+- SMTP;
+- GitHub;
+- business contact forms;
+- разрешённые social APIs;
+- marketplace messaging;
+- inbound forms;
+- EmailOctopus только для opt-in подписчиков.
+
+Каждая отправка должна возвращать доказательство.
+
+Если канал не подключён, отметить EXTERNAL_BLOCKER.
+
+Не записывать подготовленное письмо как отправленное.
+
+Не рассылать массовый спам.
+
+Не создавать ложные личности.
+
+Не обходить CAPTCHA.
+
+============================================================
+12. x402 ЯВЛЯЕТСЯ ОДНИМ ИЗ АДАПТЕРОВ
+============================================================
+
+Сохрани и исправь x402-сервис, но не строй вокруг него всю стратегию.
+
+Исправить совместимость x402 v2:
+
+- PAYMENT-REQUIRED;
+- PAYMENT-SIGNATURE;
+- PAYMENT-RESPONSE;
+- verify;
+- settle;
+- idempotency;
+- Base USDC как один поддерживаемый маршрут.
+
+Успешный x402-сервис не даёт права игнорировать другие способы заработка и выплаты.
+
+============================================================
+13. АДАПТИВНОЕ ОБУЧЕНИЕ
+============================================================
+
+Обучаться по настоящим исходам:
+
+- найдено;
+- квалифицировано;
+- отправлено;
+- получен ответ;
+- принято;
+- выполнено;
+- доставлено;
+- оплачено;
+- доступно к выводу;
+- выведено.
+
+Не считать полезной работой:
+
+- число циклов;
+- одинаковые отчёты;
+- повторные проверки без изменения;
+- созданные черновики;
+- пустые результаты после ошибки API.
+
+Если направление не приносит продвижения, снижать его приоритет и искать новые направления.
+
+Если направление приводит к ответам или оплате, выделять ему больше ресурсов.
+
+============================================================
+14. CLOUD И DASHBOARD
+============================================================
+
+Критическая система должна работать независимо от локального компьютера.
+
+Dashboard должен показывать по каждому способу заработка:
+
+- найдено;
+- квалифицировано;
+- contacted;
+- replied;
+- agreed;
+- working;
+- delivered;
+- payment requested;
+- paid;
+- withdrawable;
+- withdrawn;
+- gross;
+- fees;
+- net;
+- currency;
+- provider;
+- network;
+- доказательство;
+- blocker;
+- время последнего cloud-события.
+
+Не показывать Base/USDC как основную сеть.
+
+Показывать распределение по всем платёжным маршрутам.
+
+============================================================
+15. КРИТЕРИИ ГОТОВНОСТИ
+============================================================
+
+Система не считается готовой только потому, что:
+
+- создано много агентов;
+- найдено много лидов;
+- создан платный API;
+- написаны письма;
+- опубликован dashboard;
+- тесты прошли.
+
+Она считается функциональной, когда существует несколько независимых рабочих revenue pipelines, каждый из которых способен пройти:
+
+возможность
+→ контакт или заявка
+→ исполнение
+→ доставка
+→ запрос оплаты
+→ подтверждение получения.
+
+Миссия считается выполненной после первого настоящего стороннего платежа любым законным и доступным способом.
+
+============================================================
+16. ФИНАЛЬНЫЙ ОТЧЁТ
+============================================================
+
+Покажи таблицу:
+
+Revenue method
+Opportunity source
+Buyer
+Agent owner
+Execution capability
+Contact channel
+Delivery channel
+Payment options
+Payout accessibility
+Current state
+Evidence
+Expected net value
+Time to cash
+Blocker
+Next action
+
+Отдельно укажи:
+
+- какие способы действительно подключены;
+- какие только исследованы;
+- какие имеют реальные заявки;
+- какие имеют реальные отправленные сообщения;
+- какие имеют ответы;
+- какие имеют выполненную работу;
+- какие имеют начисление;
+- какие имеют доступный вывод;
+- какие имеют подтверждённую прибыль;
+- какие новые способы система обнаружила самостоятельно.
+
+Не ограничивай поиск заранее заданным списком, платформой, валютой или сетью.
+Продолжай расширять пространство возможностей и исполнять лучшие из них, пока не будет получен первый настоящий сторонний доход.
