@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS bounties (
   -- ОБЪЯВИЛ ЛИ НАГРАДУ САМ ПРОЕКТ. Признак вычислялся и терялся сразу
   -- после оценки, поэтому дальше по конвейеру никто не мог отличить
   -- объявленную награду от суммы, которую написал посторонний.
+  -- КОГДА ЗАПИСЬ ПОДТВЕРЖДЕНА В ПОСЛЕДНИЙ РАЗ. Без этого столбца находка,
+  -- которую источник подтверждает каждый час, выглядела вчерашней: мы
+  -- писали только дату ПЕРВОЙ встречи, и со стороны казалось, что поиск
+  -- стоит на месте.
+  last_seen TEXT,
   declared INTEGER,
   declared_proof TEXT,
   status TEXT NOT NULL DEFAULT 'found',   -- found | shortlisted | attempted | won | lost
@@ -66,6 +71,11 @@ OUR_STACK = {"python": 1.0, "javascript": 0.9, "typescript": 0.9, "shell": 0.8,
 SPAM_HINTS = ("bounty-", "-bounty", "bounties", "airdrop", "reward-hub",
               "-test", "test-", "playground-farm", "radar")
 MIN_STARS_FOR_BIG = 40      # крупная сумма от малоизвестного репозитория недостоверна
+# Нижний предел известности для ЛЮБОЙ суммы. Репозиторий, не нашедший и десятка
+# читателей, вряд ли найдёт деньги: метка bounty на своей же задаче ничего не
+# стоит её автору. Поймано на живой заявке — она ушла в репозиторий с одной
+# звездой, чьё имя дословно значит «тестовый аккаунт».
+MIN_STARS_ANY = 10
 BIG_AMOUNT = 200.0
 MAX_PER_REPO = 2            # ферма выдаёт десятки однотипных задач из одного места
 MAX_PER_REPO_OFFSITE = 8    # агрегатор чужих конкурсов фермой не является
@@ -320,14 +330,62 @@ def search(limit=60):
     #   label:bounty          4 019 задач — 95% мусор: боты-радары и security-программы
     #   "/attempt #"        407 831 задача — слово встречается в любом CI-логе, бесполезно
     # Поэтому первым идёт след платёжного бота, а широкие запросы — только хвостом.
+    #
+    # ЧТО ДОБАВЛЕНО И ПОЧЕМУ. Замер воронки показал неприятное: из шестидесяти
+    # задач с GitHub до конца не доходила НИ ОДНА. Семь проходили первые
+    # заслоны — и среди них «$50 Fix typo in README» и «$50 Add JSDoc», ровно
+    # наш класс работы, — но все умирали на заслоне «не больше трёх
+    # соперников»: у той площадки было сорок восемь и пятьдесят три
+    # претендента.
+    #
+    # Отсюда вывод, который не следовал из общих соображений: искать надо не
+    # «любые баунти», а те, что МЫ УМЕЕМ ЗАКРЫТЬ ДОКАЗУЕМО и куда не сбежалась
+    # толпа. Документация и перевод — единственный класс, где мы можем
+    # отчитаться построчной сверкой с исходниками, и именно его в списке
+    # запросов не было вовсе.
+    #
+    # Свежесть тоже важна: задача разбирается за часы, и запрос без ограничения
+    # по дате приносит то, что разобрали неделю назад.
+    # ПОРЯДОК ЗАДАН ЗАМЕРОМ 12 СЕНТЯБРЯ, И ЗАМЕР ОПРОВЕРГ ПРЕЖНИЙ.
+    #
+    # Раньше первым шёл след платёжного бота: считалось, что там «почти все
+    # находки настоящие». Проверка на живой выдаче показала обратное — из
+    # тридцати его задач сумму удалось разобрать у ДВУХ. А метка «💵 Bounty»,
+    # которую мы не искали ни разу, дала двадцать четыре из двадцати семи.
+    #
+    # Отдача каждого запроса (найдено -> из них с настоящей суммой):
+    #   label:"💵 Bounty"                 27 -> 24   мы её не знали вовсе
+    #   label:bounty + documentation      25 -> 16   НАШ класс работы
+    #   "bounty" + "translation"          26 -> 10   НАШ класс работы
+    #   "/bounty" python, свежие          30 ->  6
+    #   label:"💎 Bounty"                 30 ->  5
+    #   "/bounty" typescript, свежие      30 ->  3
+    #   "/bounty" всё, с сентября         30 ->  3
+    #   commenter:algora-pbc              30 ->  2   стоял ПЕРВЫМ
+    #   label:bounty + i18n                2 ->  2   мало, но всё по делу
+    #   label:"bounty 💰"                 10 ->  2
+    #   "gitcoin" в теле                  10 ->  1
+    #   label:"💰 Bounty"                 13 ->  0   выброшен
+    #   "bounty" + label:documentation    17 ->  0   выброшен
+    #   commenter:polar-sh                 1 ->  0   выброшен
+    #   label:"help wanted" + docs         0 ->  0   выброшен
+    #   algora-pbc + label:bug             1 ->  0   выброшен
+    #
+    # Порядок важен не из эстетики: список обрезается по пределу, и запрос,
+    # стоящий последним, до обработки может не дожить. Раньше бюджет съедали
+    # именно те, что давали ноль.
     queries = [
-        'commenter:algora-pbc state:open is:issue',
-        'commenter:algora-pbc state:open is:issue label:bug',
+        'label:"💵 Bounty" state:open is:issue archived:false',
+        'label:bounty state:open is:issue label:documentation archived:false',
+        '"bounty" in:body state:open is:issue "translation" created:>2026-08-15',
+        '"/bounty" in:body state:open is:issue language:python created:>2026-08-15',
         'label:"💎 Bounty" state:open is:issue archived:false',
-        'label:"💰 Bounty" state:open is:issue archived:false',
-        '"/bounty" in:body state:open is:issue language:python',
-        '"/bounty" in:body state:open is:issue language:typescript',
-        '"/bounty" in:body state:open is:issue created:>2026-08-01',
+        '"/bounty" in:body state:open is:issue language:typescript created:>2026-08-15',
+        '"/bounty" in:body state:open is:issue created:>2026-09-01',
+        'commenter:algora-pbc state:open is:issue',
+        'label:bounty state:open is:issue label:i18n archived:false',
+        'label:"bounty 💰" state:open is:issue archived:false',
+        '"gitcoin" in:body state:open is:issue created:>2026-08-15',
     ]
     seen, rows = set(), []
     for q in queries:
@@ -422,6 +480,25 @@ def enrich_and_score(rows):
             continue
         if amount >= BIG_AMOUNT and stars < MIN_STARS_FOR_BIG:
             continue          # $1250 от репозитория с 8 звёздами — почти всегда мусор
+
+        # ПЛАТЁЖЕСПОСОБНОСТЬ, А НЕ ТОЛЬКО ОБЪЯВЛЕНИЕ. Проверка «награду объявил
+        # проект» смотрит метку и права автора — и этого мало. Владелец
+        # репозитория с ОДНОЙ звездой может повесить метку bounty на свою же
+        # задачу, ничего не имея в виду и ничем не отвечая.
+        #
+        # Поймано на живой заявке: первая настоящая заявка ушла в репозиторий
+        # cuentaprueba244w-dotcom — по-испански это дословно «тестовый аккаунт»,
+        # одна звезда, заведён три месяца назад. Формально всё сходилось: метка
+        # есть, задачу завёл владелец. По существу платить там некому.
+        #
+        # Признак платёжеспособности — либо известность репозитория, либо след
+        # платёжной площадки в обсуждении. Без хотя бы одного из двух объявление
+        # остаётся словами.
+        backed = (stars >= MIN_STARS_ANY
+                  or any(k in body.lower() for k in
+                         ("algora", "polar.sh", "gitcoin", "bountysource")))
+        if not backed:
+            continue
 
         # ДОЙДУТ ЛИ ДЕНЬГИ — проверяем ДО оценки работы
         pay = payout_reachable(repo, body)
@@ -603,6 +680,54 @@ def search_offsite(per_site=8):
     return rows
 
 
+def ingest(rows, source, declared=True, note=""):
+    """Кладёт находки стороннего источника в общий конвейер работы.
+
+    ЗАЧЕМ ЭТО ПОЯВИЛОСЬ. Мы подключили Devpost и Hacker News, написали к ним
+    инструменты — и эти инструменты ВОЗВРАЩАЛИ СТРОКУ В ЧАТ. Девять открытых
+    конкурсов находились каждый цикл и выбрасывались, потому что попасть в
+    таблицу работы им было неоткуда. Со стороны это выглядело ровно так, как
+    сказал владелец: поиск зациклен и показывает одни и те же пять задач.
+
+    Источник, чьи находки никуда не записываются, — это не источник, а
+    упражнение. Разница между «мы это видим» и «система с этим работает»
+    проходит здесь, в одной функции.
+
+    rows — список словарей: url, title, amount_usd, и по желанию note.
+    Возвращает (сколько новых, сколько подтверждено заново).
+    """
+    if not rows:
+        return 0, 0
+    c = _con()
+    new = seen = 0
+    for r in rows:
+        url = r.get("url")
+        if not url:
+            continue
+        exists = c.execute("SELECT id FROM bounties WHERE url=?", (url,)).fetchone()
+        amount = float(r.get("amount_usd") or 0)
+        payload = (url, source, str(r.get("title") or "")[:180], amount, "USD",
+                   0, "", source, round(amount * 0.02, 1), 0, "неизвестно",
+                   (note or r.get("note") or "")[:300], now(),
+                   1 if declared else 0,
+                   r.get("declared_proof") or f"опубликовано площадкой {source}")
+        try:
+            c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,stars,
+                         language,labels,fit_score,rivals,payout,note,found_at,
+                         declared,declared_proof)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                         ON CONFLICT(url) DO UPDATE SET
+                           amount_usd=excluded.amount_usd,
+                           status='found',
+                           last_seen=excluded.found_at""", payload)
+            new += 0 if exists else 1
+            seen += 1 if exists else 0
+        except Exception:
+            continue
+    c.commit(); c.close()
+    return new, seen
+
+
 def hunt(limit=60):
     """Полный заход: найти, оценить, записать."""
     _API_TROUBLE.clear()
@@ -636,9 +761,23 @@ def hunt(limit=60):
     # значит однажды вложить работу в разобранное. Поймано на tscircuit#92:
     # 72 заявки и уже выплаченные $75, а в базе висело «соперников 0».
     alive = {r["url"] for r in rows}
+    # СМЕТАЕМ ТОЛЬКО ТО, ЧТО САМИ И ПРОВЕРЯЛИ.
+    #
+    # Здесь была тихая потеря, объяснявшая жалобу владельца «поиск зациклен и
+    # показывает одни и те же пять задач». Заход помечал «потерянным» ВСЁ, чего
+    # не увидел сам, — включая находки других источников. Девять конкурсов с
+    # Devpost заходили в конвейер и стирались следующим же заходом охотника,
+    # который про Devpost ничего не знает.
+    #
+    # Отсутствие в МОЕЙ выдаче не означает исчезновения задачи: оно означает,
+    # что я туда не смотрел. Это ровно то различие между молчанием и пустотой,
+    # которое мы соблюдаем везде, — и не соблюдали здесь.
+    OWN = ("github.com",)          # источники, которые этот заход действительно обходит
     stale = c.execute("SELECT url,repo FROM bounties WHERE status='found'").fetchall()
     dropped = 0
     for url, repo in stale:
+        if not any(d in (url or "") for d in OWN):
+            continue               # чужой источник — не мне решать, жива ли она
         if url not in alive:
             c.execute("UPDATE bounties SET status='lost', note=? WHERE url=?",
                       ("не прошла повторную проверку: разобрана, выплачена или недостижима", url))
