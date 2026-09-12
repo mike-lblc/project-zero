@@ -25,7 +25,9 @@ name: Agents cycle
 on:
   schedule:
     - cron: '*/15 * * * *'
-    - cron: '17 */2 * * *'
+    # Двухчасовой сквозной аудит отменён владельцем: одного полного прогона
+    # достаточно. Локально его сняли, а здесь расписание осталось и ещё сутки
+    # запускало аудит — и роняло прогон, когда аудит находил провал.
   workflow_dispatch:
 
 concurrency:
@@ -78,9 +80,9 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Сквозной аудит каждые два часа
+      - name: Сквозной аудит — только по ручному запуску
         id: deep_audit
-        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 */2 * * *'
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         run: python ops/deep_audit.py
 
@@ -158,9 +160,11 @@ jobs:
           import sys; sys.path.insert(0, '.')
           from core import regressions
           regressions.seed()
-          ok, bad, fails = regressions.run(verbose=False)
+          # run() возвращает ещё и пропущенные; жёсткая распаковка в три
+          # значения роняла этот шаг девять прогонов подряд.
+          ok, bad, fails, skipped = regressions.run(verbose=False)
           print(f"инвариантов в каталоге: {regressions.count()}, "
-                f"прошло {ok}, упало {bad}")
+                f"прошло {ok}, упало {bad}, пропущено {len(skipped) if hasattr(skipped, '__len__') else skipped}")
           for name, detail, _ in fails:
               print(f"::warning::инвариант нарушен — {name}: {detail}")
           PY

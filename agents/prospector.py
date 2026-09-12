@@ -27,7 +27,7 @@
 уходит совету. Разведчик приносит проверенные варианты и честно говорит,
 какие из них закрыты и чем именно.
 """
-import sys, re, urllib.request, urllib.error
+import sys, re, json, urllib.request, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS money_paths (
 CREATE TABLE IF NOT EXISTS path_categories (
   id INTEGER PRIMARY KEY,
   category TEXT NOT NULL UNIQUE,
-  searched_at TEXT,
+  searched_at TEXT,                  -- когда поиск по классу ОТРАБОТАЛ
+  tried_at TEXT,                     -- когда его пытались искать, с любым исходом
+  queries TEXT,                      -- запросы класса, найденного рынком (JSON)
   found INTEGER DEFAULT 0,
   open_found INTEGER DEFAULT 0
 );
@@ -155,10 +157,8 @@ CATEGORIES = {
                              "decentralized scraping rewards contributors"],
 
     # ── платят за внимание и рекомендацию ─────────────────────────────
-    "партнёрские отчисления": ["developer affiliate program pays usdc",
-                               "referral program crypto payout no kyc"],
     "спонсорство сопровождения": ["open source maintainer sponsorship crypto",
-                                  "github sponsors alternative crypto payout"],
+                                  "project sponsorship program tools companies pay"],
     "донаты за инструмент": ["donation platform developers crypto tips",
                              "tip jar open source crypto"],
     "платные подписки на контент": ["paid newsletter platform crypto payout",
@@ -187,6 +187,107 @@ CATEGORIES = {
                                "introduction commission marketplace"],
     "арбитраж информации": ["sell market research reports independent analyst",
                             "paid research subscription niche data"],
+
+    # ── СПОСОБЫ ИЗ GND §4, КОТОРЫХ В ОБХОДЕ НЕ БЫЛО ─────────────────────
+    # Соответствие всех пятидесяти способов классам — в GND_METHODS ниже.
+    "заказы на бирже труда": ["freelance marketplace crypto payout no interview",
+                              "remote contract gig paid in usdc"],
+    "разовые деловые услуги": ["one-off b2b automation gig paid",
+                               "small business needs automation budget posted"],
+    "регулярное обслуживание": ["monthly retainer automation service small business",
+                                "recurring data maintenance contract b2b"],
+    "обработка документов": ["pdf data extraction job paid",
+                             "document processing outsourcing request"],
+    "очистка данных": ["data cleaning job paid remote",
+                       "deduplicate normalize dataset contract"],
+    "составление отчётов": ["automated report generation contract paid",
+                            "weekly business report outsourcing"],
+    "конкурентная разведка": ["competitive intelligence report paid",
+                              "competitor monitoring service request b2b"],
+    "мониторинг рынков": ["price monitoring service request paid",
+                          "market alert tracking contract"],
+    "поисковый контент": ["seo article writing paid per article crypto",
+                          "content writer needed seo remote paid"],
+    "технический поисковый аудит": ["technical seo audit contract paid",
+                                    "site crawl audit freelance paid"],
+    "аудит доступности": ["accessibility audit wcag contract paid",
+                          "a11y remediation job remote"],
+    "аудит сайтов": ["website qa audit gig paid",
+                     "broken links performance audit contract"],
+    "аудит api": ["api audit contract paid",
+                  "openapi spec review job paid"],
+    "автоматизация процессов": ["business process automation contract paid",
+                                "workflow automation freelance job"],
+    "клиентские агенты": ["build custom ai agent for client paid",
+                          "ai agent development contract remote"],
+    "базы знаний": ["knowledge base creation contract paid",
+                    "internal wiki documentation project paid"],
+    "поддержка пользователей": ["customer support outsourcing ai paid",
+                                "support ticket triage contract"],
+    "поиск клиентов на заказ": ["lead generation paid per lead crypto",
+                                "b2b prospect list research contract"],
+    "персонализация писем": ["email personalization service paid",
+                             "outreach copywriting per message paid"],
+    "ведение соцсетей": ["social media management contract small business",
+                         "content scheduling service paid"],
+    "мониторинг репутации": ["brand mention monitoring contract",
+                             "review monitoring service paid"],
+    "переработка подкастов": ["podcast repurposing service paid",
+                              "podcast transcript show notes job"],
+    "переработка видео": ["video to blog post repurposing paid",
+                          "youtube transcript article service paid"],
+    "небольшие утилиты": ["micro saas utility paying users indie",
+                          "sell small developer tool one-time license"],
+    "продажа лицензий": ["software license sales indie developer platform",
+                         "sell commercial license open source dual licensing"],
+    "доля выручки": ["revenue share partnership developers",
+                     "rev share integration partner program"],
+    "платные исследования": ["paid research study participation developers",
+                             "expert interview paid crypto"],
+    "презентации и документы": ["presentation deck production paid",
+                                "business document formatting job paid"],
+    "таблицы и бизнес-данные": ["spreadsheet automation job paid",
+                                "excel google sheets business data contract"],
+    "реферальные вознаграждения": ["referral reward program usdc",
+                                   "invite reward program crypto payout"],
+}
+
+# СООТВЕТСТВИЕ СПОСОБАМ GND §4. Директива перечисляет пятьдесят способов и
+# называет список открытым. Каждый способ указывает на класс обхода; способы,
+# которые уже покрывались нашими классами под другими именами, повторно не
+# заводятся. Пятидесятый — «любой новый законный способ» — это не класс, а
+# механизм: DISCOVERED пополняется тем, что нашёл рынок.
+#
+# Потолка здесь нет и быть не должно. Директива прямо запрещает цель вроде
+# «проверять только 50 способов»: число классов растёт вместе с
+# доказательствами. Проверка в evals требует, чтобы каждый номер указывал на
+# существующий класс, — и больше ничего.
+GND_METHODS = {
+    1: "каталоги платных api",               2: "рынок агентов и инструментов",
+    3: "продажа api через агентские платежи", 4: "разовые деловые услуги",
+    5: "регулярное обслуживание",            6: "заказы на бирже труда",
+    7: "баунти за код",                      8: "баунти за безопасность",
+    9: "конкурсы и хакатоны",                10: "конкурсы и хакатоны",
+    11: "гранты",                            12: "спонсорство открытого кода",
+    13: "техническая документация",          14: "перевод и локализация",
+    15: "обработка документов",              16: "сбор и отдача данных",
+    17: "очистка данных",                    18: "составление отчётов",
+    19: "конкурентная разведка",             20: "мониторинг рынков",
+    21: "поисковый контент",                 22: "технический поисковый аудит",
+    23: "аудит доступности",                 24: "аудит сайтов",
+    25: "аудит api",                         26: "автоматизация процессов",
+    27: "клиентские агенты",                 28: "базы знаний",
+    29: "поддержка пользователей",           30: "поиск клиентов на заказ",
+    31: "персонализация писем",              32: "ведение соцсетей",
+    33: "мониторинг репутации",              34: "переработка подкастов",
+    35: "переработка видео",                 36: "рынки шаблонов",
+    37: "небольшие утилиты",                 38: "продажа лицензий",
+    39: "платные подписки на контент",       40: "партнёрские отчисления",
+    41: "реферальные вознаграждения",        42: "доля выручки",
+    43: "спонсорство сопровождения",         44: "донаты за инструмент",
+    45: "продажа готовых наборов",           46: "тестирование продуктов",
+    47: "платные исследования",              48: "презентации и документы",
+    49: "таблицы и бизнес-данные",           50: None,   # механизм, а не класс
 }
 
 # СТЕНЫ. Слова, по которым площадка сама себя выдаёт. Ловим не догадкой,
@@ -251,6 +352,18 @@ SKIP_DOMAINS = ("reddit.com", "medium.com", "youtube.com", "x.com", "twitter.com
 
 
 # ---------------------------------------------------------------- 1. разведка
+def pick_due(ordered, space, n):
+    """Первые n классов очереди, у которых есть запросы, и отдельно — сироты.
+
+    Сирота — строка в базе без запросов: переименованный класс или класс,
+    найденный рынком и потерянный. Искать по ней нечем, и если пустить её в
+    очередь, она займёт место навсегда.
+    """
+    due = [c for c in ordered if c in space][:n]
+    orphans = [c for c in ordered if c not in space]
+    return due, orphans
+
+
 def discover(categories=2, per_query=6):
     """Живой поиск площадок по нескольким классам за заход.
 
@@ -262,13 +375,39 @@ def discover(categories=2, per_query=6):
     from agents import scout
 
     con = _con()
+    # Классы, найденные рынком, живут в базе, а не в памяти процесса. Раньше
+    # они терялись при каждом перезапуске: строка в path_categories оставалась,
+    # а запросов у неё больше не было.
+    for cat, q in con.execute("SELECT category, queries FROM path_categories "
+                              "WHERE queries IS NOT NULL").fetchall():
+        try:
+            DISCOVERED.setdefault(cat, json.loads(q))
+        except ValueError:
+            pass
     space = {**CATEGORIES, **DISCOVERED}     # мой список плюс найденное рынком
     for cat in space:
         con.execute("INSERT OR IGNORE INTO path_categories(category) VALUES (?)", (cat,))
     con.commit()
-    due = [r[0] for r in con.execute(
-        "SELECT category FROM path_categories ORDER BY COALESCE(searched_at,'') LIMIT ?",
-        (categories,)).fetchall()]
+    # ОЧЕРЕДЬ ПО ПОПЫТКЕ, А НЕ ПО УСПЕХУ. Здесь обход стоял сутками.
+    #
+    # Порядок шёл по searched_at, а searched_at честно не ставится, если
+    # поисковик не ответил, — пустой ответ не значит, что денег нет. Но из
+    # этого следовало, что неотвеченный класс навсегда оставался первым в
+    # очереди. Вторым таким был класс «продажа данных»: его переименовали, в
+    # базе строка осталась, запросов у неё нет, и отработать она не могла
+    # никогда. Журнал: «разведаны классы: продажа данных, предсказания и рынки»
+    # — одно и то же при каждом заходе, а семьдесят остальных классов ждали.
+    #
+    # Теперь ротация идёт по tried_at: неудача сдвигает класс в конец очереди
+    # и не засчитывается как поиск. А строка, у которой нет запросов, в
+    # очередь не попадает вовсе.
+    rows = con.execute("SELECT category FROM path_categories "
+                       "ORDER BY COALESCE(tried_at, searched_at, ''), id").fetchall()
+    due, orphans = pick_due([r[0] for r in rows], space, categories)
+    stamp = now()
+    for cat in due:
+        con.execute("UPDATE path_categories SET tried_at=? WHERE category=?", (stamp, cat))
+    con.commit()
     con.close()
 
     added = 0
@@ -319,7 +458,11 @@ def discover(categories=2, per_query=6):
                                         f"дал ни одного ответа. Возвращаю его в очередь — "
                                         f"пустой ответ не значит, что там нет денег.")
 
-    return f"разведаны классы: {', '.join(due)}; новых площадок {added}"
+    out = f"разведаны классы: {', '.join(due)}; новых площадок {added}"
+    if orphans:
+        out += (f"; строк без запросов вне очереди: {len(orphans)} "
+                f"({', '.join(orphans[:3])})")
+    return out
 
 
 # ---------------------------------------------------------------- 2. проверка о стены
@@ -572,10 +715,12 @@ def expand():
             "INSERT INTO sources(url,title,fetched_at,raw_excerpt) VALUES (?,?,?,?)",
             (f"https://{platform}", f"способ заработка со страницы {platform}",
              now(), phrase[:300])).lastrowid
-        con.execute("INSERT OR IGNORE INTO path_categories(category) VALUES (?)", (name,))
         # запрос для нового класса строится из самой найденной фразы
         DISCOVERED[name] = [f"{phrase} platform pays crypto",
                             f"{phrase} marketplace payout"]
+        con.execute("INSERT OR IGNORE INTO path_categories(category) VALUES (?)", (name,))
+        con.execute("UPDATE path_categories SET queries=? WHERE category=?",
+                    (json.dumps(DISCOVERED[name], ensure_ascii=False), name))
         added += 1
         _ = sid
     con.commit(); con.close()

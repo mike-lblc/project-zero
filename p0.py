@@ -57,6 +57,20 @@ def _pids(pattern, names):
     return [p.strip() for p in out.split() if p.strip().isdigit()]
 
 
+def _server_pids(port=PORT):
+    """Процесс службы — тот, кто СЛУШАЕТ наш порт, а не тот, чьё имя похоже.
+
+    Прежний поиск искал «server.js» в командной строке и при первой же
+    настоящей остановке снял вместе с дашбордом два чужих процесса: у
+    MCP-сервера @magicuidesign/mcp файл называется так же. Выключатель,
+    который гасит чужие программы, хуже отсутствия выключателя. Порт
+    принадлежит ровно одному процессу, и ошибиться по нему нельзя.
+    """
+    out = _ps(f"(Get-NetTCPConnection -LocalPort {port} -State Listen "
+              f"-ErrorAction SilentlyContinue).OwningProcess | Sort-Object -Unique")
+    return [x.strip() for x in out.split() if x.strip().isdigit() and x.strip() != "0"]
+
+
 PY_NAMES = ("pythonw.exe", "python.exe", "py.exe", "pyw.exe")
 NODE_NAMES = ("node.exe",)
 
@@ -94,7 +108,7 @@ def _cloud_state():
 
 def status():
     worker = _pids("agents/worker.py", PY_NAMES)
-    server = _pids("server.js", NODE_NAMES)
+    server = _server_pids()
     print("=" * 66)
     print("P0 — ЧТО СЕЙЧАС РАБОТАЕТ")
     print("=" * 66)
@@ -110,18 +124,72 @@ def status():
     return 0
 
 
+# МЕТКА ВЫКЛЮЧАТЕЛЯ. Пульт кладёт KILL_SWITCH при остановке и снимает при
+# пуске — но только СВОЙ. Если владелец положил его сам, как аварийный тормоз,
+# «пуск» его не тронет: чужое решение остановиться пульт не отменяет.
+SWITCH_MARK = "поставлен пультом p0.py"
+
+
+def _kill_switch_path():
+    from core import guard
+    return guard.KILL_SWITCH
+
+
+def _unload_models():
+    """Выгружает локальные модели из памяти. Сам Ollama не трогает.
+
+    Мешает работе не процесс Ollama — в простое он занимает десятки мегабайт, —
+    а загруженная модель: qwen3-coder:30b держит в памяти около восемнадцати
+    гигабайт. Ollama стоит в автозагрузке и может быть нужен владельцу для
+    чего-то своего, поэтому выключатель освобождает память, а не убивает
+    чужую программу.
+    """
+    import json as _json
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/ps", timeout=5) as r:
+            models = [m["name"] for m in _json.load(r).get("models", [])]
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+    for name in models:
+        body = _json.dumps({"model": name, "keep_alive": 0}).encode()
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                "http://127.0.0.1:11434/api/generate", data=body,
+                headers={"Content-Type": "application/json"}), timeout=30).read()
+        except (urllib.error.URLError, OSError):
+            pass
+    return models
+
+
 def stop():
     print("останавливаю домашнюю часть...")
     for t in TASKS:
         _ps(f"Disable-ScheduledTask -TaskName '{t}' -ErrorAction SilentlyContinue | Out-Null")
         print(f"  задача {t}: выключена")
-    for pat, names, label in (("agents/worker.py", PY_NAMES, "воркер"),
-                              ("server.js", NODE_NAMES, "служба")):
-        pids = _pids(pat, names)
+    # ГОНКА, КОТОРУЮ НАДО БЫЛО ЗАКРЫТЬ. Сторож, запущенный планировщиком за
+    # секунду до отключения задачи, успевал поднять воркер уже после нашей
+    # остановки. Поэтому сначала снимаются сами сторож и аудит, а KILL_SWITCH
+    # ставится ДО остановки воркера: если что-то всё же поднимет его, он
+    # остановится на первом же обороте.
+    for pat in ("keep_alive.py", "hourly_audit.py"):
+        for pid in _pids(pat, PY_NAMES):
+            subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True,
+                           creationflags=0x08000000)
+    ks = _kill_switch_path()
+    if not ks.exists():
+        ks.write_text(SWITCH_MARK + "\n", encoding="utf-8")
+    for label, pids in (("воркер", _pids("agents/worker.py", PY_NAMES)),
+                        ("служба", _server_pids())):
         for pid in pids:
             subprocess.run(["taskkill", "/PID", pid, "/F"], capture_output=True,
                            creationflags=0x08000000)
         print(f"  {label}: {'остановлен, № ' + ', '.join(pids) if pids else 'уже не работал'}")
+    models = _unload_models()
+    if models is None:
+        print("  локальные модели: Ollama не отвечает — выгружать нечего")
+    else:
+        print(f"  локальные модели: выгружено из памяти {len(models)}"
+              + (f" ({', '.join(models)})" if models else ""))
     print("\nдомашняя часть выключена.")
     print("ОБЛАКО ПРОДОЛЖАЕТ РАБОТАТЬ — прогон каждые 15 минут.")
     print("Чтобы остановить и его: py -3.13 -X utf8 p0.py облако-стоп")
@@ -130,10 +198,18 @@ def stop():
 
 def start():
     print("включаю домашнюю часть...")
+    ks = _kill_switch_path()
+    if ks.exists():
+        if SWITCH_MARK in ks.read_text(encoding="utf-8", errors="ignore"):
+            ks.unlink()
+        else:
+            print("  KILL_SWITCH положен НЕ пультом — это чьё-то решение остановиться.")
+            print(f"  Пуск отменён. Если остановка больше не нужна, удалите файл: {ks}")
+            return 1
     for t in TASKS:
         _ps(f"Enable-ScheduledTask -TaskName '{t}' -ErrorAction SilentlyContinue | Out-Null")
         print(f"  задача {t}: включена")
-    if not _pids("server.js", NODE_NAMES):
+    if not _server_pids():
         background(["node", "server.js"], cwd=ROOT / "service",
                    log=str(ROOT / "data" / "server.log"))
         print("  служба: запущена")
@@ -141,6 +217,12 @@ def start():
         background(["python", "agents/worker.py", "60"], cwd=ROOT,
                    log=str(ROOT / "data" / "worker.log"))
         print("  воркер: запущен")
+    if not _ollama():
+        try:
+            background(["ollama", "serve"], cwd=ROOT, log=str(ROOT / "data" / "ollama.log"))
+            print("  локальные модели: Ollama запущен")
+        except OSError:
+            print("  локальные модели: Ollama не найден — мышление уйдёт в облако")
     time.sleep(7)
     print()
     return status()
@@ -160,7 +242,39 @@ def cloud(enable):
     return 0 if ok else 1
 
 
+def menu():
+    """Для ярлыка на рабочем столе: показать состояние и спросить, что сделать."""
+    status()
+    print()
+    print('  1 — ВЫКЛЮЧИТЬ (агенты, дашборд, сторож; память моделей освобождается)')
+    print('  2 — ВКЛЮЧИТЬ обратно')
+    print('  Enter — ничего не менять')
+    try:
+        ans = input('\nваш выбор: ').strip()
+    except EOFError:
+        return 0
+    if ans == '1':
+        return stop()
+    if ans == '2':
+        return start()
+    print('ничего не изменено')
+    return 0
+
+
+def toggle():
+    """Одна кнопка: работает — выключить, стоит — включить.
+
+    Работающим считается то, что работает на деле: живой воркер или хотя бы
+    одна включённая задача планировщика, которая поднимет его через пять минут.
+    """
+    enabled = any(_task_state(t) in ("Ready", "Running") for t in TASKS)
+    if _pids("agents/worker.py", PY_NAMES) or enabled:
+        return stop()
+    return start()
+
+
 CMDS = {"": status, "статус": status, "status": status,
+        "переключить": toggle, "toggle": toggle, "menu": menu, "меню": menu,
         "стоп": stop, "stop": stop, "off": stop,
         "пуск": start, "start": start, "on": start,
         "облако-стоп": lambda: cloud(False), "cloud-off": lambda: cloud(False),

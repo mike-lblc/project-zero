@@ -34,3 +34,6 @@ data/code_backups/
 
 # 9 МБ, пересоздаётся запросом к DefiLlama раз в шесть часов:
 data/defi_protocols.json
+
+# выключатель пульта — локальное решение этой машины, в облако уезжать не должен
+data/KILL_SWITCH

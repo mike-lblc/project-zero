@@ -26,14 +26,81 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect, ensure_schema
 
 # Раздел 38: машина состояний. Переходы разрешены только по этой таблице.
+# КОНВЕЙЕР СДЕЛКИ — ОТ НАХОДКИ ДО ВЫВЕДЕННЫХ ДЕНЕГ.
+#
+# Раньше состояний было шесть, и они описывали ЗАДАЧУ АГЕНТА: взял, сделал,
+# бросил. Директива требует описывать СДЕЛКУ С ПОКУПАТЕЛЕМ, а это другой путь и
+# он длиннее: между «нашли» и «деньги у владельца» лежит полтора десятка
+# состояний, и каждое из них люди привычно перескакивают.
+#
+# Перескок — главная опасность, ради которой этот список и существует. Черновик
+# записывали как отправленное, лида как клиента, ответ 402 как платёж, а
+# начисление, которое нельзя вывести, как прибыль. Каждое такое смешение
+# однажды случилось и стоило нам правдивого отчёта.
+#
+# СТАРЫЕ ИМЕНА СОХРАНЕНЫ КАК ПСЕВДОНИМЫ ниже: в базе лежат задачи со старыми
+# состояниями, и переименовать их одним движением значило бы потерять историю.
 STATES = {
-    "queued":    {"running", "cancelled"},
-    "running":   {"done", "failed", "blocked"},
-    "failed":    {"queued", "blocked", "cancelled"},   # провал -> следующая попытка
-    "blocked":   {"queued", "cancelled"},              # блокер снят -> обратно в очередь
-    "done":      set(),                                # done окончателен
+    # находка и оценка
+    "DISCOVERED":        {"QUALIFIED", "REJECTED"},
+    "QUALIFIED":         {"CONTACT_READY", "REJECTED", "EXTERNAL_BLOCKER"},
+    "CONTACT_READY":     {"CONTACTED", "REJECTED", "EXTERNAL_BLOCKER"},
+
+    # разговор
+    "CONTACTED":         {"REPLIED", "REJECTED", "FAILED"},
+    "REPLIED":           {"NEGOTIATING", "AGREED", "REJECTED"},
+    "NEGOTIATING":       {"AGREED", "REJECTED"},
+    "AGREED":            {"WORKING", "FAILED", "EXTERNAL_BLOCKER"},
+
+    # исполнение
+    "WORKING":           {"QA", "FAILED", "EXTERNAL_BLOCKER"},
+    "QA":                {"DELIVERED", "WORKING", "FAILED"},
+    "DELIVERED":         {"PAYMENT_REQUESTED", "FAILED"},
+
+    # деньги
+    "PAYMENT_REQUESTED": {"PAYMENT_PENDING", "PAID", "FAILED"},
+    "PAYMENT_PENDING":   {"PAID", "FAILED", "EXTERNAL_BLOCKER"},
+    "PAID":              {"WITHDRAWABLE", "WITHDRAWN"},
+    "WITHDRAWABLE":      {"WITHDRAWN", "EXTERNAL_BLOCKER"},
+
+    # концы
+    "WITHDRAWN":         set(),
+    "REJECTED":          set(),
+    "FAILED":            {"QUALIFIED", "EXTERNAL_BLOCKER"},   # провал даёт новую попытку
+    "EXTERNAL_BLOCKER":  {"QUALIFIED", "REJECTED"},
+
+    # СТАРЫЕ ИМЕНА. Задачи агентов продолжают ими пользоваться, пока не
+    # переведены поимённо. Удалять их сейчас значило бы оборвать работающее.
+    "queued":    {"running", "cancelled", "DISCOVERED"},
+    "running":   {"done", "failed", "blocked", "WORKING"},
+    "failed":    {"queued", "blocked", "cancelled"},
+    "blocked":   {"queued", "cancelled"},
+    "done":      set(),
     "cancelled": set(),
 }
+
+# ЧТО ТРЕБУЕТСЯ ПРЕДЪЯВИТЬ ДЛЯ ПЕРЕХОДА. Состояние без доказательства — это
+# заявление, а директива требует именно доказательств. Переход без нужного
+# следа отвергается, а не записывается с оговоркой: запись с оговоркой через
+# неделю читается как факт.
+EVIDENCE_REQUIRED = {
+    "CONTACTED":         "идентификатор сообщения, квитанция письма или публичный URL",
+    "REPLIED":           "настоящий ответ другой стороны, а не наше предположение",
+    "AGREED":            "предмет работы, цена и условия",
+    "DELIVERED":         "URL, файл, PR или хеш результата",
+    "PAYMENT_REQUESTED": "сумма и маршрут получения",
+    "PAID":              "хеш транзакции или квитанция платёжного провайдера",
+    "WITHDRAWABLE":      "подтверждение, что вывод действительно доступен",
+    "WITHDRAWN":         "подтверждение поступления туда, чем владелец распоряжается",
+}
+
+# Чем НЕ является доказательство. Список короткий и весь выстрадан.
+NOT_EVIDENCE = (
+    "черновик не является отправкой",
+    "лид не является клиентом",
+    "HTTP 402 не является платежом — это приглашение заплатить",
+    "начисление, которое нельзя вывести, не является доступной прибылью",
+)
 
 # Раздел 5: ТОЛЬКО это считается настоящим блокером.
 REAL_BLOCKERS = {
@@ -101,6 +168,10 @@ CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state, money_proximity);
 """
 
 
+class MissingEvidence(Exception):
+    """Переход требует следа, которого нет. Отказ, а не предупреждение."""
+
+
 class InvalidTransition(Exception): pass
 class NoProof(Exception): pass
 class FakeBlocker(Exception): pass
@@ -148,7 +219,18 @@ def _transition(task_id, to_state, note=None):
     if to_state not in STATES.get(cur, set()):
         c.close()
         raise InvalidTransition(f"переход {cur} -> {to_state} запрещён машиной состояний")
-    attempts = row[1] + (1 if to_state == "running" else 0)
+
+    # ДОКАЗАТЕЛЬСТВО ПРОВЕРЯЕТСЯ ЗДЕСЬ, а не доверяется вызывающему. Проверка
+    # на стороне вызывающего — это просьба, а не правило: её обходят случайно,
+    # переписав одну ветку.
+    need = EVIDENCE_REQUIRED.get(to_state)
+    if need and not (note and len(str(note).strip()) >= 12):
+        c.close()
+        raise MissingEvidence(
+            f"переход в {to_state} требует доказательства: {need}. "
+            f"Состояние без доказательства — это заявление, а не факт.")
+
+    attempts = row[1] + (1 if to_state in ("running", "WORKING") else 0)
     c.execute("UPDATE tasks SET state=?, attempts=?, updated_at=? WHERE id=?",
               (to_state, attempts, now(), task_id))
     c.execute("INSERT INTO task_events(task_id,from_state,to_state,note,at) VALUES (?,?,?,?,?)",

@@ -19,36 +19,163 @@ def _get(url, timeout=30):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode("utf-8", "ignore")
 
+# ПОИСКОВИКИ. Проверено живыми запросами 2026-09-13.
+#
+# Прежний порядок был brave → bing → duckduckgo, и поиск тихо умер, не бросив
+# ни одной ошибки. Brave отвечал 429, DuckDuckGo рвал TLS на html-версии, а
+# Bing отдавал 120 КБ разметки — и цикл на этом останавливался, потому что
+# условием выхода была ДЛИНА страницы, а не найденные результаты. Шаблон Bing
+# при этом не совпадал ни разу (`<h2>` стал `<h2 class="">`), и наружу уходил
+# пустой список. Проспектор принимал его за «в этом классе ничего нет» и
+# крутил один и тот же класс сутками.
+#
+# Bing из списка УБРАН, а не починен: на запрос «prediction market api rewards
+# accuracy» он отдаёт десять страниц про актрису Кэтлин Тёрнер. Это подменённая
+# выдача для роботов. Починив разбор, мы бы начали записывать чешские
+# киносайты в площадки заработка.
+#
+# Маскироваться под браузер, чтобы обойти такую защиту, мы НЕ будем. Это
+# обход проверки, отличающей человека от машины, и он запрещён нашими же
+# правилами. Поэтому здесь только те, кто отвечает честному роботу по делу:
+#   duckduckgo lite  — выдача по запросу, ссылки завёрнуты в /l/?uddg=
+#   marginalia       — открытый API для машин, ключ «public» объявлен ими самими
+#   brave            — работает, но быстро упирается в 429
+# Mojeek проверен и отвечает капчей — капчу мы не решаем, он не подключён.
+ENGINES = (
+    ("ddg-lite", "https://lite.duckduckgo.com/lite/?q={q}", "html"),
+    ("marginalia", "https://api.marginalia.nu/public/search/{q}?count=20", "json"),
+    ("brave", "https://search.brave.com/search?q={q}", "html"),
+)
+_PATTERNS = {
+    "ddg-lite": (r"<a[^>]+href=\"([^\"]+)\"[^>]+class=.result-link.[^>]*>(.*?)</a>",
+                 r"<a[^>]+class=.result-link.[^>]+href=\"([^\"]+)\"[^>]*>(.*?)</a>"),
+    "brave": (r'<a[^>]+href="(https?://[^"]+)"[^>]*>\s*<div[^>]*>(.*?)</div>',),
+}
+# Сколько секунд не трогать движок, ответивший 429. В памяти процесса — это
+# только экономия запросов: забытая пауза стоит один лишний отказ, а не
+# неверный вывод.
+_COOLDOWN = {}
+COOLDOWN_SEC = 900
+# Не чаще одного обращения к движку за столько секунд. DuckDuckGo после пяти
+# запросов подряд показал проверку «выберите квадраты с утками». Слишком
+# частый движок пропускается в пользу следующего; а если заняты ВСЕ, поиск
+# ждёт ближайший — не дольше этого интервала. Сдаться здесь значило бы снова
+# выдать нашу торопливость за поломку источника.
+MIN_GAP_SEC = 20
+_LAST = {}
+# Признаки проверки «человек ли вы». Встретив их, мы уходим, а не решаем.
+_HUMAN_CHECK = re.compile(r"(?i)captcha|confirm this search was made by a human|"
+                          r"are you a robot|unusual traffic")
+_STOP = {"the", "and", "for", "with", "from", "that", "this", "your", "you",
+         "paid", "pays", "free", "open", "remote", "service", "platform"}
+
+
+def _unwrap(href):
+    """Настоящий адрес из обёртки поисковика."""
+    import html as _html
+    href = _html.unescape(href)
+    if href.startswith("//"):
+        href = "https:" + href
+    m = re.search(r"[?&]uddg=([^&]+)", href)
+    return urllib.parse.unquote(m.group(1)) if m else href
+
+
+def _relevant(query, url, title):
+    """Есть ли в результате хоть одно значимое слово запроса.
+
+    Проверка грубая намеренно: она не оценивает качество, она ловит подмену —
+    выдачу, которая к запросу не относится вовсе.
+    """
+    words = [w for w in re.findall(r"[a-z0-9]{4,}", query.lower()) if w not in _STOP]
+    hay = (url + " " + title).lower()
+    return not words or any(w in hay for w in words)
+
+
+def _parse(name, kind, body):
+    if kind == "json":
+        return [(r.get("url", ""), r.get("title", "")) for r in json.loads(body).get("results", [])]
+    for pat in _PATTERNS[name]:
+        found = re.findall(pat, body, re.S)
+        if found:
+            return found
+    return []
+
+
 def search(query, limit=8):
-    """Free search, no API key. DuckDuckGo returns a 202 challenge from this network
-    and intermittently fails TLS, so try engines in order and degrade gracefully
-    instead of throwing. Measured 2026-09-10: bing/brave return real markup."""
+    """Бесплатный поиск без ключа. ТРИ ИСХОДА, И ОНИ НЕ СМЕШИВАЮТСЯ:
+
+      список результатов          — поиск прошёл, результаты относятся к запросу;
+      пустой список               — хотя бы один движок честно ответил «ничего»;
+      [{"error": ...}]            — ни один движок не дал годного ответа.
+
+    Пустой список, за которым стоит поломка, — это ровно та ошибка, из-за
+    которой обход рынка стоял: молчание источника принималось за отсутствие
+    работы. Страница, из которой шаблон не извлёк ни одной ссылки, — это НЕ
+    «ничего не найдено», это «не прочитали», и она уходит в ошибки.
+    """
     guard.check_action("research", "GREEN")
-    engines = [
-        ("https://search.brave.com/search?q=", r'<a[^>]+href="(https?://[^"]+)"[^>]*>\s*<div[^>]*>(.*?)</div>'),
-        ("https://www.bing.com/search?q=", r'<h2><a[^>]+href="(https?://[^"]+)"[^>]*>(.*?)</a>'),
-        ("https://html.duckduckgo.com/html/?q=", r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>'),
-    ]
-    html, pattern, errs = None, None, []
-    for base, pat in engines:
-        try:
-            html = _get(base + urllib.parse.quote(query)); pattern = pat
-            if html and len(html) > 40000:
-                break
-        except Exception as e:
-            errs.append(f"{base.split('/')[2]}:{type(e).__name__}")
-            html = None
-    if not html:
-        return [{"error": "all engines failed: " + ", ".join(errs)}]
-    out, seen = [], set()
-    for m in re.finditer(pattern, html, re.S):
-        href = m.group(1); title = re.sub(r"<[^>]+>", "", m.group(2)).strip()
-        if href in seen or "microsoft.com/bing" in href:
+    import time
+    errs, honest_empty = [], False
+    free = [time.time() - _LAST.get(n, 0) >= MIN_GAP_SEC
+            for n, _, _ in ENGINES if _COOLDOWN.get(n, 0) <= time.time()]
+    if free and not any(free):
+        wait = min(MIN_GAP_SEC - (time.time() - _LAST.get(n, 0))
+                   for n, _, _ in ENGINES if _COOLDOWN.get(n, 0) <= time.time())
+        time.sleep(max(0.0, min(wait, MIN_GAP_SEC)) + 0.1)
+    for name, tpl, kind in ENGINES:
+        if _COOLDOWN.get(name, 0) > time.time():
+            errs.append(f"{name}: пауза после отказа")
             continue
-        seen.add(href); out.append({"url": href, "title": title})
-        if len(out) >= limit:
-            break
-    return out
+        if time.time() - _LAST.get(name, 0) < MIN_GAP_SEC:
+            errs.append(f"{name}: слишком часто, пропущен")
+            continue
+        _LAST[name] = time.time()
+        try:
+            body = _get(tpl.format(q=urllib.parse.quote(query)), timeout=25)
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                _COOLDOWN[name] = time.time() + COOLDOWN_SEC
+            errs.append(f"{name}: HTTP {e.code}")
+            continue
+        except Exception as e:
+            errs.append(f"{name}: {type(e).__name__}")
+            continue
+        try:
+            raw = _parse(name, kind, body)
+        except ValueError:
+            errs.append(f"{name}: ответ не разобран")
+            continue
+        if not raw:
+            # Проверяем ПОСЛЕ разбора: слово «captcha» встречается и в скриптах
+            # обычной страницы с результатами, и по нему одному судить нельзя.
+            if _HUMAN_CHECK.search(body or ""):
+                _COOLDOWN[name] = time.time() + COOLDOWN_SEC * 2
+                errs.append(f"{name}: проверка «человек ли вы» — не решаем, пауза")
+                continue
+            if kind == "json":
+                honest_empty = True          # API сказал «ничего» явно
+            else:
+                errs.append(f"{name}: разметка не разобрана")
+            continue
+        out, seen = [], set()
+        for href, title in raw:
+            url = _unwrap(href)
+            title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", title)).strip()
+            if not url.startswith("http") or url in seen:
+                continue
+            if not _relevant(query, url, title):
+                continue
+            seen.add(url)
+            out.append({"url": url, "title": title, "engine": name})
+            if len(out) >= limit:
+                break
+        if out:
+            return out
+        errs.append(f"{name}: выдача не относится к запросу — похоже на подмену")
+    if honest_empty:
+        return []
+    return [{"error": "поиск не выполнен: " + "; ".join(errs)}]
+
 
 def fetch_and_store(url):
     """Fetch a page, strip to text, store a source row. Returns (source_id, text)."""

@@ -112,7 +112,7 @@ def service_alive():
 def check():
     acted = []
 
-    procs = running("worker.py")
+    procs = running("agents/worker.py")
     age = log_age()
     stale = age is None or age > STALE_SECONDS
 
@@ -125,7 +125,7 @@ def check():
         # снаружи выглядит живым. Снимаем и поднимаем заново.
         subprocess.run(["powershell", "-NoProfile", "-Command",
                         "Get-CimInstance Win32_Process -Filter \"" + KILL_NAMES + "\" | "
-                        "Where-Object { $_.CommandLine -like '*worker.py*' } | "
+                        "Where-Object { $_.CommandLine -like '*agents/worker.py*' } | "
                         "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True, timeout=90)
         start_worker()
         acted.append(f"воркер перезапущен (процесс висел, но журнал молчал "
@@ -136,7 +136,7 @@ def check():
         # один, лишние снимаем.
         subprocess.run(["powershell", "-NoProfile", "-Command",
                         "Get-CimInstance Win32_Process -Filter \"" + KILL_NAMES + "\" | "
-                        "Where-Object { $_.CommandLine -like '*worker.py*' } | "
+                        "Where-Object { $_.CommandLine -like '*agents/worker.py*' } | "
                         "Sort-Object CreationDate | Select-Object -Skip 1 | "
                         "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], capture_output=True, timeout=90)
         acted.append(f"лишних воркеров снято: {procs - 1} (двойная запись в базу "

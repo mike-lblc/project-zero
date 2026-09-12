@@ -195,58 +195,48 @@ def wallet():
 
 # ---------------------------------------------------------------- 1. THE MISSION
 def watch_payments():
-    """Watch the Base address for incoming USDC. This is how the proof is detected.
-    Free, no API key: Blockscout public API."""
-    addr = wallet()
-    if not addr:
-        return "no wallet configured"
-    say("orchestrator", f"Проверяю кошелёк {addr[:10]}…{addr[-6:]} на Base — не пришёл ли первый платёж. "
-                        f"Это единственное, что доказывает миссию.")
-    url = f"https://base.blockscout.com/api/v2/addresses/{addr}/token-transfers?type=ERC-20"
-    try:
-        d = json.loads(get(url, 25))
-    except Exception as e:
-        return f"payment watch unavailable ({type(e).__name__})"
-    items = d.get("items") or []
-    con = connect()
-    new = 0
-    for t in items:
-        h = (t.get("transaction_hash") or t.get("tx_hash") or "")
-        if not h:
-            continue
-        to = ((t.get("to") or {}).get("hash") or "").lower()
-        if to != addr.lower():
-            continue          # only INCOMING counts
-        tok = t.get("token") or {}
-        dec = int(tok.get("decimals") or 6)
-        raw = (t.get("total") or {}).get("value") or t.get("value") or "0"
-        try:
-            amt = str(int(raw) / (10 ** dec))
-        except Exception:
-            amt = str(raw)
-        try:
-            con.execute("INSERT OR IGNORE INTO payments(chain,tx_hash,amount,asset,received_at,attributed_to) "
-                        "VALUES (?,?,?,?,?,?)",
-                        ("base", h, amt, tok.get("symbol") or "?",
-                         t.get("timestamp") or now(), "x402-bazaar-rank"))
-            if con.total_changes:
-                new += 1
-        except Exception:
-            pass
-    con.commit()
-    con.close()
-    if new:
+    """Смотрит ВСЕ проверенные маршруты получения, а не один адрес.
+
+    Так было не всегда, и разница принципиальная. Прежняя версия читала один адрес
+    в сети Base и записывала поступления с жёстко зашитым chain='base'. Работа,
+    платящая иначе, не то чтобы отклонялась — её просто некуда было принять, и
+    это сужало рынок сильнее любого фильтра, причём молча: в журнале выглядело
+    как «платежей нет», а не как «мы туда не смотрим».
+
+    Директива требует, чтобы сеть и валюта были ОДНИМ ИЗ адаптеров. Сейчас
+    проверены и наблюдаются пять: Base, Ethereum, Polygon, Arbitrum и биткоин.
+    Каждая опрашивается своим обозревателем — общего бесплатного не существует.
+
+    Отказ обозревателя докладывается как отказ. Молчание сети и отсутствие
+    денег в ней — разные вещи, и путать их нельзя.
+    """
+    from core import payment, payment_watch
+
+    verified = [r for r in payment.routes() if r["status"] == "verified"]
+    if not verified:
+        payment.seed()
+        payment_watch.verify_routes()
+        verified = [r for r in payment.routes() if r["status"] == "verified"]
+
+    nets = sorted({r["network"] for r in verified if r.get("network")})
+    say("orchestrator", f"Проверяю поступления на {len(nets)} маршрутах: "
+                        f"{', '.join(nets)}. Это единственное, что доказывает миссию.")
+
+    before = payment.state_of_money().get("получено", 0)
+    result = payment_watch.watch()
+    after = payment.state_of_money().get("получено", 0)
+    new = after - before
+
+    if new > 0:
         from core import events
-        events.publish("payment_received", {"count": new, "address": addr},
-                       source="worker")
-        say("orchestrator", f"🎉 ПЛАТЁЖ! Пришло {new} входящих перевода. Если платил не владелец — "
-                            f"миссия доказана: агенты заработали с нуля.")
-        note("orchestrator", f"*** PAYMENT DETECTED *** {new} incoming transfer(s) to {addr}. "
-                             f"MISSION CONDITION MET if from a third party.", conf=1.0)
+        events.publish("payment_received", {"count": new}, source="worker")
+        say("orchestrator", f"🎉 ПЛАТЁЖ! Записано {new} новых поступлений с настоящим "
+                            f"хешем. Если платил не владелец — миссия доказана.")
+        note("orchestrator", f"*** PAYMENT DETECTED *** {new} incoming transfer(s) "
+                             f"across verified routes. MISSION CONDITION MET if from "
+                             f"a third party.", conf=1.0)
         return f"NEW PAYMENTS: {new}"
-    say("orchestrator", f"Платежей пока нет ({len(items)} переводов в истории). Ждём. "
-                        f"Сервис живой, но нас ещё никто не нашёл — узкое место сейчас в этом.")
-    return f"no incoming payments yet ({len(items)} transfers seen)"
+    return result
 
 
 # ---------------------------------------------------------------- 2. PRODUCT DATA
@@ -848,7 +838,16 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("improve_code", _src("improve_code")),
               # Оповещение покупателя. В редких намеренно: предел — одно
               # обращение в сутки, и чаще его звать незачем.
-              ("reach_out", _src("reach_out"))]
+              ("reach_out", _src("reach_out")),
+              # РОЛИ, НАЗВАННЫЕ ДИРЕКТИВОЙ. Сбор платежей идёт по всем
+              # проверенным маршрутам, а не по одному адресу; закрывающий
+              # смотрит ответы; проверяющий перепроверяет доказательства;
+              # управляющий каналами следит, чтобы канал был доказан отправкой.
+              ("verify_routes", _src("verify_routes")),
+              ("check_replies", _src("check_replies")),
+              ("verify_evidence", _src("verify_evidence")),
+              ("channel_health", _src("channel_health")),
+              ("money_report", _src("money_report"))]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 
 # ═══════════════════════════════════════ ЧТО МОЖЕТ РАБОТАТЬ В ОБЛАКЕ
@@ -914,6 +913,11 @@ CLOUD_STEPS = [
     "guard_knowledge",     # уроки лежат и в репозитории, не только в базе
     "improve_code",        # правка кода моделью с откатом при ухудшении
     "reach_out",           # оповестить покупателя его же числами
+    "verify_routes",       # какими путями нам вообще можно заплатить
+    "check_replies",       # ответил ли кто-нибудь
+    "verify_evidence",     # доказательство должно доказывать
+    "channel_health",      # канал доказан отправкой или это не канал
+    "money_report",        # шесть состояний денег по отдельности
 ]
 
 # Чего в облаке нет и почему — без умолчаний:
