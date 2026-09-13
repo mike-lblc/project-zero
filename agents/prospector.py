@@ -637,100 +637,118 @@ DISCOVERED = {}          # классы, найденные не мной, а в
 
 
 def expand():
-    """Добавляет классы заработка, которых НЕ БЫЛО в моём списке.
+    """Добавляет способы заработка, названные РЫНКОМ ДЕНЬГАМИ, а не словами.
 
-    Зачем. Владелец спросил, почему классов всего двенадцать, — и вопрос был
-    по существу. Любой перечень, написанный заранее, это граница моего
-    воображения, а не граница рынка. Список вырос до трёх десятков, но
-    остался списком.
+    Прежняя версия читала сырой HTML открытых площадок и искала обороты
+    «earn by …», «get paid to …». На современных сайтах-SPA текст рисует
+    JavaScript, и в сыром HTML этих слов нет: за сутки способ находился ноль
+    раз. Оборот, который всё же попадался, был мусором вроде «doing great work
+    in any domain» — фильтр верно его отбрасывал, и в итоге не оставалось
+    ничего. Источник был выбран неверно.
 
-    Здесь граница снимается. Страницы уже найденных площадок читаются в
-    поисках оборотов, которыми рынок сам описывает заработок: «earn by …»,
-    «get paid to …», «rewards for …». Каждый такой оборот — это способ
-    заработать, названный не мной. Найденное становится новым классом со
-    своим поисковым запросом и уходит в общий обход.
+    Здесь источник структурный и с деньгами: каталог x402 (14 тысяч служб с
+    описанием, ценой, числом вызовов и ЧИСЛОМ ПЛАТЕЛЬЩИКОВ). Каждая запись —
+    это возможность, за которую агенты уже платят. Способ заработка = вид
+    возможности, у которого есть спрос и много независимых поставщиков, а у нас
+    в обходе такого класса нет: значит, построить и продавать такую службу —
+    направление, названное рынком, а не мной.
 
-    Класс без источника не добавляется: у каждого нового записана площадка,
-    на странице которой он встретился.
+    Класс добавляется, только если:
+      * фраза содержит настоящую возможность (существительное из CAP_NOUNS),
+        а не служебные слова вроде «how many» или «one call»;
+      * её предлагают НЕ МЕНЕЕ пяти независимых провайдеров — один поставщик
+        это не категория, а его особенность;
+      * за неё платят (сумма плательщиков выше порога);
+      * её ещё нет в нашем обходе (нет пересечения ключевых слов с классами).
+    Доказательство у каждого нового класса — числа каталога, не догадка.
     """
+    import json as _json
+    from collections import defaultdict
     guard.check_action("research", "GREEN")
-    con = _con()
-    rows = con.execute("""SELECT platform FROM money_paths
-                          WHERE open_to_us=1 OR payout='crypto'
-                          ORDER BY score DESC LIMIT 8""").fetchall()
-    known = {r[0] for r in con.execute("SELECT category FROM path_categories")}
-    con.close()
-    if not rows:
-        return "нечего читать: открытых площадок ещё нет"
 
-    # Обороты, которыми площадки описывают заработок. Берём то, что идёт ПОСЛЕ
-    # них: это и есть способ заработка, названный чужими словами.
-    HOOKS = (r"earn (?:money |crypto |rewards? )?(?:by|for|from) ([a-z][a-z \-]{6,45})",
-             r"get paid (?:to|for) ([a-z][a-z \-]{6,45})",
-             r"rewards? for ([a-z][a-z \-]{6,45})",
-             r"paid (?:to|for) ([a-z][a-z \-]{6,45})",
-             r"bounties? for ([a-z][a-z \-]{6,45})")
-    # Слова-пустышки: встречаются в обороте, но класса не образуют.
-    NOISE = ("you", "your", "us", "it", "this", "them", "more", "free", "the",
-             "any", "great", "our", "their", "every", "all", "each", "some",
-             "doing", "being", "getting", "having", "making it", "just")
-    # Оборот превращается в класс, только если называет РАБОТУ. Без этого
-    # фильтра из страниц вычитывается словесная труха вроде «doing great work
-    # in any»: грамматически подходит, а искать по ней нечего. Класс, который
-    # нельзя превратить в осмысленный запрос, засоряет обход и вытесняет
-    # настоящие направления.
-    WORK = ("build", "writ", "test", "review", "audit", "translat", "document",
-            "design", "develop", "deploy", "run", "host", "label", "annotat",
-            "report", "find", "fix", "solv", "creat", "publish", "maintain",
-            "moderat", "verif", "curat", "index", "monitor", "secur", "integrat",
-            "train", "tun", "benchmark", "research", "analyz", "support",
-            "contribut", "submit", "answer", "compet", "forecast", "predict")
+    catalog = ROOT / "worker" / "catalog.slim.json"
+    if not catalog.exists():
+        return "каталог x402 недоступен — расширять нечем (это не «способов нет»)"
+    try:
+        rows = _json.loads(catalog.read_text(encoding="utf-8"))
+    except ValueError:
+        return "каталог x402 не прочитался — пропускаю, данные не выдумываю"
 
-    found = {}
-    for (platform,) in rows:
-        html = _get("https://" + platform)
-        if not html:
+    # Существительные-возможности: фраза без такого слова категорией не считается.
+    CAP_NOUNS = ("balance", "price", "contract", "metadata", "supply", "receipt",
+                 "gas", "rpc", "resolve", "quote", "swap", "lookup", "feed",
+                 "oracle", "index", "search", "sentiment", "forecast", "image",
+                 "audio", "video", "text", "translate", "summary", "transaction",
+                 "token", "nft", "domain", "wallet", "block", "holder", "transfer",
+                 "chart", "news", "weather", "geocode", "email", "screenshot",
+                 "pdf", "ocr", "embedding", "vector", "route", "dns", "whois")
+    STOP = set("the a an for of to and or with your you any all get set new via "
+               "data api service based on in by from is are this that its real time "
+               "how many much one call list every into against outside primary".split())
+
+    demand = defaultdict(lambda: [0, 0, set()])   # фраза -> [плательщики, службы, провайдеры]
+    import re as _re
+    for r in rows:
+        payers = int(r.get("y") or 0)
+        if payers <= 0:
             continue
-        text = _text(html).lower()
-        for hook in HOOKS:
-            for m in re.finditer(hook, text):
-                phrase = re.sub(r"\s+", " ", m.group(1)).strip(" -")
-                words = [w for w in phrase.split() if w not in NOISE]
-                if len(words) < 2:
-                    continue
-                phrase = " ".join(words[:5])
-                if len(phrase) < 10:
-                    continue
-                if not any(w in phrase for w in WORK):
-                    continue          # оборот не называет работу — не класс
-                found.setdefault(phrase, platform)
+        host = (r.get("u") or "").split("//")[-1].split("/")[0]
+        desc = (r.get("d") or "").lower()
+        for m in _re.finditer(r"([a-z]{3,}) ([a-z]{3,})", desc):
+            w1, w2 = m.group(1), m.group(2)
+            if w1 in STOP or w2 in STOP:
+                continue
+            if w1 not in CAP_NOUNS and w2 not in CAP_NOUNS:
+                continue
+            ph = w1 + " " + w2
+            demand[ph][0] += payers
+            demand[ph][1] += 1
+            demand[ph][2].add(host)
 
-    added = 0
+    # Слова, уже покрытые нашими классами и их запросами: по ним не расширяемся.
+    covered = " ".join([c for c in CATEGORIES] +
+                       [q for v in CATEGORIES.values() for q in v] +
+                       list(DISCOVERED)).lower()
+
+    ranked = sorted(((v[0], v[1], len(v[2]), ph) for ph, v in demand.items()
+                     if len(v[2]) >= 5 and v[0] >= 150), reverse=True)
+
     con = _con()
-    for phrase, platform in list(found.items())[:12]:
-        name = "найдено на рынке: " + phrase
-        if name in known:
+    added, examples = 0, []
+    for payers, svcs, provs, ph in ranked:
+        if added >= 8:
+            break
+        if any(w in covered for w in ph.split()):
+            continue                      # ключевое слово уже в обходе
+        name = "рынок платит за: " + ph
+        if con.execute("SELECT 1 FROM path_categories WHERE category=?", (name,)).fetchone():
             continue
+        queries = [f"{ph} x402 paid api", f"sell {ph} api agents crypto",
+                   f"{ph} service monetize developers"]
+        DISCOVERED[name] = queries
         sid = con.execute(
             "INSERT INTO sources(url,title,fetched_at,raw_excerpt) VALUES (?,?,?,?)",
-            (f"https://{platform}", f"способ заработка со страницы {platform}",
-             now(), phrase[:300])).lastrowid
-        # запрос для нового класса строится из самой найденной фразы
-        DISCOVERED[name] = [f"{phrase} platform pays crypto",
-                            f"{phrase} marketplace payout"]
+            ("file://worker/catalog.slim.json", f"спрос на «{ph}» в каталоге x402", now(),
+             f"каталог x402: {svcs} служб, {provs} провайдеров, {payers} плательщиков за 30 дней")
+        ).lastrowid
         con.execute("INSERT OR IGNORE INTO path_categories(category) VALUES (?)", (name,))
         con.execute("UPDATE path_categories SET queries=? WHERE category=?",
-                    (json.dumps(DISCOVERED[name], ensure_ascii=False), name))
+                    (_json.dumps(queries, ensure_ascii=False), name))
         added += 1
+        examples.append(f"{ph} ({payers} плательщиков, {provs} провайдеров)")
         _ = sid
     con.commit(); con.close()
 
     if added:
-        bus.broadcast("prospector", f"Пространство поиска расширено: {added} способов "
-                                    f"заработать, которых не было в моём списке. Их назвал "
-                                    f"рынок своими словами, не я. Примеры: "
-                                    f"{', '.join(list(found)[:3])}.")
-    return f"новых классов из чужих слов: {added}, всего в обходе: {len(CATEGORIES) + len(DISCOVERED)}"
+        bus.broadcast("prospector", f"Пространство поиска расширено: {added} способов, "
+                                    f"названных рынком ДЕНЬГАМИ. Это виды служб, за которые "
+                                    f"агенты уже платят, а у нас такого класса не было. "
+                                    f"Примеры: {'; '.join(examples[:3])}.")
+    else:
+        bus.broadcast("prospector", "Новых способов из каталога не добавлено: все "
+                                    "высокоспросные виды служб уже покрыты нашими классами "
+                                    "или не прошли порог провайдеров и плательщиков.")
+    return f"новых классов из рынка: {added}, всего в обходе: {len(CATEGORIES) + len(DISCOVERED)}"
 
 
 CYCLE = [("prospect", lambda: discover(2, 6)),

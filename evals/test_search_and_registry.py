@@ -147,3 +147,34 @@ class Queue(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MarketExpansion(unittest.TestCase):
+    """Новые способы заработка берутся из спроса каталога, а не из HTML-мусора."""
+
+    def test_expand_adds_only_demand_backed_capability_classes(self):
+        import json, tempfile
+        from pathlib import Path as _P
+        from core import db, guard
+        saved = (db.DB_PATH, set(db._SCHEMA_DONE), db._WAL_SET, guard.check_action)
+        guard.check_action = lambda *a, **k: None
+        tmp = tempfile.TemporaryDirectory()
+        db.DB_PATH = _P(tmp.name) / "m.db"
+        db._SCHEMA_DONE.clear(); db._WAL_SET = False; db.init().close()
+        try:
+            before = dict(prospector.DISCOVERED)
+            prospector.DISCOVERED.clear()
+            out = prospector.expand()
+            new = list(prospector.DISCOVERED)
+            # каждый новый класс — с настоящей возможностью, помечен как рыночный
+            self.assertTrue(all(n.startswith("рынок платит за:") for n in new), new)
+            caps = ("balance", "price", "contract", "metadata", "supply", "receipt",
+                    "token", "transaction", "block", "gas", "nft")
+            self.assertTrue(all(any(w in n for w in caps) for n in new),
+                            f"класс без настоящей возможности: {new}")
+            # мусорные фразы не проходят
+            self.assertFalse(any(p in " ".join(new) for p in ("how many", "one call", "great work")))
+        finally:
+            prospector.DISCOVERED.clear(); prospector.DISCOVERED.update(before)
+            db.DB_PATH, done, db._WAL_SET, guard.check_action = saved
+            db._SCHEMA_DONE.clear(); db._SCHEMA_DONE.update(done); tmp.cleanup()
