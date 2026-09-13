@@ -110,6 +110,37 @@ class Pipeline(TempDB):
         self.assertNotIn(a, [s["id"] for s in self.ex.stalled(hours=6)],
                          "ожидание ответа объявлено зависанием — это породило бы второе письмо")
 
+    def test_internal_task_and_deal_with_same_objective_are_distinct(self):
+        internal = self.ex.create("одна формулировка", "подготовить материал", "craftsman")
+        deal = self.ex.open_deal("одна формулировка", "техническая услуга", "salesman",
+                                 "проверить покупателя", [])
+        self.assertNotEqual(internal, deal)
+        c = self.db.connect()
+        kinds = dict(c.execute("SELECT id, kind FROM tasks WHERE id IN (?,?)",
+                               (internal, deal)).fetchall())
+        c.close()
+        self.assertEqual(kinds, {internal: "internal", deal: "deal"})
+
+    def test_failed_deal_successor_keeps_type_and_revenue_method(self):
+        parent = self.deal("CONTACTED")
+        child = self.ex.fail(parent, "канал вернул проверяемую ошибку",
+                             next_action="попробовать разрешённый резервный канал")
+        c = self.db.connect()
+        parent_state = c.execute("SELECT state FROM tasks WHERE id=?", (parent,)).fetchone()[0]
+        row = c.execute("SELECT state, kind, revenue_method, parent_id FROM tasks WHERE id=?",
+                        (child,)).fetchone()
+        c.close()
+        self.assertEqual(parent_state, "REJECTED")
+        self.assertEqual(tuple(row), ("DISCOVERED", "deal", "техническая документация", parent))
+
+    def test_board_reports_current_external_blockers(self):
+        task = self.ex.create("внешний блокер", "проверить доступ", "orchestrator")
+        self.ex.block(task, "external_service_unavailable", "сервис вернул HTTP 503",
+                      capability_check=list(self.ex.CAPABILITY_CHECKLIST))
+        details = self.ex.board()["blocked_detail"]
+        self.assertEqual(details, [{"id": task, "kind": "external_service_unavailable",
+                                    "detail": "сервис вернул HTTP 503"}])
+
 
 class Closer(TempDB):
     def test_reply_counts_only_after_our_message_and_advances_deal(self):

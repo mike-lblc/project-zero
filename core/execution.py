@@ -237,11 +237,22 @@ ACTIVE_SQL = ("state NOT IN ('REJECTED','WITHDRAWN') "
               "AND NOT (kind='internal' AND state='DELIVERED')")
 
 
-def active_duplicate(objective, exclude_id=None):
-    """Живая задача с той же целью, если она есть."""
+def active_duplicate(objective, exclude_id=None, kind=None):
+    """Живая задача с той же целью и того же вида, если она есть.
+
+    Внутренняя задача и сделка могут законно иметь одинаковую формулировку:
+    первая готовит работу, вторая отслеживает отношения с покупателем. Смешивать
+    их опасно — ``open_deal`` получит id внутренней задачи и попытается провести
+    её по графу сделки.
+    """
+    if kind is not None and kind not in ("internal", "deal"):
+        raise ValueError(f"вид задачи «{kind}» неизвестен: internal или deal")
     c = _con()
     q = f"SELECT id FROM tasks WHERE objective=? AND {ACTIVE_SQL}"
     args = [objective]
+    if kind is not None:
+        q += " AND kind=?"
+        args.append(kind)
     if exclude_id is not None:
         q += " AND id<>?"
         args.append(exclude_id)
@@ -271,7 +282,7 @@ def create(objective, next_action, owner_agent, money_proximity=3, parent_id=Non
     if kind == "deal" and not (revenue_method or "").strip():
         raise ValueError("сделка без способа заработка не заводится: разбивка по "
                          "способам — требование директивы, а не украшение")
-    dup = active_duplicate(objective, exclude_id=parent_id)
+    dup = active_duplicate(objective, exclude_id=parent_id, kind=kind)
     if dup:
         return dup
     c = _con()
@@ -362,11 +373,12 @@ def fail(task_id, reason, next_action=None, money_proximity=None):
     if not next_action:
         return None
     c = _con()
-    row = c.execute("SELECT objective, owner_agent, money_proximity FROM tasks WHERE id=?",
-                    (task_id,)).fetchone()
+    row = c.execute("SELECT objective, owner_agent, money_proximity, kind, revenue_method "
+                    "FROM tasks WHERE id=?", (task_id,)).fetchone()
     c.close()
     child = create(row[0], next_action, row[1],
-                   money_proximity or row[2], parent_id=task_id)
+                   money_proximity or row[2], parent_id=task_id,
+                   kind=row[3], revenue_method=row[4])
     # РОДИТЕЛЬ ЗАКРЫВАЕТСЯ. Раньше он оставался в failed, очередь поднимала его
     # снова наравне с новой попыткой — и каждые шесть часов задач становилось
     # вдвое больше. Попытка, у которой есть преемник, закончена.
@@ -435,7 +447,7 @@ def board():
            for s in STATES}
     out["with_proof"] = c.execute("SELECT COUNT(DISTINCT task_id) FROM proof_of_work").fetchone()[0]
     out["blocked_detail"] = [dict(zip(("id", "kind", "detail"), r)) for r in c.execute(
-        "SELECT id, blocker_kind, blocker_detail FROM tasks WHERE state='blocked'")]
+        "SELECT id, blocker_kind, blocker_detail FROM tasks WHERE state='EXTERNAL_BLOCKER'")]
     out["next"] = None
     c.close()
     n = next_task()

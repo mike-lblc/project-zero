@@ -63,6 +63,20 @@
   "origin": "CREATE умел ждать снятия блокировки, а ALTER шёл напрямую мимо повторов. Достаточно было работающего воркера, чтобы миграция схемы упала с database is locked, а вместе с ней любой процесс, которому новая колонка нужна."
  },
  {
+  "name": "доска показывает внешние блокеры",
+  "kind": "present",
+  "target": "core/execution.py",
+  "expr": "blocker_detail FROM tasks WHERE state='EXTERNAL_BLOCKER'",
+  "origin": "Доска искала удалённое состояние blocked и без ошибки скрывала все настоящие внешние блокеры."
+ },
+ {
+  "name": "дубликаты задач разделены по виду",
+  "kind": "present",
+  "target": "core/execution.py",
+  "expr": "active_duplicate\\(objective, exclude_id=parent_id, kind=kind\\)",
+  "origin": "Сделка с целью внутренней задачи получала её id и ломалась на чужом графе состояний."
+ },
+ {
   "name": "ждущая задача тоже считается зависшей",
   "kind": "present",
   "target": "core/execution.py",
@@ -404,6 +418,13 @@
   "target": "core/agent.py",
   "expr": "t\\.action_class\\s*!=\\s*[\"']GREEN[\"']\\s+or\\s+self\\.max_class\\s*!=\\s*[\"']GREEN[\"']",
   "origin": "Облачный improver имел предел YELLOW, выбрал безопасный GREEN-инструмент и был ошибочно отклонён проверкой точного равенства классов."
+ },
+ {
+  "name": "преемник сделки сохраняет вид и доход",
+  "kind": "present",
+  "target": "core/execution.py",
+  "expr": "kind=row\\[3\\], revenue_method=row\\[4\\]",
+  "origin": "После провала сделка превращалась во внутреннюю задачу и теряла способ получения выручки."
  },
  {
   "name": "приём денег испытан на настоящем переводе",
