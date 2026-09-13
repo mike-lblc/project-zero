@@ -658,8 +658,19 @@ function renderAgents(){
                       byAgent[r.agent].n++; if (r.status==="error") byAgent[r.agent].e++; });
   const max = Math.max(1, ...Object.values(byAgent).map(v => v.n));
   const st0 = state.st || {};
+  const mb = st0.moltbook || {};
   const team = ags.filter(a => a.group !== "process"), procs = ags.filter(a => a.group === "process");
   let h = "";
+  h += "<h3>Moltbook</h3>";
+  h += row("Общая учётная запись", esc(mb.identity || "не подключена"),
+           mb.claimed ? "личность подтверждена живым API" : "живого подтверждения нет",
+           mb.claimed ? "ok" : "hold");
+  h += row("Внутренние разрешения", `${num(mb.agentsGranted || 0)} агентов`,
+           `${num(mb.agentsRead || 0)} сделали подтверждённое чтение`,
+           mb.agentsRead ? "ok" : "hold");
+  h += row("Публичные действия", `${num(mb.writesConfirmed || 0)} подтверждено`,
+           `${num(mb.writesPending || 0)} ждут внешней проверки · ${num(mb.writesInconsistent || 0)} противоречивых`,
+           mb.writesPending || mb.writesInconsistent ? "hold" : "ok");
   if (st0.registry_missing)
     h += `<div class="empty">состав не выгружен (data/registry.json) — показаны только следы в журнале</div>`;
   const draw = a => {
