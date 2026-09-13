@@ -200,7 +200,10 @@ PAYOUT_BLOCKED = ("paypal", "venmo", "zelle", "cashapp", "ach ", "wire transfer"
 # Теперь слово лишь называет способ, а ответ «да / нет / неизвестно» берётся
 # из маршрутизатора — того же, что принимает деньги.
 PAYOUT_PLATFORMS = {"algora": "algora", "polar.sh": "polar", "gitcoin": "gitcoin"}
-PAYOUT_CURRENCIES = {"usdc": "USDC", "usdt": "USDT", "eth": "ETH", "ether": "ETH",
+# Ликвидные крипто-активы на наших сетях. Оплата НЕ обязана быть в USDC —
+# принимаем ETH, BTC, POL и ходовые токены; адреса кошельков есть под все.
+PAYOUT_CURRENCIES = {"usdc": "USDC", "usdt": "USDT", "dai": "USDC", "weth": "ETH",
+                     "matic": "POL", "pol": "POL", "eth": "ETH", "ether": "ETH",
                      "btc": "BTC", "bitcoin": "BTC", "polygon": "POL"}
 PAYOUT_WALLET_WORDS = ("crypto", "wallet address", "onchain", "on-chain", "stablecoin")
 

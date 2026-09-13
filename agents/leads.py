@@ -27,7 +27,8 @@ from core.db import connect, ensure_schema
 from core import guard, bus
 
 ROOT = Path(__file__).resolve().parent.parent
-IDX = ROOT / "data" / "bazaar_index.json"
+IDX = ROOT / "data" / "bazaar_index.json"          # полный индекс (может отставать)
+SLIM = ROOT / "worker" / "catalog.slim.json"      # свежий срез, его обновляет refresh_market
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS leads (
@@ -86,34 +87,71 @@ def _index():
 
 
 # ---------------------------------------------------------------- операторы
-def operators():
-    """Сводит сервисы к компаниям. Один оператор часто держит десятки эндпоинтов —
-    и чем их больше, тем серьёзнее его вложения."""
-    guard.check_action("research", "GREEN")
-    items = _index()
-    ops = {}
-    for it in items:
-        d = _domain(it.get("resource"))
-        if not d or any(s in d for s in SKIP):
-            continue
+def _records():
+    """Нормализованные записи каталога: host, calls, payers, price, tags.
+
+    Источник — СВЕЖИЙ срез catalog.slim.json (его обновляет refresh_market
+    каждый цикл). Прежде лиды читали data/bazaar_index.json, который обновлялся
+    отдельно и отставал на дни: каталог рос до 15 тысяч, а лиды разбирали
+    трёхдневный снимок и не находили ни одной новой компании. Полный индекс
+    оставлен запасным на случай, если свежего среза нет.
+    """
+    import json as _json
+    if SLIM.exists():
+        try:
+            for r in _json.loads(SLIM.read_text(encoding="utf-8")):
+                u = r.get("u") or ""
+                host = u.split("//")[-1].split("/")[0] if "//" in u else ""
+                tags = r.get("t")
+                if isinstance(tags, str):
+                    try:
+                        tags = _json.loads(tags)
+                    except ValueError:
+                        tags = []
+                yield {"host": host, "calls": int(r.get("c") or 0),
+                       "payers": int(r.get("y") or 0),
+                       "price": float(r.get("p") or 0) if r.get("p") else None,
+                       "tags": tags or []}
+            return
+        except ValueError:
+            pass
+    for it in _index():
+        u = it.get("resource") or ""
+        host = u.split("//")[-1].split("/")[0] if "//" in u else ""
         a = (it.get("accepts") or [{}])[0]
         q = it.get("quality") or {}
+        try:
+            price = int(a.get("maxAmountRequired") or a.get("amount")) / 1e6
+        except Exception:
+            price = None
+        yield {"host": host, "calls": q.get("l30DaysTotalCalls") or 0,
+               "payers": q.get("l30DaysUniquePayers") or 0,
+               "price": price, "tags": it.get("tags") or []}
+
+
+def operators():
+    """Сводит сервисы к компаниям. Один оператор часто держит десятки эндпоинтов —
+    и чем их больше, тем серьёзнее его вложения. Источник — свежий каталог."""
+    guard.check_action("research", "GREEN")
+    ops = {}
+    for r in _records():
+        d = r["host"]
+        if not d or any(x in d for x in SKIP):
+            continue
         o = ops.setdefault(d, {"services": 0, "calls": 0, "payers": 0,
                                "prices": [], "tags": {}})
         o["services"] += 1
-        o["calls"] += q.get("l30DaysTotalCalls") or 0
-        o["payers"] += q.get("l30DaysUniquePayers") or 0
-        try:
-            o["prices"].append(int(a.get("maxAmountRequired") or a.get("amount")) / 1e6)
-        except Exception:
-            pass
-        for t in (it.get("tags") or []):
+        o["calls"] += r["calls"]
+        o["payers"] += r["payers"]
+        if r["price"] is not None:
+            o["prices"].append(r["price"])
+        for t in r["tags"]:
             o["tags"][t] = o["tags"].get(t, 0) + 1
     return ops
 
 
 # ---------------------------------------------------------------- лиды
-def hot_leads(limit=25):
+def hot_leads(limit=120):
     """Кто активен и при деньгах.
 
     Сигнал траты считается так: число сервисов (вложения в разработку) × логарифм
@@ -138,6 +176,13 @@ def hot_leads(limit=25):
                      "spend_signal": round(signal, 1)})
     rows.sort(key=lambda r: -r["spend_signal"])
     top = rows[:limit]
+    # СИЛЬНЫЕ ПЛАТЕЛЬЩИКИ, КОТОРЫХ ФОРМУЛА УПУСКАЕТ. spend_signal умножает на
+    # число сервисов, поэтому компания с ОДНИМ эндпоинтом, но сотнями плательщиков
+    # (реальный покупатель) не попадала в топ. Добираем всех с заметным числом
+    # плательщиков отдельно — это живые бизнесы, а не эксперименты.
+    have = {r["domain"] for r in top}
+    extra = [r for r in rows if r["domain"] not in have and r["payers_30d"] >= 100]
+    top = top + extra
     c = _con()
     for r in top:
         c.execute("""INSERT INTO leads(domain,services,calls_30d,payers_30d,avg_price,
@@ -217,6 +262,55 @@ def pitch():
 
 
 # ---------------------------------------------------------------- канал связи
+def _brand(domain):
+    """Опорное слово бренда из домена: blockrun.ai -> blockrun, api.nansen.ai -> nansen."""
+    parts = [x for x in domain.lower().split(".") if x not in
+             ("api", "app", "www", "io", "ai", "com", "org", "net", "dev", "xyz",
+              "co", "tech", "vercel", "online", "markets", "services")]
+    return max(parts, key=len) if parts else domain.split(".")[0]
+
+
+def _github_channel(domain):
+    """Публичный репозиторий бренда через поиск GitHub — не только ссылка на главной.
+
+    Каналы для agent402 и blockrun нашлись именно так: их github-репозиториев не
+    было на главной, но поиск по бренду их дал. Берём репозиторий, у которого имя
+    владельца ИЛИ репозитория содержит бренд, issues открыты, он не в архиве.
+    Совпадение по бренду обязательно — иначе легко приписать чужой репозиторий.
+    """
+    import subprocess
+    brand = _brand(domain)
+    if len(brand) < 4:
+        return None
+    try:
+        r = subprocess.run(
+            ["gh", "search", "repos", brand, "--limit", "10", "--json",
+             "fullName,isArchived,stargazersCount"],
+            capture_output=True, text=True, timeout=40, encoding="utf-8", errors="ignore")
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        repos = json.loads(r.stdout or "[]")
+    except ValueError:
+        return None
+    cand = [x for x in repos if not x.get("isArchived")
+            and brand in x["fullName"].lower()]
+    cand.sort(key=lambda x: -(x.get("stargazersCount") or 0))
+    for x in cand:
+        # issues открыты? проверяем по одному, самый заметный первым
+        try:
+            v = subprocess.run(["gh", "repo", "view", x["fullName"], "--json",
+                                "hasIssuesEnabled"], capture_output=True, text=True,
+                               timeout=30, encoding="utf-8", errors="ignore")
+            if v.returncode == 0 and json.loads(v.stdout or "{}").get("hasIssuesEnabled"):
+                return x["fullName"]
+        except (subprocess.SubprocessError, OSError, ValueError):
+            continue
+    return None
+
+
 def find_channel(limit=10):
     """Ищет ЗАКОННЫЙ канал связи: только то, что владелец сам выставил наружу.
 
@@ -253,6 +347,8 @@ def find_channel(limit=10):
             hits = [h for h in hits if not h.lower().startswith(
                 ("coinbase/", "modelcontextprotocol/", "x402/", "facebook/", "vercel/"))]
             repo = hits[0] if hits else None
+        if not repo:
+            repo = _github_channel(domain)   # второй метод: поиск репозитория бренда
         con = _con()
         con.execute("UPDATE leads SET channel=?, reachable=? WHERE domain=?",
                     (repo, 1 if repo else 0, domain))
