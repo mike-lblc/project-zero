@@ -55,6 +55,35 @@ OFFERS = {
                        "а не по красоте текста", 40.0),
 }
 
+# КАЖДОЕ ПРЕДЛОЖЕНИЕ — УСЛУГА ИЗ КАТАЛОГА. Продавец предлагал «публикацию MCP-
+# сервера» за $120 девяти компаниям, а по каталогу эту услугу мы исполнить не
+# можем: публикация идёт от пространства имён заказчика. $1080 из «потенциала»
+# были обещанием невыполнимого. Диагноз остаётся фактом о компании; цена и
+# предложение появляются только у исполнимой услуги.
+OFFER_SERVICE = {
+    "MISSING_MCP": "интеграция MCP",
+    "DEAD_WEIGHT": "конкурентная разведка по каталогу x402",
+    "GOING_QUIET": "конкурентная разведка по каталогу x402",
+    "MISPRICED": "конкурентная разведка по каталогу x402",
+    "NO_DESCRIPTION": "описания под машинный поиск",
+}
+
+
+_CATALOG_SEEDED = [False]
+
+
+def offer_for(code):
+    """(предложение, цена) — или пояснение без цены, если услугу мы не исполняем."""
+    from core import services
+    if not _CATALOG_SEEDED[0]:
+        services.seed()                    # каталог заводится один раз на процесс
+        _CATALOG_SEEDED[0] = True
+    status, reason = services.status_of(OFFER_SERVICE.get(code, ""))
+    offer, price = OFFERS[code]
+    if status == "executable":
+        return offer, price
+    return f"пока не умеем: {reason or 'услуги нет в каталоге'}", 0.0
+
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -181,10 +210,11 @@ def diagnose(limit_domains=12):
                              f"что покупает", 2))
 
         for code, evidence, sev in problems:
-            offer, price = OFFERS[code]
+            offer, price = offer_for(code)
             c.execute("""INSERT INTO lead_problems(domain,problem,evidence,severity,
                          service_offer,price_usd,found_at) VALUES (?,?,?,?,?,?,?)
-                         ON CONFLICT(domain,problem) DO UPDATE SET evidence=?, severity=?""",
+                         ON CONFLICT(domain,problem) DO UPDATE SET evidence=?, severity=?,
+                         service_offer=excluded.service_offer, price_usd=excluded.price_usd""",
                       (domain, code, evidence, sev, offer, price, now(), evidence, sev))
             found += 1
     c.commit()

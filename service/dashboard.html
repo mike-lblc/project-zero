@@ -581,7 +581,8 @@ function renderMoney(){
     h += `<h3>Сделки по способам заработка</h3>`;
     const R = (d, k) => d.reached[k] || 0;
     rv.deals_by_method.forEach(d => {
-      const path = [["обращений", "CONTACTED"], ["ответов", "REPLIED"], ["договорённостей", "AGREED"],
+      const path = [["найдено", "DISCOVERED"], ["квалифицировано", "QUALIFIED"],
+                    ["обращений", "CONTACTED"], ["ответов", "REPLIED"], ["договорённостей", "AGREED"],
                     ["в работе", "WORKING"], ["сдано", "DELIVERED"], ["запрошено оплат", "PAYMENT_REQUESTED"],
                     ["оплачено", "PAID"], ["к выводу", "WITHDRAWABLE"], ["выведено", "WITHDRAWN"]]
         .map(([t, k]) => `${t} ${R(d, k)}`).join(" · ");

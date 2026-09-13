@@ -40,8 +40,12 @@ ALLOWED = (
     "console.algora.io", "github.com", "registry.modelcontextprotocol.io",
 )
 
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+# ЧЕСТНЫЙ ЗАГОЛОВОК. Здесь стоял заголовок браузера Chrome. Проверено 13.09.2026:
+# все источники отвечают честному роботу так же. Маскироваться под человека
+# запрещено правилами самих агентов — это обход проверки «человек или машина».
+# Браузерный разведчик называет себя роботом: он читает то, что рисуется
+# скриптом, но не притворяется человеком за клавиатурой.
+UA = "Mozilla/5.0 (compatible; P0-agents/1.0 (+https://github.com/mike-lblc/project-zero))"
 
 
 class NotAllowed(Exception):

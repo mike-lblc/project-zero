@@ -186,7 +186,58 @@ NOT_YET = {
     "сопровождение открытого кода": ("§6", "craftsman подаёт работу по баунти, но ни одна не "
                                            "принята — исполнимость не доказана"),
     "автоматизация онбординга клиентов": ("§6", "нужен доступ к продукту заказчика"),
+    "интеграция x402 для заказчика": ("§6", "нужен доступ к коду заказчика; умеем только проверку "
+                                            "совместимости, она заведена отдельно"),
+    # не услуга директивы, а предложение продавца (код NO_DESCRIPTION): учтено здесь,
+    # чтобы продавец не предлагал того, чего нет в каталоге
+    "описания под машинный поиск": ("предложение продавца", "исполнителя нет: текст описаний пишет "
+                                                            "модель, а сверки с данными заказчика нет"),
 }
+
+# ВСЕ ДВАДЦАТЬ ДЕВЯТЬ УСЛУГ GND §5–6 (9 в §5 и 20 в §6) — и где каждая учтена. Без этого соответствия
+# «учтено всё» было утверждением: пропущенную услугу не видно, если нет
+# списка, с которым сверяться.
+GND_SERVICES = {
+    # §5
+    "Social Media Service": "ведение соцсетей",
+    "Lead Generation": "поиск клиентов на заказ",
+    "Customer Support": "поддержка пользователей",
+    "Data Extraction": "извлечение и очистка данных",
+    "Reputation Management": "управление репутацией",
+    "SEO Blog": "SEO-блог",
+    "Podcast Repurposing": "переработка подкастов",
+    "Cold Email Personalization": "персонализация холодных писем",
+    "PDF Document Processing": "обработка PDF",
+    # §6
+    "website QA": "QA сайтов",
+    "API QA": "QA API в общем виде",
+    "documentation": "техническая документация",
+    "localization": "локализация документации",
+    "MCP integration": "интеграция MCP",
+    "x402 integration": "интеграция x402 для заказчика",
+    "workflow automation": "автоматизация процессов",
+    "competitive intelligence": "конкурентная разведка по каталогу x402",
+    "data cleaning": "извлечение и очистка данных",
+    "knowledge-base creation": "база знаний",
+    "accessibility audit": "аудит доступности",
+    "technical SEO audit": "технический SEO-аудит",
+    "spreadsheet processing": "обработка таблиц",
+    "presentation production": "подготовка презентаций",
+    "market research": "конкурентная разведка по каталогу x402",
+    "productized monitoring": "мониторинг как продукт",
+    "micro-tool development": "разработка небольших утилит",
+    "permitted security testing": "разрешённое тестирование безопасности",
+    "open-source maintenance": "сопровождение открытого кода",
+    "customer onboarding automation": "автоматизация онбординга клиентов",
+}
+
+
+def status_of(name):
+    """executable / not_yet / None — по базе, как её заводит seed()."""
+    c = _con()
+    r = c.execute("SELECT status, reason FROM services WHERE name=?", (name,)).fetchone()
+    c.close()
+    return (r[0], r[1]) if r else (None, None)
 
 
 def now():

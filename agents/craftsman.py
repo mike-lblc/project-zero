@@ -568,6 +568,8 @@ def claim(url, plan, dry_run=True):
                  ("CONTACTED", comment_url)])
         except Exception as e:
             bus.broadcast("craftsman", f"Заявка подана, но сделка не заведена: {e}")
+        from core import events
+        events.publish("outreach_sent", {"заявка": comment_url}, source="craftsman")
         bus.broadcast("craftsman", f"Заявка подана: {repo}#{num}, заявок до нас {rivals}. "
                                    f"Теперь обязаны прислать работу — заявка без работы "
                                    f"хуже, чем её отсутствие.")
@@ -761,7 +763,7 @@ def pursue(dry_run=True):
     # нашёл задачу, а цепочка в ту же минуту доложила «по силам ни одной».
     rows = c.execute("""SELECT url,repo,title,amount_usd FROM bounties
                         WHERE status='found' AND declared=1
-                        ORDER BY fit_score DESC LIMIT 60""").fetchall()
+                        ORDER BY fit_score DESC, declared DESC, amount_usd ASC LIMIT 60""").fetchall()
     c.close()
     if not rows:
         # Разница важна: «задач нет» и «задач с подтверждённым плательщиком нет»

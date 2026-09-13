@@ -55,7 +55,10 @@ CREATE INDEX IF NOT EXISTS idx_events_open ON events(done_at, priority, id);
 SUBSCRIPTIONS = {
     "pr_review_arrived": ("craftsman", 1),      # ревью пришло — самое срочное
     "payout_announced": ("craftsman", 1),       # объявлена выплата
-    "payment_received": ("orchestrator", 1),    # деньги на кошельке
+    # Деньги на кошельке будят сборщика: он сопоставляет поступление с запросом
+    # оплаты и переводит сделку в PAID. Раньше будили оркестратора, который
+    # поступление видел, но со сделкой не связывал.
+    "payment_received": ("collector", 1),       # деньги на кошельке
     "fresh_bounty": ("bounty", 2),              # свежая премия, толпы ещё нет
     "invariant_broken": ("adversary", 2),       # проверка, выведенная из поломки
     "worker_down": ("watchdog", 2),
@@ -63,6 +66,10 @@ SUBSCRIPTIONS = {
     "lead_defect_found": ("leads", 3),          # законный повод обратиться
     "escalation_answered": ("craftsman", 3),    # суждение разрешено, можно делать
     "market_changed": ("scout", 6),             # фоновое: данные обновились
+    # РОЛИ ДИРЕКТИВЫ. У каждой — событие, на которое она просыпается.
+    "outreach_sent": ("closer", 3),             # ушло обращение или заявка — ждать ответа
+    "evidence_recorded": ("verifier", 5),       # сделка сдвинулась по доказательству — перепроверить
+    "channel_unavailable": ("channel_manager", 3),  # канал не принял сообщение
 }
 
 

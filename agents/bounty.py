@@ -181,9 +181,48 @@ def competition(repo, issue_number):
 # ЭТОТ ФИЛЬТР ВАЖНЕЕ СУММЫ. Урок повторился дважды: сначала Binance
 # (рынок есть, деньги не дойдут), теперь omi ($25 есть, платят PayPal).
 # Проверять «чем платят» надо ДО того, как вложена работа.
-PAYOUT_OK = ("algora", "crypto", "usdc", "usdt", "eth", "wallet", "onchain",
-             "gitcoin", "polar.sh", "opire")
-PAYOUT_BLOCKED = ("paypal", "venmo", "zelle", "cashapp", "ach ", "wire transfer")
+# ОСОЗНАННОЕ ОТСТУПЛЕНИЕ ОТ GND §3. Директива требует отклонять работу только
+# после установленной недоступности выплаты. Для фиата мы отклоняем сразу, по
+# решению владельца: он резидент РФ, и PayPal, Stripe и банковский перевод ему
+# недоступны фактически, а не предположительно. Это не недосмотр — отступление
+# записано здесь и отдельной строкой в итоговом отчёте (ops/gnd_report.py).
+PAYOUT_BLOCKED = ("paypal", "venmo", "zelle", "cashapp", "ach ", "wire transfer",
+                  "bank transfer", "stripe")
+
+# ДОЙДУТ ЛИ ДЕНЬГИ — ОТВЕЧАЕТ МАРШРУТИЗАТОР, А НЕ СПИСОК СЛОВ.
+#
+# Здесь был список «хороших» слов, и у него было два дефекта. Первый: он
+# расходился с core/payment.py — Algora считалась «деньги дойдут», а
+# маршрутизатор знает, что маршрут Algora не проверен (нужен аккаунт
+# владельца). Второй: слова искались подстрокой, и «eth» совпадало с
+# «method» — любое описание со словом «method» объявлялось достижимой выплатой.
+#
+# Теперь слово лишь называет способ, а ответ «да / нет / неизвестно» берётся
+# из маршрутизатора — того же, что принимает деньги.
+PAYOUT_PLATFORMS = {"algora": "algora", "polar.sh": "polar", "gitcoin": "gitcoin"}
+PAYOUT_CURRENCIES = {"usdc": "USDC", "usdt": "USDT", "eth": "ETH", "ether": "ETH",
+                     "btc": "BTC", "bitcoin": "BTC", "polygon": "POL"}
+PAYOUT_WALLET_WORDS = ("crypto", "wallet address", "onchain", "on-chain", "stablecoin")
+
+
+def _router_answer(text):
+    """Ответ маршрутизатора по словам о способе выплаты. None — не названо или неизвестно."""
+    from core import payment
+    answers = []
+    for word, provider in PAYOUT_PLATFORMS.items():
+        if re.search(rf"\b{re.escape(word)}\b", text):
+            answers.append(payment.reachable(provider=provider)[0])
+    for word, currency in PAYOUT_CURRENCIES.items():
+        if re.search(rf"\b{word}\b", text):
+            answers.append(payment.reachable(currency=currency)[0])
+    if any(w in text for w in PAYOUT_WALLET_WORDS):
+        answers.append(True if any(r["status"] == "verified" and r["provider"] == "self-custody"
+                                   for r in payment.routes()) else None)
+    if True in answers:
+        return True
+    if answers and all(a is False for a in answers):
+        return False
+    return None
 
 
 # Кто в проекте имеет право объявлять награду. GitHub отдаёт это в поле
@@ -256,10 +295,11 @@ def payout_reachable(repo, body):
     отбрасывать нельзя: надо спросить у мейнтейнера.
     """
     b = (body or "").lower()
-    if any(w in b for w in PAYOUT_OK):
-        return True
     if any(w in b for w in PAYOUT_BLOCKED):
         return False
+    ans = _router_answer(b)
+    if ans is not None:
+        return ans
     # правила проекта: смотрим руководство для участников
     for path in ("docs/doc/developer/Contribution.mdx", "CONTRIBUTING.md",
                  ".github/CONTRIBUTING.md"):
@@ -284,8 +324,9 @@ def payout_reachable(repo, body):
             break
         if any(w in near for w in PAYOUT_BLOCKED):
             return False
-        if any(w in near for w in PAYOUT_OK):
-            return True
+        ans = _router_answer(near)
+        if ans is not None:
+            return ans
         break
     return None
 
@@ -664,8 +705,10 @@ def search_offsite(per_site=8):
     guard.check_action("research", "GREEN")
     import urllib.error
     import urllib.request
-    ua = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36"}
+    # ЧЕСТНЫЙ ЗАГОЛОВОК. Здесь стоял заголовок браузера Chrome. Проверено 13.09.2026:
+    # все источники отвечают честному роботу так же. Маскироваться под человека
+    # запрещено правилами самих агентов — это обход проверки «человек или машина».
+    ua = {"User-Agent": "P0-agents/1.0 (+https://github.com/mike-lblc/project-zero)"}
     rows = []
     for site, url, what in OFFSITE:
         try:
@@ -898,7 +941,7 @@ def hunt(limit=60):
     n_contests, pools = c.execute("SELECT COUNT(*), COALESCE(SUM(amount_usd),0) FROM bounties "
                                   f"WHERE status='found' AND ({CONTEST_SQL})").fetchone()
     top = c.execute("SELECT title,amount_usd,repo FROM bounties WHERE status='found' "
-                    "ORDER BY fit_score DESC LIMIT 1").fetchone()
+                    "ORDER BY fit_score DESC, declared DESC, amount_usd ASC LIMIT 1").fetchone()
     c.close()
     if not tot:
         bus.broadcast("bounty", f"Просмотрел {len(raw)} открытых задач: доступных не осталось, "
@@ -919,7 +962,7 @@ def shortlist(n=10):
     c = _con()
     rows = c.execute("""SELECT url,repo,title,amount_usd,stars,language,fit_score
                         FROM bounties WHERE status='found'
-                        ORDER BY fit_score DESC LIMIT ?""", (n,)).fetchall()
+                        ORDER BY fit_score DESC, declared DESC, amount_usd ASC LIMIT ?""", (n,)).fetchall()
     c.close()
     return [dict(zip(("url", "repo", "title", "amount", "stars", "language", "fit"), r))
             for r in rows]

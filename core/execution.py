@@ -107,6 +107,47 @@ EVIDENCE_REQUIRED = {
     "WITHDRAWN":         "подтверждение поступления туда, чем владелец распоряжается",
 }
 
+# ФОРМА ДОКАЗАТЕЛЬСТВА — проверяется, а не угадывается по длине.
+#
+# Прежняя проверка требовала лишь двенадцать символов, и «отправили письмо
+# клиенту сегодня» проходило как доказательство отправки. Пересказ — не след.
+# Для сделки каждое состояние требует следа своей формы: ссылки, идентификатора
+# сообщения, хеша транзакции, суммы с валютой и маршрутом.
+import re as _re
+
+_URL = r"https?://\S+"
+_MSGID = r"<[^>\s]+@[^>\s]+>|message[-_ ]?id[:=\s]+\S{6,}"
+_HASH = r"\b0x[0-9a-fA-F]{64}\b|\b[0-9a-fA-F]{64}\b"
+_RECEIPT = r"(receipt|квитанц\w*|payout[-_ ]?id|reference)[^\n]{0,20}?[A-Za-z0-9_-]{6,}"
+_MONEY = r"\d+(?:[.,]\d+)?\s*(?:\$|usd|usdc|usdt|eth|btc|pol|eur|rub|₽)|\$\s*\d+"
+_ROUTE = r"\b(base|ethereum|polygon|arbitrum|bitcoin|algora|polar|gitcoin|paypal|stripe|bank)\b|0x[0-9a-fA-F]{40}|\bbc1[0-9a-z]{20,}"
+_FILE = r"[\w./-]+\.(md|txt|json|csv|xlsx|pdf|py|js|html)\b"
+
+EVIDENCE_FORM = {
+    "CONTACTED":         [_URL + "|" + _MSGID + "|" + _RECEIPT],
+    "REPLIED":           [_URL + "|" + _MSGID],
+    "AGREED":            [_MONEY],
+    "DELIVERED":         [_URL + "|" + _FILE + "|" + _HASH],
+    "PAYMENT_REQUESTED": [_MONEY, _ROUTE],
+    "PAID":              [_HASH + "|" + _RECEIPT],
+    "WITHDRAWABLE":      [_URL + "|" + _RECEIPT + "|" + _HASH],
+    "WITHDRAWN":         [_HASH + "|" + _RECEIPT],
+}
+
+
+def evidence_problem(state, note):
+    """Чего не хватает доказательству сделки для этого состояния. None — форма верна."""
+    forms = EVIDENCE_FORM.get(state)
+    if not forms:
+        return None
+    text = str(note or "")
+    missing = [f for f in forms if not _re.search(f, text, _re.I)]
+    if missing:
+        return (f"переход в {state} требует доказательства: {EVIDENCE_REQUIRED[state]}. "
+                f"«{text[:60]}» — пересказ, а не след проверяемой формы.")
+    return None
+
+
 # Чем НЕ является доказательство. Список короткий и весь выстрадан.
 NOT_EVIDENCE = (
     "черновик не является отправкой",
@@ -318,6 +359,13 @@ def _transition(task_id, to_state, note=None):
         raise MissingEvidence(
             f"переход в {to_state} требует доказательства: {need}. "
             f"Состояние без доказательства — это заявление, а не факт.")
+    # У сделки доказательство проверяется по форме. Внутренняя задача сдаётся
+    # по proof_of_work — это проверяет complete().
+    if need and row[2] == "deal":
+        problem = evidence_problem(to_state, note)
+        if problem:
+            c.close()
+            raise MissingEvidence(problem)
 
     attempts = row[1] + (1 if to_state == "WORKING" else 0)
     c.execute("UPDATE tasks SET state=?, attempts=?, updated_at=? WHERE id=?",
@@ -325,6 +373,15 @@ def _transition(task_id, to_state, note=None):
     c.execute("INSERT INTO task_events(task_id,from_state,to_state,note,at) VALUES (?,?,?,?,?)",
               (task_id, cur, to_state, note, now()))
     c.commit(); c.close()
+    # Сдвиг сделки по доказательству будит проверяющего: доказательство, которого
+    # никто не перепроверил, — утверждение с красивым именем.
+    if need and row[2] == "deal":
+        try:
+            from core import events
+            events.publish("evidence_recorded", {"task_id": task_id, "state": to_state},
+                           source="execution")
+        except Exception:
+            pass                      # событие — побудка, а не условие перехода
     return to_state
 
 

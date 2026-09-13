@@ -109,7 +109,8 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             # РОЛИ ИЗ ДИРЕКТИВЫ. Без этих строк их шаги писались в журнал как
             # orchestrator, а карточка verifier в дашборде считала чужой шаг
             # study_market — работу продавца, приписанную не тому агенту.
-            "verify_routes":"collector", "money_report":"collector",
+            "verify_routes":"collector", "money_report":"collector", "collect_payments":"collector",
+            "open_deals":"closer",
             "check_replies":"closer", "verify_evidence":"verifier",
             "channel_health":"channel_manager", "services_catalog":"salesman"}
 
@@ -230,7 +231,11 @@ def watch_payments():
                         f"{', '.join(nets)}. Это единственное, что доказывает миссию.")
 
     before = payment.state_of_money().get("получено", 0)
-    result = payment_watch.watch()
+    # Через сборщика, а не наблюдателя напрямую: сборщик ещё и сопоставляет
+    # поступление с запросом оплаты и переводит сделку в PAID. Без этого PAID
+    # наступал только при ручном вызове — рабочий цикл его не видел.
+    from agents import collector
+    result = collector.collect()
     after = payment.state_of_money().get("получено", 0)
     new = after - before
 
@@ -373,7 +378,10 @@ _REASON_I = [0]
 EVENT_HANDLER = {
     "pr_review_arrived": "watch_prs",
     "payout_announced": "collect_payouts",
-    "payment_received": "watch_payments",
+    "payment_received": "collect_payments",
+    "outreach_sent": "check_replies",
+    "evidence_recorded": "verify_evidence",
+    "channel_unavailable": "channel_health",
     "fresh_bounty": "pursue",
     "invariant_broken": "mechanic",
     "worker_down": "watchdog",
@@ -403,6 +411,13 @@ def _take_event():
     steps = dict(CYCLE + SLOW_CYCLE)
     if not step or step not in steps:
         return None
+    # ОБРАБОТЧИК НА ПАУЗЕ — СОБЫТИЕ ЖДЁТ, А ЦИКЛ ИДЁТ. Без этой проверки
+    # событие бралось, шаг пропускался из-за паузы, событие возвращалось в
+    # очередь и тут же бралось снова. Одно событие invariant_broken при
+    # механике на паузе 80 минут остановило ВСЕ шаги цикла: журнал молчал,
+    # сторож перезапускал воркер каждые пять минут, и всё повторялось.
+    if not should_run(step):
+        return None
     agent = AGENT_OF.get(step, "orchestrator")
     if not events.claim(e["id"], agent):
         return None
@@ -413,6 +428,7 @@ def _take_event():
 
 
 _PENDING_EVENT = [None]
+_SKIP_EVENT_ONCE = [False]
 
 
 def reason_and_act():
@@ -866,6 +882,8 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("verify_evidence", _src("verify_evidence")),
               ("channel_health", _src("channel_health")),
               ("money_report", _src("money_report")),
+              ("collect_payments", _src("collect_payments")),
+              ("open_deals", _src("open_deals")),
               # Каталог услуг перепроверяет исполнимость каждой строки: исполнитель
               # импортируется, способ оплаты есть в маршрутизаторе.
               ("services_catalog", _src("services_catalog"))]
@@ -940,6 +958,8 @@ CLOUD_STEPS = [
     "verify_evidence",     # доказательство должно доказывать
     "channel_health",      # канал доказан отправкой или это не канал
     "money_report",        # шесть состояний денег по отдельности
+    "collect_payments",    # поступление -> запрос оплаты -> сделка в PAID
+    "open_deals",          # что в конвейере сделки
     "services_catalog",    # какие услуги исполнимы на деле
 ]
 
@@ -1139,7 +1159,10 @@ def run_forever(interval=90):
         # по кругу, и появившаяся работа — пришло ревью, найдена свежая премия,
         # нарушен инвариант — ждала своего оборота. Агент, узнающий о срочном
         # через сорок минут, не реагирует, а отчитывается задним числом.
-        urgent = _take_event()
+        # После неотработанного события оборот отдаётся обычному шагу: событие,
+        # чей обработчик падает, не должно занимать цикл целиком.
+        urgent = None if _SKIP_EVENT_ONCE[0] else _take_event()
+        _SKIP_EVENT_ONCE[0] = False
         if urgent:
             name, fn, agent = urgent
         agent = AGENT_OF.get(name, "orchestrator") if not urgent else agent
@@ -1162,6 +1185,7 @@ def run_forever(interval=90):
                     events.complete(_PENDING_EVENT[0], f"{name}: отработано")
                 else:
                     events.release(_PENDING_EVENT[0])
+                    _SKIP_EVENT_ONCE[0] = True
                     time.sleep(min(interval, 5))
             except Exception:
                 pass

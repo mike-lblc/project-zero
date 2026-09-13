@@ -18,8 +18,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+# ЧЕСТНЫЙ ЗАГОЛОВОК. Здесь стоял заголовок браузера Chrome. Проверено 13.09.2026:
+# все источники отвечают честному роботу так же. Маскироваться под человека
+# запрещено правилами самих агентов — это обход проверки «человек или машина».
+UA = {"User-Agent": "P0-agents/1.0 (+https://github.com/mike-lblc/project-zero)",
       "Accept": "application/json, text/html"}
 
 # назначение -> [(имя, адрес, что ищем в ответе)]

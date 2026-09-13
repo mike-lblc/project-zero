@@ -245,6 +245,8 @@ def reach_out(dry_run=True):
     out = _gh(["issue", "create", "--repo", channel, "--title", title,
                "--body", body])
     if not out:
+        from core import events
+        events.publish("channel_unavailable", {"канал": channel, "кому": domain}, source="salesman")
         return {"кому": domain, "отправлено": False,
                 "почему": "канал не принял сообщение — возможно, обсуждения закрыты"}
 
@@ -274,6 +276,8 @@ def reach_out(dry_run=True):
     except Exception as e:
         bus.broadcast("salesman", f"Обращение отправлено, но сделка не заведена: {e}")
 
+    from core import events
+    events.publish("outreach_sent", {"кому": domain, "ссылка": url}, source="salesman")
     bus.broadcast("salesman", f"Покупателю написано: {domain} через {channel}. "
                               f"В сообщении его собственные цифры: {calls:,} вызовов, "
                               f"{payers:,} плательщиков. Повтора не будет — одному "
