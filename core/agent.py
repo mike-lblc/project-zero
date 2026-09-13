@@ -266,10 +266,17 @@ class Agent:
                 required = {p.name for p in params if p.default is inspect.Parameter.empty}
                 unexpected = set(args) - names
                 missing = required - set(args)
-                if unexpected or missing:
+                # Модель иногда добавляет необязательный совет вроде limit к
+                # инструменту без такого параметра. Такой лишний ключ не должен
+                # отменять полностью корректное безопасное действие: он всё
+                # равно никогда не передаётся функции. Отсутствующий обязательный
+                # аргумент по-прежнему блокирует вызов.
+                if unexpected:
+                    args = {name: value for name, value in args.items() if name in names}
+                    why = f"{why} | отброшены лишние параметры: {sorted(unexpected)}"
+                if missing:
                     allowed = False
-                    why = (f"{why} | неверные параметры: отсутствуют {sorted(missing)}, "
-                           f"лишние {sorted(unexpected)}")
+                    why = f"{why} | неверные параметры: отсутствуют {sorted(missing)}"
         return {"tool": chosen, "why": why, "allowed": allowed,
                 "args": args, "state": st, "raw": (raw or "")[:500]}
 

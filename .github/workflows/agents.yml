@@ -80,6 +80,10 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Установить зависимости проверок
+        if: github.event_name == 'workflow_dispatch'
+        run: pip install --quiet pytest
+
       - name: Сквозной аудит — только по ручному запуску
         id: deep_audit
         if: github.event_name == 'workflow_dispatch'

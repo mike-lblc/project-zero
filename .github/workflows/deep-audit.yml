@@ -39,7 +39,7 @@ jobs:
           python-version: '3.13'
 
       - name: Установить зависимости проверок
-        run: pip install --quiet cryptography
+        run: pip install --quiet cryptography pytest
 
       # КАТАЛОГ ПОДХВАТЫВАЕТСЯ ИЗ РЕПОЗИТОРИЯ. Без этой строки облако проверяло
       # только заложенные в код 12 инвариантов, а сорок два выученных позже

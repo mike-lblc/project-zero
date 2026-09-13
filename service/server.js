@@ -341,7 +341,9 @@ function agentState() {
       writesInconsistent: n(`SELECT COUNT(*) c FROM moltbook_receipts WHERE state='INCONSISTENT'`),
       heartbeat: (one(`SELECT checked_at t FROM moltbook_checks
                        WHERE check_kind='heartbeat' AND ok=1 ORDER BY id DESC LIMIT 1`) || {}).t,
-      dmSupported: mbDm.checked_at ? !/unsupported|404|405/i.test(String(mbDm.detail || '')) : null
+      dmSupported: mbDm && mbDm.checked_at
+        ? !/unsupported|404|405/i.test(String(mbDm.detail || ''))
+        : null
     },
     // Если каталога рынка нет, об этом надо СКАЗАТЬ. Иначе пустая выдача
     // поиска выглядит как пустой рынок, а это разные вещи.

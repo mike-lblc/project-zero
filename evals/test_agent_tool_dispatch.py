@@ -75,3 +75,27 @@ def test_missing_required_tool_arguments_are_rejected(monkeypatch):
     assert result["ok"] is False
     assert called is False
     assert "отсутствуют" in result["detail"]
+
+
+def test_extra_model_arguments_are_dropped_before_safe_tool_call(monkeypatch):
+    name = "test_drop_extra_arguments"
+    called = []
+
+    def execute():
+        called.append(True)
+        return "executed"
+
+    agent_core.TOOLS[name] = agent_core.Tool(name, "GREEN", "safe no-argument check", execute)
+    member = agent_core.Agent("extra_argument_test", "test", "rules", (name,), "valid call")
+    monkeypatch.setattr(
+        router, "run",
+        lambda *_: '{"tool":"test_drop_extra_arguments","args":{"limit":10},"why":"inspect"}',
+    )
+    monkeypatch.setattr(router, "model_for", lambda *_: "test-model")
+    try:
+        result = member.act()
+    finally:
+        agent_core.TOOLS.pop(name, None)
+    assert result["ok"] is True
+    assert result["detail"] == "executed"
+    assert called == [True]

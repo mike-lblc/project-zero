@@ -16,6 +16,7 @@
 данные, — это вчерашнее состояние под видом сегодняшнего.
 """
 import json
+import os
 import subprocess
 import sys
 import time
@@ -49,9 +50,18 @@ def main():
     started = None
     if not alive(PORT):
         print(f"сервер на :{PORT} не отвечает — поднимаю свой")
-        from core.launch import background
-        started = background(["node", "server.js"], cwd=ROOT / "service",
-                             log=str(ROOT / "data" / "server_export.log"))
+        log = ROOT / "data" / "server_export.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        output = open(log, "a", encoding="utf-8", errors="ignore")
+        env = os.environ.copy()
+        env["PORT"] = str(PORT)
+        # В CI нужен обычный node-процесс. Общий background() специально
+        # подставляет pythonw на Windows и закрывает дескрипторы; на временном
+        # GitHub runner это лишнее и скрывало ранний выход процесса.
+        started = subprocess.Popen(
+            ["node", "server.js"], cwd=ROOT / "service", env=env,
+            stdout=output, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+        )
         if not alive(PORT, tries=20):
             # Причину НАДО ПОКАЗАТЬ. Отказ без причины отправляет разбираться
             # заново того, кто увидит его следующим, — а журнал к тому моменту
@@ -67,6 +77,7 @@ def main():
                 print(f"журнала {log} нет — процесс не дошёл до запуска", file=sys.stderr)
             if started:
                 started.terminate()
+            output.close()
             return 1
 
     OUT.mkdir(parents=True, exist_ok=True)
@@ -91,6 +102,12 @@ def main():
 
     if started:
         started.terminate()
+        try:
+            started.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            started.kill()
+            started.wait(timeout=5)
+        output.close()
 
     print(f"снято выдач: {ok} из {len(ENDPOINTS)}")
     return 0 if ok == len(ENDPOINTS) else 1
