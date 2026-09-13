@@ -181,7 +181,6 @@ const AGENTS = [
   {id:"merchant",     label:"ТОРГОВЕЦ",         color:0x22d3ee, form:"ring"},
   {id:"distributor",  label:"ДИСТРИБЬЮТОР",     color:0x818cf8, form:"ring"},
   {id:"scribe",       label:"ЛЕТОПИСЕЦ",        color:0x94a3b8, form:"core"},
-  {id:"postman",      label:"ПОЧТАЛЬОН",        color:0x2dd4bf, form:"probe"},
   {id:"leads",        label:"РАЗВЕДКА КЛИЕНТОВ",color:0xfbbf24, form:"probe"},
   {id:"salesman",     label:"ПРОДАВЕЦ",         color:0x4ade80, form:"prism"},
   {id:"mechanic",     label:"МЕХАНИК",          color:0x94a3b8, form:"spike"},
@@ -576,6 +575,30 @@ function renderMoney(){
       h += row(esc(k), got[k] ? got[k].join("; ") : "поступлений 0", esc(sub), v.ok.length ? "ok" : "hold");
     });
   }
+  if ((rv.deals_by_method || []).length) {
+    // GND §14: по каждому способу — весь путь сделки, деньги, доказательство и блокер.
+    // «Дошло» считается по журналу: сделка в REPLIED прошла и CONTACTED.
+    h += `<h3>Сделки по способам заработка</h3>`;
+    const R = (d, k) => d.reached[k] || 0;
+    rv.deals_by_method.forEach(d => {
+      const path = [["обращений", "CONTACTED"], ["ответов", "REPLIED"], ["договорённостей", "AGREED"],
+                    ["в работе", "WORKING"], ["сдано", "DELIVERED"], ["запрошено оплат", "PAYMENT_REQUESTED"],
+                    ["оплачено", "PAID"], ["к выводу", "WITHDRAWABLE"], ["выведено", "WITHDRAWN"]]
+        .map(([t, k]) => `${t} ${R(d, k)}`).join(" · ");
+      const money = (d.money || []).map(m =>
+        `${esc(m.currency)} ${esc(m.network || "—")} (${esc(m.provider)}): gross ${m.gross} · fees ${m.fees} · net ${m.net}`).join("; ");
+      const sub = [path,
+                   money ? "деньги: " + money : "денег по способу: 0",
+                   d.evidence ? "доказательство: " + esc(d.evidence.slice(0, 120)) : "",
+                   d.blocker ? "дальше: " + esc(d.blocker.slice(0, 120)) : "",
+                   d.last_event ? "последнее событие: " + esc(d.last_event.slice(0, 16).replace("T", " ")) : ""]
+        .filter(Boolean).join("<br>");
+      const top = Object.keys(d.stages).join(", ");
+      h += row(esc(d.method), esc(top), sub, R(d, "PAID") ? "ok" : (R(d, "REPLIED") ? "hold" : ""));
+    });
+    if (rv.last_cloud_event)
+      h += row("Последнее событие цикла", esc(rv.last_cloud_event.slice(0, 16).replace("T", " ")), null);
+  }
   if ((rv.services || []).length) {
     const exe = rv.services.filter(x => x.status === "executable");
     h += `<h3>Услуги · исполнимых ${exe.length}, пока не умеем ${rv.services.length - exe.length}</h3>`;
@@ -630,12 +653,12 @@ function renderChain(){
   let h = "";
   const pipe = ((state.ex || {}).revenue || {}).pipeline || [];
   if (pipe.length) {
-    // Состояния из GND §7 — заглавными; строчные — внутренние задачи агентов.
-    h += "<h3>Конвейер: задачи и сделки по состояниям</h3>";
+    // Состояния одни на всю систему (GND §7); вид задачи приходит с сервера.
+    h += "<h3>Конвейер: сделки и задачи агентов по состояниям</h3>";
     pipe.forEach(x => h += row(esc(x.state), num(x.n),
-      x.state === x.state.toUpperCase() ? "сделка" : "внутренняя задача агентов",
-      ["PAID","WITHDRAWABLE","WITHDRAWN","done"].includes(x.state) ? "ok"
-        : (["REJECTED","FAILED","cancelled"].includes(x.state) ? "" : "hold")));
+      x.kind === "deal" ? "сделка" : "внутренняя задача агента",
+      ["PAID","WITHDRAWABLE","WITHDRAWN"].includes(x.state) || (x.kind !== "deal" && x.state === "DELIVERED") ? "ok"
+        : (["REJECTED","FAILED"].includes(x.state) ? "" : "hold")));
   }
   if (!m.length) { $("v-chain").innerHTML = h + `<div class="empty">матрица не построена</div>`; return; }
   h += "<h3>От нуля до выручки</h3>";
