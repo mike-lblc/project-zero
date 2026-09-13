@@ -56,6 +56,13 @@
   "origin": "Окно в шесть часов разрешало повтор реплики, а уборка повторов её удаляла. Две части системы работали друг против друга, в чате копились дубли."
  },
  {
+  "name": "действия GitHub не используют устаревший Node 20",
+  "kind": "absent",
+  "target": ".github/workflows/*.yml",
+  "expr": "actions/(?:setup-python@v5|setup-node@v4|upload-artifact@v4|download-artifact@v4|github-script@v7)",
+  "origin": "Живой прогон выдал предупреждения о принудительном запуске устаревших Node 20 actions на Node 24."
+ },
+ {
   "name": "добавление колонки ждёт снятия блокировки",
   "kind": "present",
   "target": "core/db.py",
@@ -215,6 +222,13 @@
   "target": "core/agent.py",
   "expr": "args = \\{name: value for name, value in args\\.items\\(\\) if name in names\\}",
   "origin": "Облачная модель выбрала GREEN economic_review, добавила лишний limit, и корректное действие было полностью отклонено вместо безопасного удаления ключа."
+ },
+ {
+  "name": "облачный аудит запускает тесты pytest",
+  "kind": "present",
+  "target": ".github/workflows/deep-audit.yml",
+  "expr": "run: python -m pytest -q",
+  "origin": "Облачный аудит вызывал unittest discover и не исполнял тесты, написанные только для pytest."
  },
  {
   "name": "обращение к покупателю не повторяется",
@@ -474,6 +488,13 @@
   "target": "service/dashboard.html",
   "expr": "pulses\\.length \\? `в полёте",
   "origin": "Счётчик пролетающих искр писался в тот же элемент, что и подпись источника, и перетирал её. Почти всё время страница не сообщала, живой это поток или снимок, причём подпись пропадала именно когда система работала — то есть когда разница между живым и вчерашним важнее всего."
+ },
+ {
+  "name": "публикация облачного цикла повторяет временный отказ",
+  "kind": "present",
+  "target": ".github/workflows/agents.yml",
+  "expr": "for attempt in 1 2 3 4; do",
+  "origin": "GitHub вернул Internal Server Error на единственной попытке push и уронил полностью успешный цикл."
  },
  {
   "name": "пустой результат SQL не роняет статус дашборда",

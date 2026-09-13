@@ -45,13 +45,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
       - name: Найти последнюю сохранённую базу
         id: memory
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
@@ -69,14 +69,14 @@ jobs:
 
       - name: Поднять базу прошлого прогона
         if: steps.memory.outputs.run_id != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: brain-db
           path: data
           github-token: ${{ github.token }}
           run-id: ${{ steps.memory.outputs.run_id }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -92,7 +92,7 @@ jobs:
 
       - name: Сохранить отчёт аудита
         if: always() && steps.deep_audit.outcome != 'skipped'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deep-audit-report
           path: reports/deep-audit.json
@@ -243,7 +243,7 @@ jobs:
       # не второй реализацией тех же запросов: две реализации расходятся всегда,
       # и в какой-то день облако начинает показывать другое число, чем дом.
       - name: Node для снятия выдачи
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # 24, а не 20: сервер читает базу через node:sqlite, а этот встроенный
           # модуль появился только в 22-й версии. На двадцатой он поднимался и
@@ -258,7 +258,7 @@ jobs:
 
       - name: Сохранить базу до следующего прогона
         if: always() && hashFiles('data/brain.db') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: brain-db
           path: data/brain.db
@@ -274,8 +274,25 @@ jobs:
             echo "состояние не изменилось — публиковать нечего"
           else
             git commit -m "chore(agents): облачный цикл $(date -u +%Y-%m-%dT%H:%MZ)"
-            git pull --rebase --autostash origin main || true
-            git push
+            # GitHub однажды вернул HTTP 500 на git push после полностью
+            # успешного цикла. Публикация — сетевое действие: временный отказ
+            # повторяется ограниченно, а конфликт rebase остаётся видимым.
+            for attempt in 1 2 3 4; do
+              status=0
+              git pull --rebase origin main || status=$?
+              if [ "$status" -eq 0 ]; then
+                git push origin HEAD:main || status=$?
+              fi
+              if [ "$status" -eq 0 ]; then
+                exit 0
+              fi
+              git rebase --abort 2>/dev/null || true
+              if [ "$attempt" -eq 4 ]; then
+                echo "публикация не удалась после $attempt попыток" >&2
+                exit "${status:-1}"
+              fi
+              sleep $((attempt * 5))
+            done
           fi
 
       - name: Состояние миссии
