@@ -316,6 +316,8 @@ function agentState() {
   // пишет в payment_receipts; прежняя payments — зеркало для старых читателей.
   const receipts = Math.max(n(`SELECT COUNT(*) c FROM payment_receipts`),
                             n(`SELECT COUNT(*) c FROM payments`));
+  const mbDm = one(`SELECT ok,detail,checked_at FROM moltbook_checks
+                    WHERE check_kind='dm' ORDER BY id DESC LIMIT 1`);
   const state = {
     payments: receipts,
     spend: n(`SELECT COUNT(*) c FROM spend`),
@@ -324,6 +326,23 @@ function agentState() {
     registry_at: registry.exported_at || null,
     registry_missing: !registry.agents,
     agents,
+    moltbook: {
+      identity: 'projectzeromarket',
+      claimed: Boolean((one(`SELECT ok c FROM moltbook_checks WHERE check_kind='identity'
+                             ORDER BY id DESC LIMIT 1`) || {}).c),
+      agentsGranted: n(`SELECT COUNT(*) c FROM moltbook_agent_access
+                        WHERE read_access=1 AND post_access=1 AND comment_access=1
+                          AND reply_access=1 AND edit_access=1`),
+      agentsRead: n(`SELECT COUNT(*) c FROM moltbook_agent_access
+                     WHERE last_read_at IS NOT NULL`),
+      writesConfirmed: n(`SELECT COUNT(*) c FROM moltbook_receipts WHERE state='CONFIRMED'`),
+      writesPending: n(`SELECT COUNT(*) c FROM moltbook_receipts
+                        WHERE state IN ('ATTEMPTED','PENDING_VERIFICATION','AMBIGUOUS','RESERVED')`),
+      writesInconsistent: n(`SELECT COUNT(*) c FROM moltbook_receipts WHERE state='INCONSISTENT'`),
+      heartbeat: (one(`SELECT checked_at t FROM moltbook_checks
+                       WHERE check_kind='heartbeat' AND ok=1 ORDER BY id DESC LIMIT 1`) || {}).t,
+      dmSupported: mbDm.checked_at ? !/unsupported|404|405/i.test(String(mbDm.detail || '')) : null
+    },
     // Если каталога рынка нет, об этом надо СКАЗАТЬ. Иначе пустая выдача
     // поиска выглядит как пустой рынок, а это разные вещи.
     catalog: { size: CATALOG.length, note: catalogNote },

@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.db import connect
+from core.db import connect, init as init_db
 from core import guard, memory, economics, telemetry
 
 # НИ ОДИН ДОЧЕРНИЙ ПРОЦЕСС НЕ ОТКРЫВАЕТ ОКНО.
@@ -51,7 +51,7 @@ def say(agent, text, topic="chat"):
     пропускается, а редкое подтверждение жизни идёт раз в 20 циклов.
     """
     if topic == "chat":
-        con = connect()
+        con = init_db()
         # БЕЗ ОКНА ПО ВРЕМЕНИ. Раньше дубль пропускался только в пределах шести
         # часов, и та же реплика возвращалась на седьмом — а уборка повторов их
         # тут же удаляла. Две части системы работали друг против друга: одна
@@ -64,7 +64,7 @@ def say(agent, text, topic="chat"):
         con.close()
         if dup:
             return
-    con = connect()
+    con = init_db()
     con.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) VALUES (?,?,?,?,?)",
                 (agent, None, topic, text, now()))
     con.commit()
@@ -100,6 +100,7 @@ def note(agent, claim, source_id=None, conf=None):
 
 
 AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+            "moltbook_heartbeat":"channel_manager",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"salesman",
@@ -798,6 +799,7 @@ CYCLE = [("watch_payments", watch_payments),        # миссия: первый
 
 # РЕДКИЕ — полезны, но не ежеминутно.
 SLOW_CYCLE = [("mechanic", _mech("mechanic")),
+              ("moltbook_heartbeat", lambda: __import__("agents.moltbook", fromlist=["heartbeat"]).heartbeat()),
               ("scout_research", scout_research),
               ("critique", _growth("critique")),
               ("scribe", _team("scribe")),
@@ -881,6 +883,7 @@ SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстр
 # и gh (он есть на раннерах GitHub). НЕ работает то, что упирается в машину
 # владельца, и это названо поимённо, а не умолчано.
 CLOUD_STEPS = [
+    "moltbook_heartbeat",  # verified account: guarded read, receipt reconciliation
     "watch_payments",      # миссия: не пришёл ли платёж
     "advance_tasks",       # очередь задач должна двигаться и в облаке
     "refresh_market",      # свежесть рыночных данных

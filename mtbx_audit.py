@@ -320,10 +320,14 @@ def dash_serves():
 
 def dash_js_valid():
     s = (ROOT / "service" / "dashboard.html").read_text(encoding="utf-8")
-    js = re.findall(r"<script>(.*?)</script>", s, re.S)
+    # Дашборд теперь ES-модуль. Старый regex видел только голый <script> и
+    # объявлял рабочий модуль отсутствующим; расширение .mjs позволяет node
+    # проверить import-синтаксис без исполнения браузерного кода.
+    js = re.findall(r"<script\b[^>]*type=[\"']module[\"'][^>]*>(.*?)</script>",
+                    s, re.S | re.I)
     if not js:
-        return False, "скрипт не найден"
-    tmp = ROOT / "service" / "_mtbx_chk.js"
+        return False, "модульный скрипт не найден"
+    tmp = ROOT / "service" / "_mtbx_chk.mjs"
     tmp.write_text(js[-1], encoding="utf-8")
     r = subprocess.run(["node", "--check", str(tmp)], capture_output=True, text=True, timeout=60)
     tmp.unlink(missing_ok=True)
@@ -332,12 +336,17 @@ def dash_js_valid():
 
 
 def dash_sync():
-    srv = (ROOT / "service" / "server.js").read_text(encoding="utf-8")
     dash = (ROOT / "service" / "dashboard.html").read_text(encoding="utf-8")
-    in_api = set(re.findall(r"id: '([a-z_]+)'", srv))
     in_3d = set(re.findall(r'\{id:"([a-z_]+)"', dash))
+    st, body = http("/api/status")
+    if st != 200:
+        return False, f"API состава не отвечает: HTTP {st}"
+    try:
+        in_api = {row["id"] for row in json.loads(body).get("agents", []) if row.get("id")}
+    except Exception as error:
+        return False, f"состав API не разбирается: {type(error).__name__}"
     d = in_api ^ in_3d
-    return (not d), (f"{len(in_api)} агентов совпадают" if not d else f"расхождение: {d}")
+    return (not d), (f"{len(in_api)} карточек совпадают" if not d else f"расхождение: {d}")
 
 
 check("дашборд отдаётся", dash_serves)

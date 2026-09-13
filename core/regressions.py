@@ -27,15 +27,23 @@
 появился. Инвариант без происхождения не добавляется: проверка, не выведенная
 из настоящей ошибки, это догадка о будущем, а их у нас и так хватает.
 """
+import json
 import re
 import sqlite3
 import sys
 import urllib.error
+
+try:
+    from core.launch import utf8_stdio as _utf8_stdio
+    _utf8_stdio()
+except Exception:
+    pass
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+STORE = ROOT / "data" / "invariants.json"
 sys.path.insert(0, str(ROOT))
 from core.db import connect, ensure_schema, write  # noqa: E402
 
@@ -97,14 +105,13 @@ def _persist_to_repo():
     ронять добавление из-за проблем с файлом значит терять и то, и другое.
     """
     try:
-        import json as _json
         c = _con()
         rows = [dict(r) for r in c.execute(
             "SELECT name, kind, target, expr, origin FROM invariants ORDER BY name")]
         c.close()
-        out = ROOT / "data" / "invariants.json"
+        out = STORE
         out.parent.mkdir(exist_ok=True)
-        out.write_text(_json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+        out.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
         return True
     except Exception:
         return False
@@ -133,6 +140,7 @@ def amend(name, expr, why):
     write(c, "UPDATE invariants SET expr=?, origin=? WHERE name=?",
           (expr, row[0] + f" [формулировка уточнена: {why.strip()}]", name))
     c.commit(); c.close()
+    _persist_to_repo()
     return True
 
 
@@ -392,9 +400,52 @@ SEED = [
 ]
 
 
+def restore():
+    """Поднимает выученные инварианты из репозитория в чистой среде.
+
+    Восстановление идёт ДО встроенного засева и одной транзакцией. Если сначала
+    вызвать ``add`` для двенадцати встроенных строк, его автоматическая выгрузка
+    перезапишет полный файл урезанным каталогом — именно так чистый облачный
+    runner снова остался бы только с базовыми проверками.
+    """
+    if not STORE.exists():
+        return 0, "файла каталога нет"
+    try:
+        rows = json.loads(STORE.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return 0, f"каталог не прочитан: {type(e).__name__}: {e}"
+    if not isinstance(rows, list):
+        return 0, "корень каталога не является списком"
+
+    c = _con()
+    before = c.total_changes
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            name = str(row["name"]).strip()
+            kind = str(row["kind"]).strip()
+            target = str(row["target"]).strip()
+            expr = row.get("expr")
+            origin = str(row["origin"]).strip()
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (not name or kind not in ("absent", "present", "sql", "callable", "http")
+                or not target or len(origin) < 20):
+            continue
+        write(c, """INSERT INTO invariants(name,kind,target,expr,origin,added_at)
+                    VALUES (?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING""",
+              (name, kind, target, expr, origin, now()))
+    added = c.total_changes - before
+    c.commit()
+    c.close()
+    return added, f"в файле {len(rows)}, восстановлено {added}"
+
+
 def seed():
-    """Заводит каталог из уже случившихся поломок."""
-    n = 0
+    """Восстанавливает весь каталог и добавляет встроенные исходные уроки."""
+    restored, _ = restore()
+    n = restored
     for name, kind, target, expr, origin in SEED:
         if add(name, kind, target, expr, origin):
             n += 1

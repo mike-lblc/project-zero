@@ -75,6 +75,17 @@ def run(args, timeout=120, cwd=None):
 _SILENCED = [False]
 
 
+def utf8_stdio():
+    """Make Russian diagnostics printable under redirected Windows consoles."""
+    for stream in (getattr(sys, "stdout", None), getattr(sys, "stderr", None)):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
 def silence():
     """Ни один дочерний процесс больше не откроет окно. Одна точка на всё.
 
@@ -90,6 +101,7 @@ def silence():
     creationflags явно, получает CREATE_NO_WINDOW. Явно заданные флаги
     уважаются — эта заглушка добавляет, а не отбирает.
     """
+    utf8_stdio()
     if _SILENCED[0] or sys.platform != "win32":
         return False
     _orig = subprocess.Popen.__init__

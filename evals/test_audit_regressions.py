@@ -1,9 +1,29 @@
 import json, sqlite3, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
-from core import events
+from core import db, events, regressions
 from agents import executor, worker
 class AuditRegressions(unittest.TestCase):
+    def test_persisted_invariants_restore_into_a_fresh_database(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = root / 'invariants.json'
+            store.write_text(json.dumps([{
+                'name': 'test-only persisted lesson',
+                'kind': 'present',
+                'target': 'core/regressions.py',
+                'expr': 'def restore',
+                'origin': 'A clean cloud runner previously discarded learned checks.',
+            }]), encoding='utf-8')
+            db._SCHEMA_DONE.clear()
+            with patch.object(db, 'DB_PATH', root / 'brain.db'), \
+                    patch.object(db, '_WAL_SET', False), \
+                    patch.object(regressions, 'STORE', store):
+                added, detail = regressions.restore()
+                self.assertEqual(added, 1, detail)
+                self.assertEqual(regressions.count(), 1)
+            db._SCHEMA_DONE.clear()
+
     def test_event_payload_roundtrip_and_claim_exclusion(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'db'

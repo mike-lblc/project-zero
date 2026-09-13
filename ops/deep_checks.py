@@ -19,6 +19,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+try:
+    from core.launch import utf8_stdio as _utf8_stdio
+    _utf8_stdio()
+except Exception:
+    pass
 
 SKIP = {".git", "node_modules", "__pycache__", ".venv", "work", "reports"}
 

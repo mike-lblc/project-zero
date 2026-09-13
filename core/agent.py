@@ -34,6 +34,7 @@
 необратимое, называется не автономным, а неуправляемым.
 """
 import json
+import inspect
 import re
 import sys
 from dataclasses import dataclass, field
@@ -42,7 +43,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from core.db import connect, ensure_schema  # noqa: E402
+from core.db import connect, ensure_schema, init as init_db  # noqa: E402
 from core import guard, router  # noqa: E402
 
 SCHEMA = """
@@ -66,8 +67,12 @@ def now():
 
 
 def _con():
-    c = connect()
+    c = init_db()
     ensure_schema(c, SCHEMA)
+    # state() читает tasks; на новой базе эта таблица живёт в отдельной схеме
+    # execution и раньше первый же оборот агента падал до выбора инструмента.
+    from core import execution
+    ensure_schema(c, execution.SCHEMA)
     return c
 
 
@@ -85,9 +90,10 @@ class Tool:
     describe: str              # что делает — этот текст читает модель
     fn: object = None
     needs: tuple = ()          # чего требует: сеть, gh, модель, сервис
+    actor_context: bool = False  # передать имя вызывающего агента первым аргументом
 
 
-def tool(name, action_class, describe, needs=()):
+def tool(name, action_class, describe, needs=(), actor_context=False):
     """Объявляет функцию инструментом, доступным агентам."""
     def deco(fn):
         # ПОВТОРНОЕ ИМЯ — ОШИБКА, как и у агентов. Второй инструмент с тем же
@@ -99,9 +105,36 @@ def tool(name, action_class, describe, needs=()):
             raise ValueError(f"инструмент «{name}» уже объявлен в "
                              f"{old.fn.__module__}.{old.fn.__qualname__}; второй с тем же "
                              f"именем затёр бы первый молча")
-        TOOLS[name] = Tool(name, action_class, describe, fn, needs)
+        TOOLS[name] = Tool(name, action_class, describe, fn, needs, actor_context)
         return fn
     return deco
+
+
+def _parameters(tool_def):
+    """Параметры, которые модель обязана передать выбранному инструменту.
+
+    Имя агента не является данными модели: transport подставляет его сам.
+    """
+    params = list(inspect.signature(tool_def.fn).parameters.values())
+    if tool_def.actor_context and params:
+        params = params[1:]
+    return [p for p in params if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
+
+
+def _parse_decision(raw):
+    """Достаёт первый настоящий JSON-объект, не полагаясь на хрупкий regex."""
+    decoder = json.JSONDecoder()
+    text = raw or ""
+    for start, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return {}
 
 
 # ═══════════════════════════════════════════════ АГЕНТ
@@ -130,6 +163,9 @@ class Agent:
             failed = [f"{r[0]} -> {r[1]}" for r in c.execute(
                 "SELECT chose, substr(outcome,1,70) FROM agent_decisions "
                 "WHERE agent=? AND ok=0 ORDER BY id DESC LIMIT 4", (self.name,))]
+            observations = [f"{r[0]} -> {r[1]}" for r in c.execute(
+                "SELECT chose, substr(outcome,1,300) FROM agent_decisions "
+                "WHERE agent=? AND ok=1 ORDER BY id DESC LIMIT 4", (self.name,))]
             tasks = [f"[{r[1]}] {r[0]}" for r in c.execute(
                 "SELECT substr(objective,1,80), state FROM tasks "
                 "WHERE owner_agent=? AND state IN ('queued','running') "
@@ -153,12 +189,23 @@ class Agent:
 
         return {"последние прогоны": recent, "что уже срабатывало": tried,
                 "что не сработало": failed, "мои задачи": tasks,
-                "входящие": inbox, "что мы уже выясняли": lessons}
+                "входящие": inbox, "наблюдения инструментов": observations,
+                "что мы уже выясняли": lessons}
 
     # ---------------------------------------------------------- рассуждение
     def _prompt(self, state):
-        menu = "\n".join(
-            f"  {n} — {TOOLS[n].describe}" for n in self.tools if n in TOOLS)
+        rows = []
+        for name in self.tools:
+            if name not in TOOLS:
+                continue
+            t = TOOLS[name]
+            params = _parameters(t)
+            signature = ", ".join(
+                p.name + ("" if p.default is inspect.Parameter.empty else " (необязательно)")
+                for p in params)
+            rows.append(f"  {name}" + (f" [{signature}]" if signature else "")
+                        + f" — {t.describe}")
+        menu = "\n".join(rows)
         facts = json.dumps(state, ensure_ascii=False, indent=1)
         return (
             f"{self.system}\n\n"
@@ -169,8 +216,10 @@ class Agent:
             f"НОВОЕ знание или продвинет работу к деньгам. Не повторяй то, что "
             f"уже срабатывало и не дало нового. Если что-то не сработало — не "
             f"повторяй это без изменения условий.\n\n"
-            f"Ответь ТОЛЬКО одной строкой JSON, без пояснений вокруг:\n"
-            f'{{"tool": "<имя из списка>", "why": "<одно предложение: почему именно это>"}}'
+            f"Ответь ТОЛЬКО одной строкой JSON, без пояснений вокруг. Для "
+            f"инструмента с параметрами передай их в args; ничего не выдумывай:\n"
+            f'{{"tool":"<имя>","args":{{"<параметр>":"<значение>"}},'
+            f'"why":"<почему именно это>"}}'
         )
 
     def decide(self):
@@ -190,29 +239,45 @@ class Agent:
             return {"tool": None, "why": f"модель недоступна: {type(e).__name__}",
                     "allowed": False}
 
-        m = re.search(r'\{[^{}]*"tool"\s*:\s*"([^"]+)"[^{}]*\}', raw or "")
-        chosen = m.group(1).strip() if m else None
-        why = ""
-        if m:
-            w = re.search(r'"why"\s*:\s*"([^"]*)"', m.group(0))
-            why = w.group(1) if w else ""
+        payload = _parse_decision(raw)
+        chosen = str(payload.get("tool") or "").strip() or None
+        why = str(payload.get("why") or "")
+        args = payload.get("args", {})
+        if not isinstance(args, dict):
+            args = {}
 
         allowed = bool(chosen) and chosen in self.tools and chosen in TOOLS
         if allowed:
             t = TOOLS[chosen]
-            # ПРАВА. Выбор модели сам по себе ничего не разрешает.
-            if t.action_class != "GREEN" or self.max_class != "GREEN":
+            # ПРАВА. max_class — верхняя граница, а не требование точного
+            # совпадения. Старое условие запрещало агенту YELLOW даже GREEN и
+            # именно поэтому improver падал в облачном цикле.
+            rank = {"GREEN": 0, "YELLOW": 1, "RED": 2, "BLACK": 3}
+            standing = guard.standing(chosen)
+            if (t.action_class == "BLACK" or
+                    (rank.get(t.action_class, 99) > rank.get(self.max_class, -1)
+                     and not standing)):
                 allowed = False
                 why = (f"{why} | отклонено: {chosen} класса {t.action_class}, "
-                       f"а локальный выбор разрешён только для GREEN")
+                       f"предел агента {self.max_class} и постоянного разрешения нет")
+            if allowed:
+                params = _parameters(t)
+                names = {p.name for p in params}
+                required = {p.name for p in params if p.default is inspect.Parameter.empty}
+                unexpected = set(args) - names
+                missing = required - set(args)
+                if unexpected or missing:
+                    allowed = False
+                    why = (f"{why} | неверные параметры: отсутствуют {sorted(missing)}, "
+                           f"лишние {sorted(unexpected)}")
         return {"tool": chosen, "why": why, "allowed": allowed,
-                "state": st, "raw": (raw or "")[:200]}
+                "args": args, "state": st, "raw": (raw or "")[:500]}
 
     # ---------------------------------------------------------- действие
     def act(self, dry_run=False):
         """Полный оборот агента: посмотреть, решить, проверить права, сделать."""
         d = self.decide()
-        chose, why = d.get("tool"), d.get("why", "")
+        chose, why, args = d.get("tool"), d.get("why", ""), d.get("args", {})
         if not d.get("allowed"):
             self._record(d, "не выполнено", ok=False)
             return {"agent": self.name, "chose": chose, "ok": False,
@@ -224,7 +289,7 @@ class Agent:
                     "detail": "вхолостую", "why": why}
         try:
             guard.check_action(chose, t.action_class)
-            out = t.fn()
+            out = t.fn(self.name, **args) if t.actor_context else t.fn(**args)
             ok = True
         except Exception as e:
             out, ok = f"{type(e).__name__}: {str(e)[:120]}", False

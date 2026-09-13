@@ -10,6 +10,7 @@ config.local.*
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.pid
 data/backups/
 # 49 МБ, пересоздаётся краулом рынка:
 data/bazaar_index.json

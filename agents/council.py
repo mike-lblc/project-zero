@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.db import connect
-from core import guard
+from core import guard, bus
 
 def now(): return datetime.now(timezone.utc).isoformat()
 
@@ -56,7 +56,12 @@ def proposer(summary, falsifier, action_class="GREEN", payload=None, evidence_id
                       (action_class, summary, json.dumps(payload or {}), falsifier,
                        json.dumps(evidence_ids or []), "proposer", now())); con.commit()
     pid = cur.lastrowid
-    send("proposer", f"proposal #{pid}: {summary}", topic="new_proposal")
+    # Конкретные адресаты вместо темы, которую никто не читал. Broadcast
+    # new_proposal годами мог расти, не передавая работу ни одному агенту.
+    bus.handoff("proposer", "verifier", f"проверить предложение #{pid}: {summary}",
+                "нужна независимая проверка до решения")
+    bus.handoff("proposer", "adversary", f"оспорить предложение #{pid}: {summary}",
+                "нужно найти сильнейший контраргумент до решения")
     return pid
 
 def verifier(proposal_id):
