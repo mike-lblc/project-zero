@@ -157,7 +157,7 @@ def measure():
         "leads_reachable": q("SELECT COUNT(*) FROM leads WHERE reachable=1"),
         "escalations": q("SELECT COUNT(*) FROM messages WHERE recipient='ESCALATION' "
                          "AND consumed_at IS NULL"),
-        "stalled": q("SELECT COUNT(*) FROM tasks WHERE state='running' "
+        "stalled": q("SELECT COUNT(*) FROM tasks WHERE kind='internal' AND state='WORKING' "
                      "AND updated_at < strftime('%Y-%m-%dT%H:%M:%S','now','-6 hours')"),
         "runs_1h": q("SELECT COUNT(*) FROM runs WHERE started_at > strftime('%Y-%m-%dT%H:%M:%S','now','-1 hour')"),
         "errors_1h": q("SELECT COUNT(*) FROM runs WHERE status='error' "

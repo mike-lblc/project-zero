@@ -56,25 +56,41 @@ def check_replies():
     c.execute("""CREATE TABLE IF NOT EXISTS outreach (
         id INTEGER PRIMARY KEY, domain TEXT NOT NULL UNIQUE, channel TEXT,
         url TEXT, sent_at TEXT NOT NULL, note TEXT)""")
-    rows = c.execute("SELECT domain, channel, url FROM outreach "
+    cols = [r[1] for r in c.execute("PRAGMA table_info(outreach)")]
+    tid_col = "task_id" if "task_id" in cols else "NULL"
+    rows = c.execute(f"SELECT domain, channel, url, sent_at, {tid_col} FROM outreach "
                      "WHERE url IS NOT NULL").fetchall()
     c.close()
     if not rows:
         return "обращений не было — отвечать некому"
 
     replied, silent, unreadable = [], [], []
-    for domain, channel, url in rows:
-        num = (url or "").rstrip("/").split("/")[-1]
+    for domain, channel, url, sent_at, task_id in rows:
+        # Номер обсуждения — до якоря комментария: .../pull/13455#issuecomment-…
+        num = (url or "").split("#")[0].rstrip("/").split("/")[-1]
         if not num.isdigit() or not channel:
             unreadable.append(domain)
             continue
-        raw = _gh(["api", f"repos/{channel}/issues/{num}/comments",
-                   "--jq", '[.[] | select(.user.login != "mike-lblc")] | length'])
+        # ОТВЕТ — ЭТО ТО, ЧТО НАПИСАНО ПОСЛЕ НАШЕГО СООБЩЕНИЯ. Прежде считались
+        # все чужие комментарии обсуждения, и в PR с давним ревью закрывающий
+        # объявил бы «ответили» ещё до того, как адресат увидел вопрос.
+        since = (sent_at or "")[:19]
+        raw = _gh(["api", f"repos/{channel}/issues/{num}/comments?per_page=100",
+                   "--jq", f'[.[] | select(.user.login != "mike-lblc") '
+                           f'| select(.created_at > "{since}")] | length'])
         if raw is None:
             unreadable.append(domain)      # молчание API — не молчание адресата
             continue
         n = int((raw or "0").strip() or 0)
         (replied if n > 0 else silent).append(f"{domain} ({n})")
+        if n > 0 and task_id:
+            try:
+                from core import execution
+                execution.advance(task_id, "REPLIED",
+                                  f"ответ другой стороны после нашего сообщения: {url} "
+                                  f"(новых комментариев {n})")
+            except Exception as e:
+                bus.broadcast("closer", f"Ответ есть, но сделка #{task_id} не продвинута: {e}")
 
     parts = [f"проверено обращений: {len(rows)}"]
     if replied:
@@ -92,11 +108,11 @@ def open_deals():
     """Что сейчас в работе по конвейеру сделки, по состояниям."""
     from core import execution
     c = connect()
-    rows = c.execute("SELECT state, COUNT(*) FROM tasks GROUP BY state "
+    execution._con().close()                  # перенос старых имён, если не был
+    rows = c.execute("SELECT state, COUNT(*) FROM tasks WHERE kind='deal' GROUP BY state "
                      "ORDER BY 2 DESC").fetchall()
     c.close()
-    deal_states = {s for s in execution.STATES if s.isupper()}
-    mine = {s: n for s, n in rows if s in deal_states}
+    mine = {s: n for s, n in rows}
     if not mine:
         return "сделок в конвейере нет — ни одна возможность не доведена до разговора"
     return "сделки по состояниям: " + ", ".join(f"{k} {v}" for k, v in mine.items())
@@ -107,50 +123,69 @@ def verify_evidence():
     """Проверяет, что записанные доказательства ДЕЙСТВИТЕЛЬНО доказывают.
 
     Доказательство, которого никто не перепроверял, — это утверждение с
-    красивым именем. Здесь проверяются три вещи, и каждая механическая:
-    ссылка открывается, хеш имеет верную форму, файл существует.
-    """
-    guard.check_action("research", "GREEN")
-    c = connect()
-    try:
-        rows = c.execute("SELECT id, kind, reference FROM task_proofs "
-                         "ORDER BY id DESC LIMIT 40").fetchall()
-    except Exception:
-        rows = []
-    c.close()
-    if not rows:
-        return "доказательств в журнале нет — проверять нечего"
+    красивым именем. Проверки механические: ссылка открывается, хеш имеет
+    верную форму, файл существует.
 
-    good, bad = 0, []
+    ЧТО БЫЛО. Функция читала таблицу task_proofs, которой не существует, ловила
+    ошибку широким except и докладывала «доказательств в журнале нет —
+    проверять нечего». Проверяющий не проверил ни одного доказательства ни
+    разу, а выглядел исправным. Теперь читаются настоящие источники:
+    proof_of_work и ссылки-доказательства переходов сделок.
+    """
     import re
     import urllib.error
     import urllib.request
-    for pid, kind, ref in rows:
-        ref = str(ref or "")
-        if kind == "tx_hash" or re.fullmatch(r"0x[0-9a-fA-F]{64}", ref):
-            (good,) = (good + 1,) if re.fullmatch(r"0x[0-9a-fA-F]{64}", ref) else (good,)
-            if not re.fullmatch(r"0x[0-9a-fA-F]{64}", ref):
-                bad.append(f"#{pid}: хеш неверной формы")
+    guard.check_action("research", "GREEN")
+    from core import execution
+    execution._con().close()
+    c = connect()
+    items = [(f"работа #{t}", k, str(r or "")) for t, k, r in c.execute(
+        "SELECT task_id, kind, reference FROM proof_of_work ORDER BY id DESC LIMIT 40")]
+    for tid, st, note in c.execute(
+            "SELECT e.task_id, e.to_state, e.note FROM task_events e JOIN tasks t ON t.id=e.task_id "
+            "WHERE t.kind='deal' AND e.note LIKE '%http%' ORDER BY e.id DESC LIMIT 40"):
+        for url in re.findall(r"https?://[^\s)]+", note or ""):
+            items.append((f"сделка #{tid} {st}", "http", url))
+    c.close()
+    if not items:
+        return "доказательств в журнале нет — проверять нечего"
+
+    good, bad, unchecked = 0, [], 0
+    seen = set()
+    for label, kind, ref in items:
+        if ref in seen:
             continue
+        seen.add(ref)
         if ref.startswith("http"):
             try:
                 urllib.request.urlopen(urllib.request.Request(
                     ref, headers={"User-Agent": "P0-verifier/1.0"}), timeout=15)
                 good += 1
             except urllib.error.HTTPError as e:
-                if e.code in (401, 403):
-                    good += 1          # закрыто, но существует
+                if e.code in (401, 403, 429):
+                    good += 1          # закрыто или ограничено, но существует
                 else:
-                    bad.append(f"#{pid}: ссылка отвечает {e.code}")
+                    bad.append(f"{label}: ссылка отвечает {e.code}")
             except Exception:
-                bad.append(f"#{pid}: ссылка недостижима")
+                bad.append(f"{label}: ссылка недостижима")
             continue
-        if (ROOT / ref).exists():
-            good += 1
+        if ref.startswith("0x"):
+            if re.fullmatch(r"0x[0-9a-fA-F]{64}", ref):
+                good += 1
+            else:
+                bad.append(f"{label}: хеш неверной формы")
             continue
-        bad.append(f"#{pid}: не ссылка, не хеш, не файл")
+        if kind == "file" or "/" in ref or ref.endswith((".md", ".txt", ".json")):
+            if (ROOT / ref).exists():
+                good += 1
+            else:
+                bad.append(f"{label}: не ссылка, не хеш, не файл")
+            continue
+        unchecked += 1                 # измерение или строка базы: механически не проверить
 
-    out = f"проверено доказательств {len(rows)}: подтвердилось {good}"
+    out = f"проверено доказательств {len(seen)}: подтвердилось {good}"
+    if unchecked:
+        out += f"; механически не проверяется {unchecked}"
     if bad:
         out += "; НЕ ПОДТВЕРДИЛОСЬ: " + "; ".join(bad[:3])
     return out

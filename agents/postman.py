@@ -43,7 +43,7 @@ def say(text):
                       "LIMIT 1", (text,)).fetchone()   # без окна: см. core/bus.broadcast
     if not dup:
         con.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) "
-                    "VALUES (?,?,?,?,?)", ("postman", None, "chat", text, now()))
+                    "VALUES (?,?,?,?,?)", ("channel_manager", None, "chat", text, now()))
         con.commit()
     con.close()
 

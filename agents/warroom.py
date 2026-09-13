@@ -130,17 +130,49 @@ def _init():
     return con
 
 
+# Дойдут ли деньги у направления — по маршрутизатору, а не по названию валюты.
+# Направления, которые платят через x402 или на кошелёк, опираются на проверенные
+# маршруты; остальное зависит от клиента и заранее неизвестно.
+PAYOUT = {
+    "x402-эндпоинт (то, что построено)": True,
+    "MCP-сервер в реестре": True,
+    "Продажа датасета рынка x402": True,
+}
+
+
+def estimate(name, v):
+    """Оценки направления 1..5 — в слагаемые формулы GND §9. Соответствие названо.
+
+    Прежняя формула (произведение девяти плюсов на сумму минусов) поднимала
+    направление за стратегичность и автоматизацию и не делила на срок до
+    денег. Директива требует одну формулу для всех возможностей.
+    """
+    from core import priority
+    return priority.Estimate(
+        expected_net_value=v["expected_revenue"] * v["margin"] / 5,      # выручка за вычетом издержек
+        probability_of_acceptance=(v["p_first_revenue"] / 5) * (v["customer_access"] / 5),
+        payout_reachability=priority.REACHABILITY.get(PAYOUT.get(name), 0.35),
+        time_to_cash_days=6 - v["speed"],
+        execution_cost=v["human_time"] + v["ai_cost"] + v["complexity"] + v["financial_cost"],
+        # Конкуренция у направлений не оценивалась — делитель нейтрален, а не выдуман.
+        competition=0.0,
+        quick_acceptance=v["speed"] >= 4,
+        existing_tools=v["resource_fit"] >= 4,
+        repeatable=v["repeatability"] >= 4,
+        product=v["automation"] >= 4,
+    )
+
+
 def score():
-    """Скоринг по формуле раздела 10: произведение плюсов делённое на сумму минусов."""
+    """Скоринг направлений по формуле GND §9 — той же, что у задач с наградой."""
     guard.check_action("research", "GREEN")
+    from core import priority
     con = _init()
     results = []
     for name, v in CANDIDATES.items():
-        num = (v["p_first_revenue"] * v["expected_revenue"] * v["speed"] * v["resource_fit"]
-               * v["customer_access"] * v["repeatability"] * v["margin"] * v["automation"]
-               * v["strategic"])
-        den = v["human_time"] + v["ai_cost"] + v["complexity"] + v["financial_cost"] + v["risk"]
-        s = round(num / den, 1)
+        e = estimate(name, v)
+        s = priority.score(e)
+        v = dict(v, note=f"{v['note']} Приоритет по шкале: {priority.explain(e, relative=True)}")
         con.execute("""INSERT OR REPLACE INTO opportunities
             (name,p_first_revenue,expected_revenue,speed,resource_fit,customer_access,
              repeatability,margin,automation,strategic,human_time,ai_cost,complexity,

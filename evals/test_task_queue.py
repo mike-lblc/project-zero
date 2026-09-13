@@ -40,7 +40,7 @@ class Queue(unittest.TestCase):
     def active(self, objective):
         c = self.db.connect()
         n = c.execute("SELECT COUNT(*) FROM tasks WHERE objective=? AND state NOT IN "
-                      "('done','cancelled','REJECTED','FAILED')", (objective,)).fetchone()[0]
+                      "('DELIVERED','REJECTED','FAILED')", (objective,)).fetchone()[0]
         c.close()
         return n
 
@@ -57,7 +57,7 @@ class Queue(unittest.TestCase):
         c = self.db.connect()
         state = c.execute("SELECT state FROM tasks WHERE id=?", (a,)).fetchone()[0]
         c.close()
-        self.assertEqual(state, "cancelled")
+        self.assertEqual(state, "REJECTED")
         self.assertEqual(self.ex.next_task()["id"], child)
 
     def test_audit_and_queue_loop_does_not_multiply(self):
@@ -73,12 +73,12 @@ class Queue(unittest.TestCase):
                 c = self.db.connect()
                 st = c.execute("SELECT state FROM tasks WHERE id=?", (t["id"],)).fetchone()[0]
                 c.close()
-                if st == "failed":
+                if st == "FAILED":
                     self.ex.unblock(t["id"], "новая попытка")
                 self.ex.start(t["id"], "взята")
             # аудит валит всё зависшее с новой попыткой
             c = self.db.connect()
-            running = [r[0] for r in c.execute("SELECT id FROM tasks WHERE state='running'")]
+            running = [r[0] for r in c.execute("SELECT id FROM tasks WHERE state='WORKING'")]
             c.close()
             for tid in running:
                 self.ex.fail(tid, "висела", next_action="разобрать")

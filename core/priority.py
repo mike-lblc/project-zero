@@ -58,10 +58,12 @@ def tie_key(e: Estimate):
             not e.repeatable, not e.product)
 
 
-def explain(e: Estimate) -> str:
-    return (f"{e.expected_net_value:g}$ × p{e.probability_of_acceptance:.2f} × "
-            f"выплата {e.payout_reachability:.2f} ÷ {e.time_to_cash_days:g} дн ÷ "
-            f"{e.execution_cost:g} ч ÷ (1+{e.competition:.2f}) = {score(e):g}")
+def explain(e: Estimate, relative=False) -> str:
+    """relative=True — оценки по шкале, а не доллары, дни и часы: единиц не пишем."""
+    usd, days, hours = ("", "", "") if relative else ("$", " дн", " ч")
+    return (f"{e.expected_net_value:g}{usd} × p{e.probability_of_acceptance:.2f} × "
+            f"выплата {e.payout_reachability:.2f} ÷ {e.time_to_cash_days:g}{days} ÷ "
+            f"{e.execution_cost:g}{hours} ÷ (1+{e.competition:.2f}) = {score(e):g}")
 
 
 def bounty_estimate(amount, reachable, declared, trust, stack_fit, rivals, comments,

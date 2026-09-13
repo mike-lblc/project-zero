@@ -99,7 +99,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"postman","mail_advance":"postman","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"channel_manager","mail_advance":"channel_manager","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "moltbook_heartbeat":"channel_manager",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
@@ -714,7 +714,7 @@ def advance_tasks():
         return "очередь пуста — двигать нечего"
 
     # Уже начатую не трогаем: попытки должны считать настоящие заходы.
-    if t.get("attempts", 0) and t.get("state") == "running":
+    if t.get("attempts", 0) and t.get("state") == "WORKING":
         return f"#{t['id']} уже в работе, попыток {t['attempts']}"
 
     # УПАВШУЮ ЗАДАЧУ НЕЛЬЗЯ НАЧАТЬ НАПРЯМУЮ. next_task() отдаёт и ждущие, и
@@ -729,7 +729,7 @@ def advance_tasks():
     con = connect()
     row = con.execute("SELECT state FROM tasks WHERE id=?", (t["id"],)).fetchone()
     con.close()
-    if row and row[0] == "failed":
+    if row and row[0] == "FAILED":
         execution.unblock(t["id"], "новая попытка после провала")
     execution.start(t["id"], "взята в работу очередью")
     # ОДНА ЭСКАЛАЦИЯ НА ЦЕЛЬ. Владелец получал по эскалации на каждую копию

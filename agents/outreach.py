@@ -62,6 +62,12 @@ def _schema(c):
         url TEXT,
         sent_at TEXT NOT NULL,
         note TEXT)""")
+    # связь со сделкой: по ней закрывающий переводит сделку в REPLIED
+    if "task_id" not in [r[1] for r in c.execute("PRAGMA table_info(outreach)")]:
+        try:
+            c.execute("ALTER TABLE outreach ADD COLUMN task_id INTEGER")
+        except Exception:
+            pass
 
 
 def rank_of(domain):
@@ -172,6 +178,9 @@ def compose(lead, rank):
     return "\n".join(lines)
 
 
+METHOD = "конкурентная разведка по каталогу x402"
+
+
 def already_contacted(domain):
     c = connect()
     _schema(c)
@@ -247,6 +256,23 @@ def reach_out(dry_run=True):
               (domain, channel, url, now(),
                f"место {rank['место']} из {rank['всего служб']}" if rank else "без места"))
     c.commit(); c.close()
+
+    # ОБРАЩЕНИЕ — ЭТО СДЕЛКА В СОСТОЯНИИ CONTACTED, а не строка в журнале.
+    # Раньше единственное настоящее обращение жило мимо конвейера, и разбивка
+    # по способам заработка показывала ноль обращений при одном отправленном.
+    try:
+        from core import execution
+        tid = execution.open_deal(
+            f"Сделка: {domain} — место в каталоге x402", METHOD, "salesman",
+            "ждать ответа; второй раз не писать",
+            [("QUALIFIED", f"измерено: {calls:,} вызовов, {payers:,} плательщиков за 30 дней"),
+             ("CONTACT_READY", f"публичный канал: github.com/{channel}"),
+             ("CONTACTED", url)])
+        c = connect()
+        c.execute("UPDATE outreach SET task_id=? WHERE domain=?", (tid, domain))
+        c.commit(); c.close()
+    except Exception as e:
+        bus.broadcast("salesman", f"Обращение отправлено, но сделка не заведена: {e}")
 
     bus.broadcast("salesman", f"Покупателю написано: {domain} через {channel}. "
                               f"В сообщении его собственные цифры: {calls:,} вызовов, "

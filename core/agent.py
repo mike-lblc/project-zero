@@ -168,7 +168,7 @@ class Agent:
                 "WHERE agent=? AND ok=1 ORDER BY id DESC LIMIT 4", (self.name,))]
             tasks = [f"[{r[1]}] {r[0]}" for r in c.execute(
                 "SELECT substr(objective,1,80), state FROM tasks "
-                "WHERE owner_agent=? AND state IN ('queued','running') "
+                "WHERE owner_agent=? AND state IN ('QUALIFIED','WORKING') "
                 "ORDER BY money_proximity DESC LIMIT 5", (self.name,))]
             inbox = [f"от {r[0]}: {r[1][:90]}" for r in c.execute(
                 "SELECT sender, body FROM messages WHERE recipient=? "

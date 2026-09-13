@@ -54,6 +54,15 @@ OFFICIAL_TOKENS = {
 }
 NATIVE = {"base": "ETH", "ethereum": "ETH", "arbitrum": "ETH", "polygon": "POL"}
 
+# Срок зачисления и правило, после которого поступление засчитывается.
+SETTLEMENT = {
+    "base": "блок ~2 с; засчитывается после включения в блок",
+    "ethereum": "блок ~12 с; засчитывается после включения в блок",
+    "polygon": "блок ~2 с; засчитывается после включения в блок",
+    "arbitrum": "блок <1 с; засчитывается после включения в блок",
+    "bitcoin": "блок ~10 мин; засчитывается после первого подтверждения",
+}
+
 NATIVE_TXS = {
     "base": "https://base.blockscout.com/api/v2/addresses/{addr}/transactions?filter=to",
     "ethereum": "https://eth.blockscout.com/api/v2/addresses/{addr}/transactions?filter=to",
@@ -110,7 +119,13 @@ def verify_routes():
             continue
         payment.mark("self-custody", network=net, status="verified",
                      account_ready=1, kyc_required=0, withdrawal_available=1,
-                     minimum_payout=0.0, failure_reason=None)
+                     minimum_payout=0.0, failure_reason=None,
+                     estimated_fee="комиссию сети платит отправитель; приём бесплатный",
+                     country_eligibility="без ограничений: самостоятельное хранение, без посредника",
+                     settlement_time=SETTLEMENT[net])
+        # контракт — по валюте, из того же списка, по которому признаётся поступление
+        for contract, (symbol, _) in OFFICIAL_TOKENS.get(net, {}).items():
+            payment.mark("self-custody", network=net, currency=symbol, contract=contract)
         out.append({"сеть": net, "итог": "проверен",
                     "адрес": addr[:10] + "…" + addr[-6:]})
     return out

@@ -291,6 +291,22 @@ def watch_prs():
 
         if d["s"] == "MERGED":
             changed.append(f"{repo}#{num} СЛИТ" + (f" — ожидаем ${bounty:.0f}" if bounty else ""))
+            # Слияние — настоящий ответ другой стороны: сделка переходит в REPLIED.
+            # Дальше AGREED только со словом сопровождающих о цене и условиях —
+            # принятая работа без договорённости об оплате деньгами не является.
+            try:
+                from core import execution
+                method = ("техническая документация" if (d["t"] or "").lower().startswith("docs")
+                          else "баунти за код")
+                execution.open_deal(
+                    f"Сделка: {repo}#{num} — {(d['t'] or '')[:80]}", method, "craftsman",
+                    "договориться об оплате: без AGREED денег нет",
+                    [("QUALIFIED", f"PR по задаче проекта {repo}"),
+                     ("CONTACT_READY", f"публичный репозиторий github.com/{repo}"),
+                     ("CONTACTED", url),
+                     ("REPLIED", f"PR слит сопровождающими: {url}")])
+            except Exception as e:
+                bus.broadcast("craftsman", f"PR слит, но сделка не продвинута: {e}")
             bus.broadcast("craftsman",
                           f"PR {repo}#{num} СЛИТ. Если баунти подтверждён площадкой, "
                           f"выплата идёт на кошелёк. Проверка кошелька — в каждом цикле.")
@@ -541,6 +557,17 @@ def claim(url, plan, dry_run=True):
         c = _con()
         c.execute("UPDATE bounties SET status='attempted' WHERE url=?", (url,))
         c.commit(); c.close()
+        comment_url = (out or "").strip().splitlines()[-1] if out else url
+        try:
+            from core import execution
+            execution.open_deal(
+                f"Сделка: {repo}#{num} — {d['t'][:80]}", "баунти за код", "craftsman",
+                "прислать работу по заявке",
+                [("QUALIFIED", f"награда объявлена, класс задачи наш, заявок до нас {rivals}"),
+                 ("CONTACT_READY", f"публичная задача: {url}"),
+                 ("CONTACTED", comment_url)])
+        except Exception as e:
+            bus.broadcast("craftsman", f"Заявка подана, но сделка не заведена: {e}")
         bus.broadcast("craftsman", f"Заявка подана: {repo}#{num}, заявок до нас {rivals}. "
                                    f"Теперь обязаны прислать работу — заявка без работы "
                                    f"хуже, чем её отсутствие.")
@@ -808,7 +835,7 @@ def pursue(dry_run=True):
     # add_proof() существовал и не вызывался ниоткуда: 22 задачи висели «в работе»
     # и только у двух было чем подтвердить работу. Правило без исполнения — не правило.
     c = _con()
-    task = c.execute("SELECT id FROM tasks WHERE objective LIKE ? AND state='running' "
+    task = c.execute("SELECT id FROM tasks WHERE objective LIKE ? AND state='WORKING' "
                      "ORDER BY id DESC LIMIT 1", (f"%{repo}%",)).fetchone()
     c.close()
     if task:

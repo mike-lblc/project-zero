@@ -59,6 +59,20 @@ def build():
     mcp = q(c, "SELECT result FROM actions WHERE kind='publish_mcp_registry' AND dry_run=0")
     svc_pub = q(c, "SELECT result FROM actions WHERE kind='publish_service' AND dry_run=0")
 
+    # Сделки по способам — из конвейера, а не пересказом.
+    deals = {}
+    for m, st, n in q(c, "SELECT revenue_method, state, COUNT(*) FROM tasks "
+                         "WHERE kind='deal' AND revenue_method IS NOT NULL GROUP BY 1, 2"):
+        deals.setdefault(m, []).append(f"{st} {n}")
+
+    def deals_of(*methods):
+        got = [f"{m}: " + ", ".join(deals[m]) for m in methods if m in deals]
+        return ("сделки — " + "; ".join(got)) if got else "сделок нет"
+
+    replied = q(c, "SELECT t.objective, e.note FROM tasks t JOIN task_events e ON e.task_id=t.id "
+                   "WHERE t.kind='deal' AND e.to_state='REPLIED' ORDER BY e.id")
+    omi_ask = q(c, "SELECT url FROM outreach WHERE domain='BasedHardware/omi'")
+
     def claim_repo(p):
         try:
             d = json.loads(p)
@@ -81,7 +95,8 @@ def build():
             "delivery": "pull request",
             "payment": "Algora / перевод на кошелёк; " + crypto_opts,
             "access": "самостоятельное хранение проверено; Algora — не проверена (нужен аккаунт владельца)",
-            "state": f"заявок {len(claims)}, PR {len(prs)} (слито {len(merged)}), поступлений {receipts}",
+            "state": (f"заявок {len(claims)}, PR {len(prs)} (слито {len(merged)}), поступлений {receipts}; "
+                      + deals_of("баунти за код")),
             "evidence": "; ".join([claim_repo(p) for p, _, _ in claims] + [u for u, *_ in prs]) or "—",
             "env": (f"${top_gh[1]:.0f} × оценка вероятности (приоритет {top_gh[2]:g})" if top_gh else "—"),
             "ttc": "3–7 дней при объявленной награде (оценка)",
@@ -99,14 +114,17 @@ def build():
             "delivery": "pull request",
             "payment": "только если награда объявлена проектом; " + crypto_opts,
             "access": "плательщика нет — награду $25 назначил посторонний",
-            "state": ("РАБОТА ПРИНЯТА: " + ", ".join(f"{u} ({s}, {r})" for u, s, r, _ in merged)
-                      if merged else "PR не слиты"),
+            "state": (("РАБОТА ПРИНЯТА: " + ", ".join(f"{u} ({s}, {r})" for u, s, r, _ in merged)
+                       if merged else "PR не слиты") + "; "
+                      + deals_of("техническая документация", "локализация документации")),
             "evidence": "; ".join(u for u, *_ in merged) or "—",
             "env": "$0 — за принятую работу никто не обязывался платить",
             "ttc": "—",
-            "blocker": "работа доставлена и принята, но оплату не объявлял ни проект, ни спонсор",
-            "next": ("решение владельца: спросить автора, назначившего $25, в силе ли "
-                     "предложение (одно сообщение), или закрыть как вклад без оплаты"),
+            "blocker": ("работа принята, но оплату не объявлял ни проект, ни спонсор; "
+                        "правила omi: награда по усмотрению, выплата только PayPal"),
+            "next": (("вопрос об оплате отправлен сопровождающему с согласия владельца: "
+                      + omi_ask[0][0] + " — ждём ответа, повторно не пишем")
+                     if omi_ask else "спросить сопровождающего, положена ли награда"),
         },
         {
             "method": "Конкурентная разведка по каталогу x402",
@@ -119,7 +137,7 @@ def build():
             "delivery": "отчёт в задаче или файлом",
             "payment": crypto_opts,
             "access": "проверено: " + ", ".join(ok_routes),
-            "state": f"CONTACTED: обращений {len(outreach)}, ответов — см. closer.check_replies",
+            "state": deals_of("конкурентная разведка по каталогу x402"),
             "evidence": "; ".join(u for _, u, _, _ in outreach) or "—",
             "env": "цена не подтверждена рынком (в каталоге цен нет намеренно)",
             "ttc": "неизвестно до ответа",
@@ -255,7 +273,7 @@ def build():
         ("Реальные заявки", [f"{claim_repo(p)} — {res} ({at[:10]})" for p, res, at in claims] or ["нет"]),
         ("Реальные отправленные сообщения",
          [f"{u} — {d} ({s[:10]})" for d, u, s, _ in outreach] + [f"PR {u}" for u, *_ in prs] or ["нет"]),
-        ("Ответы", replies + [f"одобрение ревью: {u}" for u in approved]),
+        ("Ответы", replies + [f"{o}: {n}" for o, n in replied]),
         ("Выполненная работа", [f"{u} — {s}" for u, s, *_ in prs] or ["нет"]),
         ("Начисление", [f"{balances}"]),
         ("Доступный вывод", [f"{withdrawable}"]),

@@ -38,8 +38,8 @@ from core.db import connect, ensure_schema
 # начисление, которое нельзя вывести, как прибыль. Каждое такое смешение
 # однажды случилось и стоило нам правдивого отчёта.
 #
-# СТАРЫЕ ИМЕНА СОХРАНЕНЫ КАК ПСЕВДОНИМЫ ниже: в базе лежат задачи со старыми
-# состояниями, и переименовать их одним движением значило бы потерять историю.
+# СТАРЫЕ ИМЕНА УДАЛЕНЫ. Записи в базе перенесены на новые имена, и каждый
+# перенос оставил событие в журнале задачи — история не потеряна.
 STATES = {
     # находка и оценка
     "DISCOVERED":        {"QUALIFIED", "REJECTED"},
@@ -66,18 +66,31 @@ STATES = {
     # концы
     "WITHDRAWN":         set(),
     "REJECTED":          set(),
-    "FAILED":            {"QUALIFIED", "EXTERNAL_BLOCKER"},   # провал даёт новую попытку
+    "FAILED":            {"QUALIFIED", "EXTERNAL_BLOCKER", "REJECTED"},  # провал даёт новую попытку
     "EXTERNAL_BLOCKER":  {"QUALIFIED", "REJECTED"},
 
-    # СТАРЫЕ ИМЕНА. Задачи агентов продолжают ими пользоваться, пока не
-    # переведены поимённо. Удалять их сейчас значило бы оборвать работающее.
-    "queued":    {"running", "cancelled", "DISCOVERED"},
-    "running":   {"done", "failed", "blocked", "WORKING"},
-    "failed":    {"queued", "blocked", "cancelled"},
-    "blocked":   {"queued", "cancelled"},
-    "done":      set(),
-    "cancelled": set(),
 }
+
+# ВНУТРЕННЯЯ ЗАДАЧА АГЕНТА идёт коротким путём по тем же состояниям.
+#
+# Старые шесть имён (queued, running, done, failed, blocked, cancelled) удалены:
+# владелец решил заменить конвейер целиком. Но у внутренней задачи — «найти
+# канал», «довести подписчиков» — нет ни обращения, ни договорённости. Прогнать
+# её по графу сделки значило бы либо застрять, либо нарушить запрет «лид не
+# является клиентом»: состояние WORKING без AGREED. Поэтому состояния одни, а
+# путей два, и какой из них действует — решает вид задачи, записанный в базе.
+INTERNAL = {
+    "QUALIFIED":        {"WORKING", "REJECTED", "EXTERNAL_BLOCKER"},
+    "WORKING":          {"DELIVERED", "FAILED", "EXTERNAL_BLOCKER"},
+    "FAILED":           {"QUALIFIED", "REJECTED", "EXTERNAL_BLOCKER"},
+    "EXTERNAL_BLOCKER": {"QUALIFIED", "REJECTED"},
+    "DELIVERED":        set(),
+    "REJECTED":         set(),
+}
+
+# Старое имя -> новое. Нужен только для переноса записей, лежащих в базе.
+LEGACY = {"queued": "QUALIFIED", "running": "WORKING", "done": "DELIVERED",
+          "failed": "FAILED", "blocked": "EXTERNAL_BLOCKER", "cancelled": "REJECTED"}
 
 # ЧТО ТРЕБУЕТСЯ ПРЕДЪЯВИТЬ ДЛЯ ПЕРЕХОДА. Состояние без доказательства — это
 # заявление, а директива требует именно доказательств. Переход без нужного
@@ -138,7 +151,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   objective TEXT NOT NULL,
   next_action TEXT NOT NULL,        -- раздел 4: следующее ИСПОЛНИМОЕ действие
   owner_agent TEXT NOT NULL,
-  state TEXT NOT NULL DEFAULT 'queued',
+  state TEXT NOT NULL DEFAULT 'QUALIFIED',
+  kind TEXT NOT NULL DEFAULT 'internal',  -- internal: задача агента; deal: сделка с покупателем
+  revenue_method TEXT,              -- у сделки: способ заработка (класс обхода или услуга)
   money_proximity INTEGER NOT NULL DEFAULT 3,  -- раздел 23: 1 = ближе всего к деньгам
   attempts INTEGER NOT NULL DEFAULT 0,
   parent_id INTEGER REFERENCES tasks(id),
@@ -181,23 +196,52 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+_MIGRATED = [False]
+
+
 def _con():
     c = connect()
     ensure_schema(c, SCHEMA)
+    if not _MIGRATED[0]:
+        _migrate_state_names(c)
+        _MIGRATED[0] = True
     return c
 
 
+def _migrate_state_names(c):
+    """Переносит задачи со старыми именами состояний. Каждый перенос — в журнал."""
+    from core.db import write
+    rows = c.execute("SELECT id, state FROM tasks WHERE state IN (%s)"
+                     % ",".join("?" * len(LEGACY)), list(LEGACY)).fetchall()
+    stamp = now()
+    for tid, old in rows:
+        write(c, "UPDATE tasks SET state=? WHERE id=?", (LEGACY[old], tid))
+        write(c, "INSERT INTO task_events(task_id,from_state,to_state,note,at) VALUES (?,?,?,?,?)",
+              (tid, old, LEGACY[old], "перенос на единые состояния GND: имя сменилось, "
+                                      "содержание нет", stamp))
+    # Вид сделки — у того, что уже проходило состояния разговора.
+    write(c, "UPDATE tasks SET kind='deal' WHERE kind='internal' AND id IN "
+             "(SELECT task_id FROM task_events WHERE to_state IN "
+             "('DISCOVERED','CONTACT_READY','CONTACTED','REPLIED','NEGOTIATING','AGREED'))")
+    c.commit()
+    return len(rows)
+
+
+def _graph(kind):
+    return INTERNAL if kind == "internal" else STATES
+
+
 # ---------------------------------------------------------------- создание
-# Состояния, из которых задача уже не вернётся в работу.
-TERMINAL = {"done", "cancelled", "REJECTED", "FAILED", "WITHDRAWN"}
+# Живая — всё, кроме конца пути. У внутренней задачи конец — ещё и DELIVERED.
+ACTIVE_SQL = ("state NOT IN ('REJECTED','WITHDRAWN') "
+              "AND NOT (kind='internal' AND state='DELIVERED')")
 
 
 def active_duplicate(objective, exclude_id=None):
     """Живая задача с той же целью, если она есть."""
     c = _con()
-    q = ("SELECT id FROM tasks WHERE objective=? AND state NOT IN (%s)"
-         % ",".join("?" * len(TERMINAL)))
-    args = [objective, *TERMINAL]
+    q = f"SELECT id FROM tasks WHERE objective=? AND {ACTIVE_SQL}"
+    args = [objective]
     if exclude_id is not None:
         q += " AND id<>?"
         args.append(exclude_id)
@@ -206,7 +250,8 @@ def active_duplicate(objective, exclude_id=None):
     return r[0] if r else None
 
 
-def create(objective, next_action, owner_agent, money_proximity=3, parent_id=None):
+def create(objective, next_action, owner_agent, money_proximity=3, parent_id=None,
+           kind="internal", revenue_method=None):
     """Раздел 4: задача без следующего ИСПОЛНИМОГО действия не создаётся.
 
     money_proximity (раздел 23): 1 = деньги напрямую, 5 = далеко от денег.
@@ -221,16 +266,23 @@ def create(objective, next_action, owner_agent, money_proximity=3, parent_id=Non
         raise ValueError("задача без next_action не принимается: это не задача, а пожелание")
     if not (1 <= int(money_proximity) <= 5):
         raise ValueError("money_proximity должен быть от 1 до 5")
+    if kind not in ("internal", "deal"):
+        raise ValueError(f"вид задачи «{kind}» неизвестен: internal или deal")
+    if kind == "deal" and not (revenue_method or "").strip():
+        raise ValueError("сделка без способа заработка не заводится: разбивка по "
+                         "способам — требование директивы, а не украшение")
     dup = active_duplicate(objective, exclude_id=parent_id)
     if dup:
         return dup
     c = _con()
+    first = "QUALIFIED" if kind == "internal" else "DISCOVERED"
     tid = c.execute("""INSERT INTO tasks(objective,next_action,owner_agent,money_proximity,
-                       parent_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?)""",
+                       parent_id,state,kind,revenue_method,created_at,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
                     (objective, next_action, owner_agent, int(money_proximity),
-                     parent_id, now(), now())).lastrowid
+                     parent_id, first, kind, revenue_method, now(), now())).lastrowid
     c.execute("INSERT INTO task_events(task_id,from_state,to_state,note,at) VALUES (?,?,?,?,?)",
-              (tid, None, "queued", "создана", now()))
+              (tid, None, first, "создана", now()))
     c.commit(); c.close()
     return tid
 
@@ -238,11 +290,11 @@ def create(objective, next_action, owner_agent, money_proximity=3, parent_id=Non
 # ---------------------------------------------------------------- переходы
 def _transition(task_id, to_state, note=None):
     c = _con()
-    row = c.execute("SELECT state, attempts FROM tasks WHERE id=?", (task_id,)).fetchone()
+    row = c.execute("SELECT state, attempts, kind FROM tasks WHERE id=?", (task_id,)).fetchone()
     if not row:
         c.close(); raise ValueError(f"нет задачи #{task_id}")
     cur = row[0]
-    if to_state not in STATES.get(cur, set()):
+    if to_state not in _graph(row[2]).get(cur, set()):
         c.close()
         raise InvalidTransition(f"переход {cur} -> {to_state} запрещён машиной состояний")
 
@@ -256,7 +308,7 @@ def _transition(task_id, to_state, note=None):
             f"переход в {to_state} требует доказательства: {need}. "
             f"Состояние без доказательства — это заявление, а не факт.")
 
-    attempts = row[1] + (1 if to_state in ("running", "WORKING") else 0)
+    attempts = row[1] + (1 if to_state == "WORKING" else 0)
     c.execute("UPDATE tasks SET state=?, attempts=?, updated_at=? WHERE id=?",
               (to_state, attempts, now(), task_id))
     c.execute("INSERT INTO task_events(task_id,from_state,to_state,note,at) VALUES (?,?,?,?,?)",
@@ -266,7 +318,7 @@ def _transition(task_id, to_state, note=None):
 
 
 def start(task_id, note=None):
-    return _transition(task_id, "running", note)
+    return _transition(task_id, "WORKING", note)
 
 
 # ---------------------------------------------------------------- доказательство
@@ -291,7 +343,12 @@ def complete(task_id, note=None):
     c.close()
     if n == 0:
         raise NoProof(f"задачу #{task_id} нельзя закрыть: нет ни одного доказательства работы")
-    return _transition(task_id, "done", note or f"закрыта, доказательств: {n}")
+    c = _con()
+    refs = [r[0] for r in c.execute("SELECT reference FROM proof_of_work WHERE task_id=? "
+                                    "ORDER BY id DESC LIMIT 3", (task_id,))]
+    c.close()
+    return _transition(task_id, "DELIVERED",
+                       note or f"сдано, доказательств {n}: " + "; ".join(refs))
 
 
 # ---------------------------------------------------------------- провал
@@ -301,7 +358,7 @@ def fail(task_id, reason, next_action=None, money_proximity=None):
     Если следующая попытка не названа — задача уходит в failed и остаётся висеть,
     что видно в отчётах. Молча умереть она не может.
     """
-    _transition(task_id, "failed", reason)
+    _transition(task_id, "FAILED", reason)
     if not next_action:
         return None
     c = _con()
@@ -314,7 +371,7 @@ def fail(task_id, reason, next_action=None, money_proximity=None):
     # снова наравне с новой попыткой — и каждые шесть часов задач становилось
     # вдвое больше. Попытка, у которой есть преемник, закончена.
     if child != task_id:
-        _transition(task_id, "cancelled", f"заменена новой попыткой #{child}")
+        _transition(task_id, "REJECTED", f"заменена новой попыткой #{child}")
     return child
 
 
@@ -339,11 +396,11 @@ def block(task_id, kind, detail, capability_check=None):
     c.execute("UPDATE tasks SET blocker_kind=?, blocker_detail=?, capability_check=? WHERE id=?",
               (kind, detail, json.dumps(capability_check, ensure_ascii=False), task_id))
     c.commit(); c.close()
-    return _transition(task_id, "blocked", f"{kind}: {detail}")
+    return _transition(task_id, "EXTERNAL_BLOCKER", f"{kind}: {detail}")
 
 
 def unblock(task_id, note=None):
-    return _transition(task_id, "queued", note or "блокер снят")
+    return _transition(task_id, "QUALIFIED", note or "блокер снят")
 
 
 # ---------------------------------------------------------------- очередь
@@ -352,11 +409,12 @@ def next_task(agent=None):
     c = _con()
     # Упавшая задача с преемником не берётся, и цель, по которой уже идёт
     # работа, второй раз не начинается.
+    # Сделки очередь не берёт: сделку двигает ответ другой стороны, а не таймер.
     q = ("SELECT id,objective,next_action,owner_agent,money_proximity,attempts FROM tasks t "
-         "WHERE state IN ('queued','failed') "
+         "WHERE kind='internal' AND state IN ('QUALIFIED','FAILED') "
          "AND NOT EXISTS (SELECT 1 FROM tasks ch WHERE ch.parent_id=t.id) "
          "AND NOT EXISTS (SELECT 1 FROM tasks o WHERE o.objective=t.objective "
-         "AND o.id<>t.id AND o.state IN ('running','WORKING'))")
+         "AND o.id<>t.id AND o.state='WORKING')")
     args = ()
     if agent:
         q += " AND owner_agent=?"
@@ -394,8 +452,49 @@ def stalled(hours=6):
     # нетронутыми двадцать шесть часов — а уборка честно докладывала «зависших
     # нет». Задача, которую никто не начал, застревает не менее надёжно, чем
     # начатая и брошенная; разница лишь в том, что первую не видно.
+    # СДЕЛКА НЕ «ЗАВИСАЕТ». Ожидание ответа — нормальное состояние, и объявить
+    # его провалом значило бы породить новую попытку — то есть второе письмо
+    # тому же адресату. Мы пишем один раз навсегда.
     rows = c.execute("SELECT id,objective,state,attempts,updated_at FROM tasks "
-                     "WHERE state IN ('running','failed','queued') "
+                     "WHERE kind='internal' AND state IN ('WORKING','FAILED','QUALIFIED') "
                      "AND updated_at < ?", (cutoff,)).fetchall()
     c.close()
     return [dict(zip(("id", "objective", "state", "attempts", "updated_at"), r)) for r in rows]
+
+
+# ---------------------------------------------------------------- сделка
+def open_deal(objective, revenue_method, owner_agent, next_action, path, money_proximity=2):
+    """Заводит сделку и проводит её по пути до последнего подтверждённого шага.
+
+    path — список (состояние, доказательство) в порядке прохождения. Каждый
+    переход проверяется машиной и её правилами доказательств; шаг, который уже
+    пройден, пропускается. Повторный вызов с тем же objective ничего не
+    дублирует, а только продвигает существующую сделку дальше.
+
+    Возвращает номер сделки.
+    """
+    tid = create(objective, next_action, owner_agent, money_proximity,
+                 kind="deal", revenue_method=revenue_method)
+    for state, note in path:
+        advance(tid, state, note)
+    return tid
+
+
+def advance(task_id, to_state, note):
+    """Переход, который не ломается на уже достигнутом состоянии.
+
+    Если сделка уже в нужном состоянии или дальше по пути — ничего не делает.
+    Иначе — обычный переход со всеми правилами.
+    """
+    c = _con()
+    row = c.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
+    c.close()
+    if not row:
+        raise ValueError(f"нет задачи #{task_id}")
+    order = list(STATES)
+    cur = row[0]
+    if cur == to_state or (cur in order and to_state in order
+                           and order.index(cur) > order.index(to_state)
+                           and cur not in ("REJECTED", "FAILED", "EXTERNAL_BLOCKER")):
+        return cur
+    return _transition(task_id, to_state, note)

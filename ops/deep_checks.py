@@ -77,9 +77,10 @@ PATTERNS = [
      "«пусто» и «не спрашивали»."),
 
     ("устаревшее имя состояния задачи",
-     r"state\s*=\s*'in_progress'|state='in_progress'",
-     "Машина состояний пишет 'running'. Запросы с 'in_progress' не совпадали "
-     "никогда: агент всегда видел пустой список своих задач."),
+     r"state\s*=\s*'(in_progress|queued|running)'|state\s+IN\s*\(\s*'(queued|running)'",
+     "Машина состояний пишет имена GND: QUALIFIED, WORKING, DELIVERED. Запросы со "
+     "старыми именами — 'in_progress', 'queued', 'running' — не совпадают никогда: "
+     "агент видит пустой список своих задач и считает, что работы нет."),
 
     ("поиск себя по старому адресу",
      r"\"trycloudflare\"|'trycloudflare'",

@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS payment_routes (
   estimated_fee TEXT,
   settlement_time TEXT,
   withdrawal_available INTEGER,
+  contract TEXT,                     -- адрес контракта токена; у родной монеты пусто
   verified_at TEXT,
   status TEXT NOT NULL DEFAULT 'unverified',
   failure_reason TEXT,
@@ -65,7 +66,9 @@ CREATE TABLE IF NOT EXISTS payment_requests (
   currency TEXT,
   instructions TEXT,
   requested_at TEXT NOT NULL,
-  state TEXT NOT NULL DEFAULT 'PAYMENT_REQUESTED'
+  state TEXT NOT NULL DEFAULT 'PAYMENT_REQUESTED',
+  task_id INTEGER,                   -- сделка, за которую просим
+  network TEXT
 );
 CREATE TABLE IF NOT EXISTS payment_receipts (
   id INTEGER PRIMARY KEY,
@@ -171,6 +174,12 @@ SEED_ROUTES = [
     ("self-custody", "crypto", "ETH", "ethereum", OWNER_DESTINATIONS["evm"]),
     ("self-custody", "crypto", "ETH", "base", OWNER_DESTINATIONS["evm"]),
     ("self-custody", "crypto", "BTC", "bitcoin", OWNER_DESTINATIONS["btc"]),
+    # Наблюдатель принимает и это; маршрута в реестре не было, и поступление
+    # записалось бы без маршрута — разбивка по маршрутам его бы не показала.
+    ("self-custody", "crypto", "ETH", "arbitrum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "POL", "polygon", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "USDC.e", "polygon", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "USDC.e", "arbitrum", OWNER_DESTINATIONS["evm"]),
     ("algora", "bounty_platform", "USD", "", None),
     ("polar", "bounty_platform", "USD", "", None),
     ("gitcoin", "bounty_platform", "USD", "", None),
@@ -182,6 +191,20 @@ SEED_ROUTES = [
     ("marketplace_payout", "marketplace", "USD", "", None),
     ("affiliate_network", "affiliate", "USD", "", None),
     ("contest_prize", "prize", "USD", "", None),
+]
+
+PLATFORM_REASONS = [
+    ("algora", "нужен аккаунт владельца на площадке; способ выплаты не проверен", "unverified"),
+    ("polar", "нужен аккаунт владельца на площадке; способ выплаты не проверен", "unverified"),
+    ("gitcoin", "нужен аккаунт владельца; выплата на кошелёк возможна, не проверена", "unverified"),
+    ("github_sponsors", "выплата банковским переводом через Stripe — фиат владельцу недоступен", "blocked"),
+    ("ko-fi", "выплата через PayPal/Stripe — фиат владельцу недоступен", "blocked"),
+    ("open_collective", "нужен фонд-хозяин и банковский вывод; не проверено", "unverified"),
+    ("bank_transfer", "фиат владельцу недоступен (решение владельца: фильтр фиата)", "blocked"),
+    ("payment_processor", "PayPal/Stripe владельцу недоступны (решение владельца)", "blocked"),
+    ("marketplace_payout", "у каждой площадки свой способ; нужен аккаунт владельца", "unverified"),
+    ("affiliate_network", "у каждой сети свой способ; нужен аккаунт владельца", "unverified"),
+    ("contest_prize", "способ выплаты решает организатор конкурса", "unverified"),
 ]
 
 SEED_NETWORKS = [
@@ -224,6 +247,12 @@ def seed():
     for code, kind, liquid, note in SEED_CURRENCIES:
         write(c, "INSERT INTO currencies(code,kind,liquid,note) VALUES (?,?,?,?) "
                   "ON CONFLICT(code) DO NOTHING", (code, kind, liquid, note))
+    # ПОЧЕМУ МАРШРУТ НЕ ПРОВЕРЕН — названо, а не оставлено пустым. Пустая
+    # причина читается как «проверим позже», а здесь проверка упирается в то,
+    # что агентам запрещено, или в решение владельца.
+    for provider, reason, status in PLATFORM_REASONS:
+        write(c, "UPDATE payment_routes SET failure_reason=?, status=? "
+                 "WHERE provider=? AND status<>'verified'", (reason, status, provider))
     c.commit(); c.close()
     return added
 
@@ -280,13 +309,14 @@ def mark(provider, method=None, currency=None, network=None, **fields):
 
 
 # ═════════════════════════════════════════════ ЗАПРОС И ПОСТУПЛЕНИЕ
-def request_payment(opportunity, amount, currency, route_id=None, instructions=None):
+def request_payment(opportunity, amount, currency, route_id=None, instructions=None,
+                    task_id=None, network=None):
     """Создаёт запрос оплаты. Запрос — это НЕ платёж, и путать нельзя."""
     c = _con()
     cur = c.execute(
         "INSERT INTO payment_requests(route_id,opportunity,amount,currency,"
-        "instructions,requested_at) VALUES (?,?,?,?,?,?)",
-        (route_id, opportunity, amount, currency, instructions, now()))
+        "instructions,requested_at,task_id,network) VALUES (?,?,?,?,?,?,?,?)",
+        (route_id, opportunity, amount, currency, instructions, now(), task_id, network))
     c.commit()
     rid = cur.lastrowid
     c.close()
@@ -342,6 +372,35 @@ def record_receipt(proof, proof_kind, gross, currency, fees=0.0,
     c.close()
     return {"ok": True, "gross": gross, "fees": fees or 0, "net": net,
             "currency": currency}
+
+
+def match_receipts():
+    """Сопоставляет поступления с открытыми запросами оплаты.
+
+    Правило строгое, потому что ошибка здесь приписала бы чужие деньги сделке:
+    та же валюта, та же сеть (если в запросе указана), сумма не меньше
+    запрошенной за вычетом одного процента и поступление ПОСЛЕ запроса. Два
+    подходящих запроса на одно поступление — не угадываем, оставляем как есть.
+    Возвращает список (запрос, поступление, сделка).
+    """
+    c = _con()
+    reqs = c.execute("SELECT id, amount, currency, network, requested_at, task_id "
+                     "FROM payment_requests WHERE state='PAYMENT_REQUESTED'").fetchall()
+    free = c.execute("SELECT id, net, currency, network, received_at, proof "
+                     "FROM payment_receipts WHERE request_id IS NULL").fetchall()
+    matched = []
+    for rid, net, cur, network, at, proof in free:
+        fit = [r for r in reqs if r[2] == cur and (not r[3] or r[3] == network)
+               and net >= (r[1] or 0) * 0.99 and at > r[4]
+               and r[0] not in {m[0] for m in matched}]
+        if len(fit) != 1:
+            continue
+        req = fit[0]
+        write(c, "UPDATE payment_receipts SET request_id=? WHERE id=?", (req[0], rid))
+        write(c, "UPDATE payment_requests SET state='PAID' WHERE id=?", (req[0],))
+        matched.append((req[0], proof, req[5]))
+    c.commit(); c.close()
+    return matched
 
 
 def totals():

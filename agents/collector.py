@@ -67,7 +67,7 @@ def choose_route(currency=None, network=None, provider=None):
             "что делать": "проверить маршрут до того, как вкладывать труд"}
 
 
-def request(opportunity, amount, currency, network=None, provider=None):
+def request(opportunity, amount, currency, network=None, provider=None, task_id=None):
     """Создаёт запрос оплаты. ЗАПРОС — НЕ ПЛАТЁЖ, и путать нельзя.
 
     Директива перечисляет это прямо среди того, что нельзя считать прибылью:
@@ -91,8 +91,16 @@ def request(opportunity, amount, currency, network=None, provider=None):
                 "подтверждения хешем транзакции"},
         ensure_ascii=False)
 
+    if task_id:
+        # Сначала переход: запрос оплаты за несданную работу машина отвергнет,
+        # и строка запроса не должна появиться раньше этого решения.
+        # PAYMENT_REQUESTED требует суммы и маршрута — они здесь и есть.
+        from core import execution
+        execution.advance(task_id, "PAYMENT_REQUESTED",
+                          f"{amount} {currency}" + (f" в сети {network}" if network else "")
+                          + (f" на {dest}" if dest else ""))
     rid = payment.request_payment(opportunity, amount, currency,
-                                  instructions=instructions)
+                                  instructions=instructions, task_id=task_id, network=network)
     bus.broadcast("collector", f"Запрошена оплата за «{str(opportunity)[:60]}»: "
                                f"{amount} {currency}"
                                + (f" в сети {network}" if network else "")
@@ -104,7 +112,14 @@ def request(opportunity, amount, currency, network=None, provider=None):
 def collect():
     """Сверяет поступления по всем проверенным маршрутам."""
     guard.check_action("research", "GREEN")
-    return payment_watch.watch()
+    out = payment_watch.watch()
+    for req, proof, task_id in payment.match_receipts():
+        if task_id:
+            from core import execution
+            execution.advance(task_id, "PAID", f"поступление подтверждено хешем {proof}")
+        bus.broadcast("collector", f"Поступление сопоставлено с запросом №{req}: {proof}. "
+                                   f"Сделка переведена в PAID.")
+    return out
 
 
 def money_report():

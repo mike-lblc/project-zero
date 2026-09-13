@@ -301,7 +301,7 @@ function agentState() {
   const PROCESS_ROLE = {
     orchestrator: 'цикл воркера: очередь, события, журнал',
     scout: 'снимок рынка x402 и поиск источников', judge: 'проверка здоровья службы',
-    postman: 'почтовый список по согласию', merchant: 'ценовые полосы рынка',
+    merchant: 'ценовые полосы рынка',
     distributor: 'видимость в каталогах', scribe: 'летопись изменений',
     mechanic: 'механическая правка кода с откатом',
   };
@@ -402,7 +402,10 @@ app.get('/api/execution', (_req, res) => {
   const all = (q, ...a) => { try { return db.prepare(q).all(...a); } catch { return []; } };
   const n = (q) => { try { return db.prepare(q).get().c || 0; } catch { return 0; } };
 
-  const states = ['queued', 'running', 'done', 'failed', 'blocked', 'cancelled'];
+  // Единые состояния GND; старые имена удалены из машины состояний.
+  const states = ['QUALIFIED', 'WORKING', 'DELIVERED', 'FAILED', 'EXTERNAL_BLOCKER', 'REJECTED',
+                  'DISCOVERED', 'CONTACT_READY', 'CONTACTED', 'REPLIED', 'NEGOTIATING', 'AGREED',
+                  'QA', 'PAYMENT_REQUESTED', 'PAYMENT_PENDING', 'PAID', 'WITHDRAWABLE', 'WITHDRAWN'];
   const board = {};
   for (const st of states) n0(st);
   function n0(st) { board[st] = n(`SELECT COUNT(*) c FROM tasks WHERE state='${st}'`); }
@@ -414,8 +417,8 @@ app.get('/api/execution', (_req, res) => {
                 blocker_kind,blocker_detail,updated_at,
                 (SELECT COUNT(*) FROM proof_of_work p WHERE p.task_id=tasks.id) proofs
                 FROM tasks ORDER BY
-                CASE state WHEN 'running' THEN 0 WHEN 'queued' THEN 1 WHEN 'blocked' THEN 2
-                           WHEN 'failed' THEN 3 ELSE 4 END,
+                CASE state WHEN 'WORKING' THEN 0 WHEN 'QUALIFIED' THEN 1
+                           WHEN 'EXTERNAL_BLOCKER' THEN 2 WHEN 'FAILED' THEN 3 ELSE 4 END,
                 money_proximity ASC, id DESC LIMIT 40`),
     proofs: all(`SELECT task_id,kind,reference,detail,created_at FROM proof_of_work
                  ORDER BY id DESC LIMIT 20`),
@@ -484,7 +487,8 @@ app.get('/api/execution', (_req, res) => {
         classes_total: reg.classes_total ?? methods.length,
         never_answered: methods.filter(m => !m.searched_at && !m.orphan).length,
         orphans: methods.filter(m => m.orphan).map(m => m.category),
-        pipeline: all(`SELECT state, COUNT(*) n FROM tasks GROUP BY state ORDER BY n DESC`),
+        pipeline: all(`SELECT kind, state, COUNT(*) n FROM tasks GROUP BY kind, state
+                       ORDER BY kind, n DESC`),
         money_states: {
           promised: money(`SELECT COUNT(*) c FROM payment_requests WHERE state='PAYMENT_REQUESTED'`),
           accrued: money(`SELECT COUNT(*) c FROM platform_balances WHERE amount > 0`),
@@ -504,6 +508,48 @@ app.get('/api/execution', (_req, res) => {
         services: all(`SELECT name, status, executor, reason, gnd_ref FROM services
                        ORDER BY status, name`),
         last_run: (all(`SELECT MAX(started_at) t FROM runs`)[0] || {}).t || null,
+        // ПО КАЖДОМУ СПОСОБУ — весь путь сделки и деньги (GND §14). Сделки
+        // привязаны к способу при заведении; поступление привязано к сделке
+        // через запрос оплаты, поэтому суммы не угадываются по совпадению.
+        deals_by_method: (() => {
+          const STAGES = ['DISCOVERED','QUALIFIED','CONTACT_READY','CONTACTED','REPLIED','NEGOTIATING',
+                          'AGREED','WORKING','QA','DELIVERED','PAYMENT_REQUESTED','PAYMENT_PENDING',
+                          'PAID','WITHDRAWABLE','WITHDRAWN','REJECTED','FAILED','EXTERNAL_BLOCKER'];
+          const rows = all(`SELECT t.revenue_method m, t.state, COUNT(*) n FROM tasks t
+                            WHERE t.kind='deal' AND t.revenue_method IS NOT NULL
+                            GROUP BY t.revenue_method, t.state`);
+          const out = {};
+          for (const r of rows) {
+            const o = out[r.m] = out[r.m] || { method: r.m, stages: {}, reached: {} };
+            o.stages[r.state] = r.n;
+          }
+          for (const o of Object.values(out)) {
+            // «дошло до стадии» считается по журналу: сделка в REPLIED прошла и CONTACTED
+            for (const e of all(`SELECT e.to_state s, COUNT(DISTINCT e.task_id) n FROM task_events e
+                                 JOIN tasks t ON t.id=e.task_id
+                                 WHERE t.kind='deal' AND t.revenue_method=? GROUP BY e.to_state`, o.method))
+              o.reached[e.s] = e.n;
+            const m = all(`SELECT r.currency, COALESCE(r.network,'') network, r.proof_kind provider,
+                             COUNT(*) n, SUM(r.gross) gross, SUM(r.fees) fees, SUM(r.net) net,
+                             MAX(r.proof) proof
+                           FROM payment_receipts r JOIN payment_requests q ON q.id=r.request_id
+                           JOIN tasks t ON t.id=q.task_id
+                           WHERE t.revenue_method=? GROUP BY r.currency, r.network, r.proof_kind`, o.method);
+            o.money = m;
+            const ev = all(`SELECT e.note, e.at, e.to_state FROM task_events e JOIN tasks t ON t.id=e.task_id
+                            WHERE t.kind='deal' AND t.revenue_method=? ORDER BY e.id DESC LIMIT 1`, o.method)[0] || {};
+            o.last_event = ev.at || null;
+            o.evidence = (all(`SELECT e.note FROM task_events e JOIN tasks t ON t.id=e.task_id
+                               WHERE t.kind='deal' AND t.revenue_method=? AND e.note LIKE '%http%'
+                               ORDER BY e.id DESC LIMIT 1`, o.method)[0] || {}).note || null;
+            o.blocker = (all(`SELECT COALESCE(blocker_detail, next_action) b FROM tasks
+                              WHERE kind='deal' AND revenue_method=? AND state NOT IN ('REJECTED','WITHDRAWN')
+                              ORDER BY updated_at DESC LIMIT 1`, o.method)[0] || {}).b || null;
+            o.stage_order = STAGES;
+          }
+          return Object.values(out);
+        })(),
+        last_cloud_event: (all(`SELECT MAX(started_at) t FROM runs`)[0] || {}).t || null,
       };
     })(),
     external: {

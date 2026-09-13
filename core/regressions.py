@@ -397,6 +397,45 @@ SEED = [
      "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/health", "200",
      "Листинг на временный адрес бессмыслен: если адрес умрёт, теряется и запись "
      "в реестре, и всякая возможность получить платёж."),
+
+    # ── ЧЕТЫРЕ ЗАПРЕТА GND §7. Каждый выражен тем, что можно проверить
+    # механически: строкой в базе или объявлением в коде. Запрет, записанный
+    # только в промпте, соблюдается до первой спешки.
+    ("черновик не является отправкой", "sql",
+     "SELECT COUNT(*) FROM outreach WHERE url IS NULL OR url NOT LIKE 'http%'",
+     "== 0",
+     "Обращение без публичного следа — это подготовленное письмо, а не отправка. "
+     "У нас было четыре «найденных канала» и ноль доказанных, и это называлось "
+     "«каналы найдены»."),
+
+    ("лид не является клиентом", "sql",
+     "SELECT COUNT(*) FROM tasks t WHERE t.kind='deal' AND t.state IN ('AGREED','WORKING','QA','DELIVERED',"
+     "'PAYMENT_REQUESTED','PAYMENT_PENDING','PAID','WITHDRAWABLE','WITHDRAWN') "
+     "AND NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id=t.id "
+     "AND e.to_state IN ('AGREED','DELIVERED') AND length(e.note) >= 12)",
+     "== 0",
+     "Сделка дальше договорённости обязана пройти AGREED или DELIVERED с "
+     "доказательством. Двадцать пять найденных компаний не были ни одним клиентом."),
+
+    ("ответ 402 не является платежом", "sql",
+     "SELECT COUNT(*) FROM payment_receipts WHERE proof_kind NOT IN "
+     "('tx_hash','provider_receipt','bank_reference','platform_payout_id') "
+     "OR length(proof) < 8",
+     "== 0",
+     "402 — приглашение заплатить. Поступление записывается только с хешем "
+     "транзакции или квитанцией провайдера; ответ службы доказательством не бывает."),
+
+    ("невыводимое начисление не является прибылью", "present", "core/payment.py",
+     r'"получено": q\("SELECT COUNT\(\*\) FROM payment_receipts"\)',
+     "«Получено» считается только по поступлениям с доказательством, а не по "
+     "балансам площадок. Начисление, которое нельзя вывести, — отдельное состояние."),
+
+    ("платёж в прежней таблице имеет поступление", "sql",
+     "SELECT COUNT(*) FROM payments p WHERE NOT EXISTS "
+     "(SELECT 1 FROM payment_receipts r WHERE r.proof = p.tx_hash)",
+     "== 0",
+     "Прежнюю таблицу читают дашборд и облачная проверка миссии. Строка без "
+     "поступления с доказательством показала бы деньги, которых не было."),
 ]
 
 

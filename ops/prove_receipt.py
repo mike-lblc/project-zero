@@ -34,9 +34,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-      "Accept": "application/json"}
+UA = {"User-Agent": "P0-prove-receipt/1.0 (read-only)", "Accept": "application/json"}
+
+EXPLORER = {"base": "base.blockscout.com", "ethereum": "eth.blockscout.com",
+            "polygon": "polygon.blockscout.com", "arbitrum": "arbitrum.blockscout.com"}
 
 
 def _get(url, timeout=30):
@@ -75,40 +76,89 @@ def c_our_address_is_readable():
     return True, f"адрес читается, переводов на нём сейчас {len(items)}"
 
 
+def _usdc_contract(net):
+    from core import payment_watch as w
+    return next(a for a, (sym, _) in w.OFFICIAL_TOKENS[net].items() if sym == "USDC")
+
+
 def d_receiver_parses_a_real_transfer():
-    """4. ГЛАВНОЕ: приёмник разбирает НАСТОЯЩИЙ перевод USDC.
+    """4. ГЛАВНОЕ: НАСТОЯЩИЙ разборщик приёмника опознаёт настоящий перевод — в КАЖДОЙ сети.
 
-    Берём свежий перевод из самого контракта USDC — чужой, публичный — и
-    прогоняем через ту же логику разбора, что и для своего кошелька. Если
-    сумма, отправитель и хеш достаются верно, значит приёмник исправен.
+    Прежде проба повторяла логику разбора своими строками. Такая проверка
+    испытывает копию, а не рабочий код: после того как приёмник научился
+    признавать токены по контракту, копия продолжала бы проходить, даже
+    сломайся оригинал. Теперь чужой публичный перевод идёт через
+    payment_watch.parse_token_transfers — ту самую функцию, что смотрит наш
+    кошелёк, — с адресом получателя этого перевода на месте нашего.
+
+    И только Base было мало: план требует каждую проверенную сеть.
     """
-    d = _get(f"https://base.blockscout.com/api/v2/tokens/{USDC_BASE}/transfers")
-    items = d.get("items") or []
-    if not items:
-        return False, "сеть не отдала ни одного перевода USDC — проверить не на чем"
+    from core import payment, payment_watch as w
+    nets = sorted({r["network"] for r in payment.routes()
+                   if r["status"] == "verified" and r["network"] in EXPLORER})
+    proofs, bad = [], []
+    for net in nets:
+        contract = _usdc_contract(net)
+        try:
+            items = _get(f"https://{EXPLORER[net]}/api/v2/tokens/{contract}/transfers").get("items") or []
+        except Exception as e:
+            bad.append(f"{net}: обозреватель не ответил ({type(e).__name__})")
+            continue
+        t = next((x for x in items if int(((x.get("total") or {}).get("value") or 0)) > 0), None)
+        if not t:
+            bad.append(f"{net}: ни одного ненулевого перевода USDC — проверить не на чем")
+            continue
+        to = (t.get("to") or {}).get("hash") or ""
+        found, _ = w.parse_token_transfers([t], net, to)
+        raw = int((t.get("total") or {}).get("value"))
+        if len(found) != 1 or found[0]["currency"] != "USDC" or abs(found[0]["amount"] - raw / 1e6) > 1e-9:
+            bad.append(f"{net}: разборщик не опознал настоящий USDC ({found})")
+            continue
+        # тот же перевод с чужим контрактом обязан быть отвергнут
+        forged = dict(t, token=dict(t.get("token") or {}, address_hash="0x" + "11" * 20))
+        if w.parse_token_transfers([forged], net, to)[0]:
+            bad.append(f"{net}: подложный контракт с символом USDC принят")
+            continue
+        proofs.append(f"{net} {found[0]['amount']:,.2f} USDC, хеш {found[0]['proof'][:12]}…")
+        # родная монета сети — тот же путь через рабочий разборщик
+        try:
+            txs = _get(f"https://{EXPLORER[net]}/api/v2/transactions?filter=validated").get("items") or []
+        except Exception as e:
+            bad.append(f"{net}: транзакции не прочитаны ({type(e).__name__})")
+            continue
+        nt = next((x for x in txs if int(x.get("value") or 0) > 0 and x.get("status") == "ok"
+                   and (x.get("to") or {}).get("hash")), None)
+        if nt:
+            got = w.parse_native_txs([nt], net, nt["to"]["hash"])
+            failed = w.parse_native_txs([dict(nt, status="error", result="Reverted")], net, nt["to"]["hash"])
+            if len(got) == 1 and not failed:
+                proofs.append(f"{net} {got[0]['amount']:.10g} {got[0]['currency']} (упавшая копия отвергнута)")
+            else:
+                bad.append(f"{net}: родная монета разобрана неверно ({got}, {failed})")
 
-    t = items[0]
-    # Ровно те же поля и в том же порядке, что читает watch_payments.
-    h = t.get("transaction_hash") or t.get("tx_hash") or ""
-    to = ((t.get("to") or {}).get("hash") or "").lower()
-    frm = ((t.get("from") or {}).get("hash") or "").lower()
-    tok = t.get("token") or {}
-    dec = int(tok.get("decimals") or 6)
-    raw = (t.get("total") or {}).get("value") or t.get("value") or "0"
+    # Биткоин: настоящая подтверждённая транзакция из свежего блока.
     try:
-        amount = int(raw) / (10 ** dec)
-    except (TypeError, ValueError):
-        return False, f"сумма не разобралась: {raw!r}"
+        tip = urllib.request.urlopen(urllib.request.Request(
+            "https://blockstream.info/api/blocks/tip/hash", headers=UA), timeout=30).read().decode()
+        txs = _get(f"https://blockstream.info/api/block/{tip}/txs")
+        tx = next(x for x in txs if any(o.get("scriptpubkey_address") and o.get("value", 0) > 0
+                                        for o in x.get("vout", [])) and x.get("vin", [{}])[0].get("txid"))
+        addr = next(o["scriptpubkey_address"] for o in tx["vout"]
+                    if o.get("scriptpubkey_address") and o.get("value", 0) > 0)
+        found, pending = w.parse_btc_txs([tx], addr)
+        unconfirmed = dict(tx, status={"confirmed": False})
+        f2, p2 = w.parse_btc_txs([unconfirmed], addr)
+        if len(found) == 1 and not f2 and p2 == 1:
+            proofs.append(f"bitcoin {found[0]['amount']:.8f} BTC, хеш {found[0]['proof'][:12]}… "
+                          f"(неподтверждённая копия — ожидание, не деньги)")
+        else:
+            bad.append(f"bitcoin: разбор неверен ({found}, ожидание {p2})")
+    except Exception as e:
+        bad.append(f"bitcoin: {type(e).__name__}: {str(e)[:60]}")
 
-    missing = [n for n, v in (("хеш", h), ("получатель", to),
-                              ("отправитель", frm)) if not v]
-    if missing:
-        return False, f"не разобрано: {', '.join(missing)}"
-    if amount <= 0:
-        return False, f"сумма вышла нулевой при raw={raw!r}"
-
-    return True, (f"разобран настоящий перевод: {amount:,.2f} {tok.get('symbol')} "
-                  f"от {frm[:10]}… к {to[:10]}…, хеш {h[:14]}…")
+    if bad:
+        return False, "; ".join(bad + proofs)
+    return True, f"сетей {len(proofs)}: " + "; ".join(proofs)
 
 
 def e_only_incoming_counts():
@@ -120,13 +170,13 @@ def e_only_incoming_counts():
     """
     from agents.worker import wallet
     addr = (wallet() or "").lower()
+    from core import payment_watch as w
     d = _get(f"https://base.blockscout.com/api/v2/tokens/{USDC_BASE}/transfers")
     t = (d.get("items") or [{}])[0]
-    to = ((t.get("to") or {}).get("hash") or "").lower()
-    # условие из watch_payments: to != addr.lower() -> пропустить
-    would_count = (to == addr)
-    return (not would_count), ("чужой перевод к нам НЕ засчитан — условие "
-                               "«только входящие» работает")
+    # тот же рабочий разборщик: чужой перевод, смотрим его глазами НАШЕГО адреса
+    found, _ = w.parse_token_transfers([t], "base", addr)
+    return (not found), ("чужой перевод к нам НЕ засчитан — условие «только входящие» "
+                         "работает в рабочем коде" if not found else f"ЗАСЧИТАН чужой перевод: {found}")
 
 
 def f_payment_requires_hash():
@@ -164,7 +214,7 @@ STEPS = [
     ("адрес получателя настроен", a_wallet_is_configured),
     ("сеть оплаты отвечает", b_chain_is_reachable),
     ("наш адрес читается", c_our_address_is_readable),
-    ("приёмник разбирает НАСТОЯЩИЙ перевод", d_receiver_parses_a_real_transfer),
+    ("приёмник опознаёт настоящий перевод в каждой сети", d_receiver_parses_a_real_transfer),
     ("исходящие не считаются доходом", e_only_incoming_counts),
     ("платёж без хеша записать нельзя", f_payment_requires_hash),
     ("служба требует оплату", g_service_demands_payment),
@@ -187,7 +237,7 @@ def main():
 
     from core.db import connect
     c = connect()
-    n = c.execute("SELECT COUNT(*) FROM payments").fetchone()[0]
+    n = c.execute("SELECT COUNT(*) FROM payment_receipts").fetchone()[0]
     c.close()
 
     print("\n" + "=" * 76)
