@@ -315,6 +315,24 @@ def cycle():
     found, fixed = repair(st)
     print(f"   найдено {found}, починено {fixed}")
 
+    # СВЕРКА СОГЛАСОВАННОСТИ — классы дефектов, что раньше находил только человек
+    # (устаревший источник, замороженный вывод, сказано≠данные, мёртвый канал).
+    # Каждая находка становится событием, и адверсарий получает её вне очереди.
+    print("\n── сверка согласованности")
+    try:
+        from ops import consistency
+        cfindings = consistency.scan()
+        raised = consistency.raise_events(cfindings)
+        for f in cfindings:
+            print(f"   [{f['класс']}] {f['что'][:80]}")
+        print(f"   находок {len(cfindings)}, поднято событий {raised}")
+        for f in cfindings:
+            record(f"согласованность: {f['класс']}", f['что'][:200],
+                   "поднято событие invariant_broken для адверсария", "ops/consistency.py",
+                   f['что'][:120], "флаг поднят", "failed", 3)
+    except Exception as e:
+        print(f"   сверка не выполнена: {type(e).__name__}: {e}")
+
     print("\n── проверки")
     results = {}
     for script in ("audit.py", "mtbx_audit.py", "fake_work_audit.py"):

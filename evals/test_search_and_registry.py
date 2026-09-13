@@ -195,3 +195,16 @@ class CapabilityMap(unittest.TestCase):
         from core.agent import REGISTRY
         st = next(iter(REGISTRY.values())).state()
         self.assertIn("карта возможностей", st)
+
+
+class Consistency(unittest.TestCase):
+    """Детекторы классов, что раньше находил только человек, существуют и работают."""
+
+    def test_detectors_run_and_return_lists(self):
+        from ops import consistency
+        self.assertTrue(consistency.DETECTORS)
+        out = consistency.scan()
+        self.assertIsInstance(out, list)
+        for f in out:
+            self.assertIn("класс", f)
+            self.assertIn("что", f)
