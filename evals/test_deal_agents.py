@@ -252,3 +252,32 @@ class UntrustedBountyTrap(unittest.TestCase):
         from agents.craftsman import demands_untrusted_execution as d
         self.assertFalse(d("Write CONTRIBUTING.md: fork, branch, commit, PR; link pull_request_template.md"))
         self.assertFalse(d("Translate the README into Russian, keeping command names verbatim"))
+
+
+class DeliverReady(unittest.TestCase):
+    """Готовая документация доставляется PR-ом, а не зависает; дубли отсекаются."""
+
+    def test_dry_run_names_repo_and_new_file(self):
+        import json
+        from core import db, guard
+        saved = (db.DB_PATH, set(db._SCHEMA_DONE), db._WAL_SET, guard.check_action)
+        guard.check_action = lambda *a, **k: None
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        db.DB_PATH = Path(tmp.name) / "d.db"
+        db._SCHEMA_DONE.clear(); db._WAL_SET = False; db.init().close()
+        try:
+            from agents import craftsman
+            doc = Path(tmp.name) / "x_y_ru.md"
+            doc.write_text("# команды\n\n`x run` — запуск", encoding="utf-8")
+            c = db.connect()
+            c.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) VALUES "
+                      "('executor','craftsman','documentation_ready',?, 't')",
+                      (json.dumps({"repo": "owner/repo", "path": str(doc)}),))
+            c.commit(); c.close()
+            out = craftsman.deliver_ready(dry_run=True)
+            self.assertEqual(out["репозиторий"], "owner/repo")
+            self.assertTrue(out["файл"].startswith("docs/command-reference"))
+        finally:
+            db.DB_PATH, done, db._WAL_SET, guard.check_action = saved
+            db._SCHEMA_DONE.clear(); db._SCHEMA_DONE.update(done); tmp.cleanup()

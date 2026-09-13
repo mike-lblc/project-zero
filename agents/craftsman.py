@@ -664,6 +664,93 @@ def deliver(repo, branch, files, title, body, base="main", dry_run=True):
     return {"ok": False, "why": "файлы записаны, но PR не создан", "files": written}
 
 
+def deliver_ready(dry_run=False):
+    """Берёт готовую сверенную документацию от исполнителя и ДОСТАВЛЯЕТ её PR-ом.
+
+    Это был разрыв цепочки, из-за которого «каналы найдены, а дальше работа не
+    идёт»: исполнитель делал документацию и передавал её сообщением
+    documentation_ready, но потребителя у сообщения не было — работа зависала,
+    PR не создавался, дойти до денег было невозможно. Здесь передача берётся в
+    работу: файл читается, кладётся НОВЫМ файлом (ничего не затирая) и уходит
+    pull request-ом в репозиторий, который сам просил документацию.
+
+    Предел — один PR в сутки: pull request тяжелее issue, и частый поток в чужие
+    репозитории выглядит подозрительно.
+    """
+    guard.check_action("research", "GREEN")
+    c = _con()
+    today = now()[:10]
+    sent = c.execute("SELECT COUNT(*) FROM actions WHERE kind='pr_submit' AND dry_run=0 "
+                     "AND created_at LIKE ?", (today + "%",)).fetchone()[0]
+    if sent >= 1 and not dry_run:
+        c.close()
+        return "на сегодня предел доставок (1 PR) исчерпан — работаем качеством, не потоком"
+    row = c.execute("SELECT id, body FROM messages WHERE recipient='craftsman' "
+                    "AND topic='documentation_ready' AND consumed_at IS NULL "
+                    "ORDER BY id LIMIT 1").fetchone()
+    c.close()
+    if not row:
+        return "готовой к доставке документации нет"
+
+    try:
+        d = json.loads(row[1])
+    except (json.JSONDecodeError, TypeError):
+        return "передача documentation_ready не разобралась"
+    repo = d.get("repo")
+    path = d.get("path")
+    if not repo or not path or not Path(path).exists():
+        c = _con()
+        c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), row[0]))
+        c.commit(); c.close()
+        return f"передача №{row[0]} без файла — снята"
+
+    # НЕ ДОСТАВЛЯЕМ ТУДА, ГДЕ У НАС УЖЕ ЕСТЬ PR. У omi PR уже слит — второй был
+    # бы дублем и выглядел бы как спам. Передача снимается, репозиторий пропускаем.
+    c = _con()
+    dup = c.execute("SELECT url FROM pull_requests WHERE repo=? LIMIT 1", (repo,)).fetchone()
+    if dup:
+        c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), row[0]))
+        c.commit(); c.close()
+        return f"{repo}: PR уже есть ({dup[0]}) — второй не создаём, передача снята"
+    c.close()
+
+    content = Path(path).read_text(encoding="utf-8")
+    lang = "ru" if "_ru" in Path(path).name else "en"
+    target = f"docs/command-reference.{lang}.md"      # НОВЫЙ файл, ничего не затираем
+    branch = f"docs/command-reference-{lang}"
+    title = f"docs: add {lang} command reference for {repo.split('/')[-1]}"
+    body = (
+        "Adds a command reference generated from the CLI's own source and "
+        "verified line-by-line against it: every command, argument and default "
+        "is traced to source. New file, nothing overwritten."
+        + "\n\n" + "\U0001F916 Generated with [Claude Code](https://claude.com/claude-code)"
+    )
+
+    res = deliver(repo, branch, {target: content}, title, body, dry_run=dry_run)
+    if dry_run:
+        return {"репозиторий": repo, "файл": target, "черновик": True}
+
+    c = _con()
+    c.execute("UPDATE messages SET consumed_at=? WHERE id=?", (now(), row[0]))
+    c.commit(); c.close()
+
+    if res.get("ok") and res.get("url"):
+        try:
+            from core import execution
+            execution.open_deal(
+                f"Сделка: {repo} — {lang} command reference", "техническая документация",
+                "craftsman", "надзор за ревью PR; при слиянии — договориться об оплате",
+                [("QUALIFIED", f"задача документации в {repo}, работа сверена с исходником"),
+                 ("CONTACT_READY", f"публичный репозиторий github.com/{repo}"),
+                 ("CONTACTED", res["url"]),
+                 ("WORKING", f"документация произведена и сверена: {path}"),
+                 ("DELIVERED", res["url"])])
+        except Exception as e:
+            bus.broadcast("craftsman", f"PR доставлен, но сделка не заведена: {e}")
+        return {"ok": True, "url": res["url"], "repo": repo}
+    return {"ok": False, "why": res.get("why", "PR не создан")}
+
+
 # ---------------------------------------------------------------- 6. ПОЛУЧЕНИЕ ВЫПЛАТЫ
 def collect():
     """Ищет объявления о выплате НАМ и доводит их до кошелька.
@@ -969,6 +1056,7 @@ def status():
 # не просил, и отменять их нельзя: разрешение защищает от лишних вопросов, а
 # не от позора.
 CYCLE = [("watch_prs", watch_prs), ("find_doc_work", find_doc_work),
+         ("deliver_ready", deliver_ready),
          ("collect_payouts", collect), ("pursue", lambda: pursue(dry_run=False)),
          ("fulfil", lambda: fulfil(dry_run=False))]
 

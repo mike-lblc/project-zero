@@ -99,7 +99,7 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"watchdog","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"channel_manager","mail_advance":"channel_manager","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"watchdog","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","deliver_ready":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"channel_manager","mail_advance":"channel_manager","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "moltbook_heartbeat":"channel_manager",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"collector","refresh_market":"scout","scout_research":"scout",
@@ -885,6 +885,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               # НЕ ВПИСАН сюда: за сутки ноль запусков при сорока шести живых
               # шагах. Способность, которую никто не вызывает, работой не является.
               ("find_doc_work", _craft("find_doc_work")),
+              ("deliver_ready", _craft("deliver_ready")),
               # ИСПОЛНЕНИЕ. Система впервые умеет не только находить работу, но
               # и делать её: извлекать интерфейс проекта разбором кода и
               # сверять каждое утверждение обратно с исходником.
@@ -973,6 +974,7 @@ CLOUD_STEPS = [
     "supply_check",        # жива ли вообще наша бесплатная снасть
     "where_time_goes",     # замеры: что дорого, что падает, что тормозит
     "find_doc_work",       # работа класса «документация»
+    "deliver_ready",       # доставка готовой документации PR-ом
     "produce_work",        # СДЕЛАТЬ работу, а не только найти
     "check_work",          # сверить сделанное с исходниками
     "guard_knowledge",     # уроки лежат и в репозитории, не только в базе
