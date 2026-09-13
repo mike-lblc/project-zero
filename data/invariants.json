@@ -224,6 +224,13 @@
   "origin": "Облачная модель выбрала GREEN economic_review, добавила лишний limit, и корректное действие было полностью отклонено вместо безопасного удаления ключа."
  },
  {
+  "name": "облачная публикация сохраняет незакоммиченные данные цикла",
+  "kind": "present",
+  "target": ".github/workflows/agents.yml",
+  "expr": "git pull --rebase --autostash origin main",
+  "origin": "После успешного цикла рабочее дерево содержало изменённые данные, и rebase без autostash отклонил все четыре попытки публикации."
+ },
+ {
   "name": "облачный аудит запускает тесты pytest",
   "kind": "present",
   "target": ".github/workflows/deep-audit.yml",

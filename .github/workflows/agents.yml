@@ -279,7 +279,7 @@ jobs:
             # повторяется ограниченно, а конфликт rebase остаётся видимым.
             for attempt in 1 2 3 4; do
               status=0
-              git pull --rebase origin main || status=$?
+              git pull --rebase --autostash origin main || status=$?
               if [ "$status" -eq 0 ]; then
                 git push origin HEAD:main || status=$?
               fi
