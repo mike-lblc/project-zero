@@ -187,10 +187,19 @@ class Agent:
         except Exception:
             lessons = []
 
+        # ОБЩАЯ КАРТА ВОЗМОЖНОСТЕЙ. Один снимок на всех: что подключено и
+        # работает, чтобы агент не рассуждал о том, чего нет, и видел пробелы.
+        try:
+            from core.capabilities import capability_map
+            cap = capability_map()
+        except Exception:
+            cap = {}
+
         return {"последние прогоны": recent, "что уже срабатывало": tried,
                 "что не сработало": failed, "мои задачи": tasks,
                 "входящие": inbox, "наблюдения инструментов": observations,
-                "что мы уже выясняли": lessons}
+                "что мы уже выясняли": lessons,
+                "карта возможностей": cap}
 
     # ---------------------------------------------------------- рассуждение
     def _prompt(self, state):

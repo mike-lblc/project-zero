@@ -178,3 +178,20 @@ class MarketExpansion(unittest.TestCase):
             prospector.DISCOVERED.clear(); prospector.DISCOVERED.update(before)
             db.DB_PATH, done, db._WAL_SET, guard.check_action = saved
             db._SCHEMA_DONE.clear(); db._SCHEMA_DONE.update(done); tmp.cleanup()
+
+
+class CapabilityMap(unittest.TestCase):
+    """Каждый агент видит общий снимок: что подключено, что запрещено."""
+
+    def test_map_is_present_and_names_crypto_and_forbidden(self):
+        from core.capabilities import capability_map
+        m = capability_map()
+        self.assertIn("маршруты оплаты (проверены)", m)
+        self.assertIn("не только USDC", m.get("принимаем", ""))
+        self.assertIn("NFT", m.get("запрещено (не предлагать)", ""))
+
+    def test_map_reaches_agent_state(self):
+        from core import roster  # noqa: F401
+        from core.agent import REGISTRY
+        st = next(iter(REGISTRY.values())).state()
+        self.assertIn("карта возможностей", st)
