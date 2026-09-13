@@ -423,6 +423,38 @@ def _():
         f"watch_payments сопоставляет: {'collect' in body or 'match_receipts' in body}; шаг collect_payments: {'collect_payments' in steps}"
 
 
+@check("4", "Каждый агент получает слово: очередь рассуждения по журналу, а не по памяти процесса")
+def _():
+    from agents import worker
+    with TempDB() as t:
+        from core import agent
+        agent._con().close()
+        c = t.db.connect()
+        c.execute("INSERT INTO agent_decisions(agent,state_seen,chose,why,allowed,outcome,ok,model,decided_at) "
+                  "VALUES ('adversary','{}','x','',1,'',1,'m','2026-09-13T12:00:00')")
+        c.commit(); c.close()
+        first = worker.next_reasoner(["adversary", "watchdog"])
+    stale = live("SELECT agent, MAX(decided_at) FROM agent_decisions GROUP BY agent "
+                 "HAVING MAX(decided_at) < strftime('%Y-%m-%dT%H:%M:%S','now','-12 hours')")
+    return first == "watchdog", (f"после «перезапуска» слово получает давно молчавший: {first}; "
+                                 f"агентов без решения дольше 12 ч сейчас: {len(stale)}")
+
+
+@check("4", "Каждый шаг цикла приписан хозяину — владельцу своего инструмента")
+def _():
+    from agents import worker
+    from core import roster  # noqa: F401
+    from core.agent import REGISTRY
+    steps = [n for n, _ in worker.CYCLE + worker.SLOW_CYCLE]
+    owners = {}
+    for name, a in REGISTRY.items():
+        for tool_name in a.tools:
+            owners.setdefault(tool_name, set()).add(name)
+    missing = [st for st in steps if st not in worker.AGENT_OF]
+    wrong = [st for st in steps if st in owners and worker.AGENT_OF.get(st) not in owners[st]]
+    return not missing and not wrong, f"без хозяина: {missing or 'нет'}; не владельцу инструмента: {wrong or 'нет'}"
+
+
 # ═══════════════════════════════════════════════ 5. РЕЕСТР СПОСОБОВ
 @check("5", "Ключ «партнёрские отчисления» один; 50 способов GND сведены к классам без потерь")
 def _():
@@ -541,7 +573,9 @@ def _():
             "событие с приостановленным обработчиком не берётся",
             "доказательство сделки проверяется по форме",
             "выплата оценивается маршрутизатором, а не списком слов",
-            "продавец предлагает только исполнимые услуги"]
+            "продавец предлагает только исполнимые услуги",
+            "слово получает давно молчавший агент",
+            "запись в Moltbook не уходит без пройденной проверки"]
     missing = [n for n in need if n not in have]
     return not missing, f"инвариантов {len(have)}; не заведены: {missing or 'нет'}"
 

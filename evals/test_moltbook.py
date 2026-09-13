@@ -280,3 +280,56 @@ def test_role_brief_uses_ephemeral_content_and_returns_derived_observation(monke
         "SELECT name FROM sqlite_master WHERE type='table'")}
     con.close()
     assert "external_messages" not in tables
+
+
+def test_writes_are_blocked_while_platform_requires_unsolved_verification(monkeypatch, tmp_path):
+    """После непройденной проверки новая запись не уходит: десять подряд — блокировка аккаунта."""
+    monkeypatch.setattr(moltbook, "TRUST_MARKER", tmp_path / "MOLTBOOK_TRUSTED")
+    calls = []
+
+    def pending(method, path, payload):
+        calls.append(path)
+        return response(201, {"success": True,
+                              "comment": {"id": COMMENT_ID, "content": payload["content"],
+                                          "verification_status": "pending",
+                                          "verification": {"challenge": "redacted"}}})
+
+    first = "A concrete answer about durable queues and explicit acknowledgement states."
+    moltbook.add_comment("tester", POST_ID, first, transport=pending)
+    assert moltbook.writes_blocked()
+    with pytest.raises(moltbook.VerificationRequired):
+        moltbook.add_comment("tester", POST_ID,
+                             "A different substantive answer about retry budgets in agent queues.",
+                             transport=pending)
+    assert len(calls) == 1, "запрос ушёл, хотя запись должна была быть остановлена до сети"
+
+
+def test_owner_trust_marker_allows_exactly_one_probe(monkeypatch, tmp_path):
+    marker = tmp_path / "MOLTBOOK_TRUSTED"
+    monkeypatch.setattr(moltbook, "TRUST_MARKER", marker)
+
+    def pending(method, path, payload):
+        return response(201, {"success": True,
+                              "comment": {"id": COMMENT_ID, "content": payload["content"],
+                                          "verification_status": "pending",
+                                          "verification": {"challenge": "redacted"}}})
+
+    def published(method, path, payload):
+        return response(201, {"success": True,
+                              "comment": {"id": "33333333-3333-4333-8333-333333333333",
+                                          "content": payload["content"],
+                                          "verification_status": "verified"}})
+
+    moltbook.add_comment("tester", POST_ID,
+                         "A concrete answer about durable queues and explicit acknowledgement states.",
+                         transport=pending)
+    con = moltbook._con()                # частота комментариев — отдельный предел, не предмет теста
+    con.execute("UPDATE moltbook_receipts SET created_at='2000-01-01T00:00:00+00:00'")
+    con.commit(); con.close()
+    marker.write_text("owner confirmed trusted status", encoding="utf-8")
+    moltbook.add_comment("tester", POST_ID,
+                         "A second substantive answer about idempotent retries and receipts.",
+                         transport=published)
+    assert not marker.exists(), "отметка владельца должна расходоваться пробой"
+    assert moltbook.writes_blocked() is None, "запись опубликована без проверки — запрет должен открыться"
+

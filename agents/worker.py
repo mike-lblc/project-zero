@@ -99,10 +99,10 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"orchestrator","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"channel_manager","mail_advance":"channel_manager","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"watchdog","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"channel_manager","mail_advance":"channel_manager","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
             "moltbook_heartbeat":"channel_manager",
             "watchdog":"watchdog","explorer_replies":"explorer",
-            "watch_payments":"orchestrator","refresh_market":"scout","scout_research":"scout",
+            "watch_payments":"collector","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"salesman",
             "critique":"critic","audit":"adversary","optimize":"optimizer",
             "explore_alternatives":"explorer",
@@ -112,7 +112,16 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "verify_routes":"collector", "money_report":"collector", "collect_payments":"collector",
             "open_deals":"closer",
             "check_replies":"closer", "verify_evidence":"verifier",
-            "channel_health":"channel_manager", "services_catalog":"salesman"}
+            "channel_health":"channel_manager", "services_catalog":"salesman",
+            # ШАГИ БЕЗ ХОЗЯИНА писались в журнал как orchestrator: исполнитель,
+            # улучшатель и снабженец выглядели молчащими при настоящей работе,
+            # и сторож называл их в списке молчащих. Хозяин шага — владелец
+            # инструмента, которым шаг исполняется.
+            "advance_tasks":"orchestrator", "hunt_contests":"bounty", "hunt_hn_jobs":"bounty",
+            "market_demand":"explorer", "chain_economics":"collector", "rich_targets":"leads",
+            "package_docs":"executor", "supply_check":"supplier", "where_time_goes":"optimizer",
+            "produce_work":"executor", "check_work":"executor", "guard_knowledge":"verifier",
+            "improve_code":"improver", "reach_out":"salesman"}
 
 
 def _iso(t):
@@ -370,7 +379,24 @@ def audit():
     return f"audit: spend={spend} payments={pays} orphan_evidence={orphan}"
 
 
-_REASON_I = [0]
+def next_reasoner(names):
+    """Слово получает агент, который дольше всех не принимал решения.
+
+    ОЧЕРЕДЬ ЖИЛА В ПАМЯТИ ПРОЦЕССА и при каждом перезапуске начиналась с начала
+    алфавита. За сутки воркер перезапускался 35 раз, и число решений строго
+    падало по алфавиту: у adversary девять, у supplier, verifier и watchdog —
+    по одному, и последние трое молчали двадцать часов. Справедливость,
+    которая обнуляется при перезапуске, — это привилегия первых букв.
+    Журнал решений лежит в базе и перезапуск переживает.
+    """
+    from core.db import connect
+    c = connect()
+    try:
+        last = dict(c.execute("SELECT agent, MAX(decided_at) FROM agent_decisions "
+                              "GROUP BY agent").fetchall())
+    finally:
+        c.close()
+    return min(names, key=lambda n: (last.get(n) or "", n))
 
 
 # Какое событие чьим шагом отрабатывается. Событие без обработчика будет
@@ -450,8 +476,7 @@ def reason_and_act():
     names = sorted(agent.REGISTRY)
     if not names:
         return "рассуждающих агентов нет"
-    name = names[_REASON_I[0] % len(names)]
-    _REASON_I[0] += 1
+    name = next_reasoner(names)
     a = agent.get(name)
     r = a.act()
     if r.get("ok"):

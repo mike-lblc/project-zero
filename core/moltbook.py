@@ -99,6 +99,10 @@ class RateLimitedLocally(MoltbookError):
     pass
 
 
+class VerificationRequired(MoltbookError):
+    """Платформа держит записи до проверочной задачи, а решать её агентам нельзя."""
+
+
 class UnexpectedRedirect(MoltbookError):
     pass
 
@@ -445,11 +449,82 @@ def _finish(rid: int, response: Response, fallback_id: str | None = None) -> dic
             "verification_required": challenge, "detail": detail}
 
 
+# ЗАПРЕТ ЗАПИСИ, ПОКА ПЛАТФОРМА ТРЕБУЕТ ПРОВЕРОЧНУЮ ЗАДАЧУ.
+#
+# Moltbook показывает пост, комментарий и ответ только после решения
+# «AI verification challenge», а решать её агентам запрещено: так записано в
+# постоянном разрешении владельца и так устроено это соединение. Каждая запись
+# без решения повисает в pending и считается проваленной проверкой, а десять
+# проваленных подряд — автоматическая блокировка аккаунта (moltbook.com/skill.md).
+# На 13.09.2026 провалено три: пост, комментарий и ответ от 12.09.
+#
+# Поэтому новая запись не отправляется, пока последняя запись висит в pending.
+# Запрет открывается сам, если площадка пометит записи проверенными (reconcile
+# увидит verified). Владелец может открыть ОДНУ пробную запись файлом
+# data/MOLTBOOK_TRUSTED, если Moltbook подтвердил доверенный статус: доверенные
+# агенты проверку не проходят. Файл расходуется пробой; если проверка снова
+# потребуется, запрет закроется.
+CHALLENGE_ACTIONS = ("post", "comment", "reply")
+TRUST_MARKER = ROOT / "data" / "MOLTBOOK_TRUSTED"
+SUSPENSION_AFTER = 10
+
+
+def unsolved_challenges() -> int:
+    c = _con()
+    try:
+        return c.execute("SELECT COUNT(*) FROM moltbook_receipts WHERE action IN (?,?,?) "
+                         "AND verification_status='pending'", CHALLENGE_ACTIONS).fetchone()[0]
+    finally:
+        c.close()
+
+
+def writes_blocked() -> str | None:
+    """Причина, по которой запись сейчас запрещена. None — запись возможна."""
+    c = _con()
+    try:
+        last = c.execute("SELECT verification_status, state FROM moltbook_receipts "
+                         "WHERE action IN (?,?,?) ORDER BY id DESC LIMIT 1",
+                         CHALLENGE_ACTIONS).fetchone()
+    finally:
+        c.close()
+    if not last or last[0] != "pending":
+        return None
+    n = unsolved_challenges()
+    return (f"Moltbook требует проверочную задачу, решать её агентам нельзя; непройденных "
+            f"проверок {n} из {SUSPENSION_AFTER} до автоматической блокировки аккаунта. "
+            f"Новая запись повиснет в pending и приблизит блокировку.")
+
+
+def _verification_gate(action: str, request_hash: str) -> bool:
+    """True — запись идёт как проба по отметке владельца. Отказ — исключением."""
+    if action not in CHALLENGE_ACTIONS:
+        return False
+    c = _con()
+    duplicate = c.execute("SELECT 1 FROM moltbook_receipts WHERE request_hash=?",
+                          (request_hash,)).fetchone()
+    c.close()
+    if duplicate:
+        return False                  # повтор отвергнет _reserve своей ошибкой
+    reason = writes_blocked()
+    if not reason:
+        return False
+    if TRUST_MARKER.exists():
+        return True                   # отметка расходуется, только когда запрос уходит
+    _record_check("verification_gate", False, reason)
+    raise VerificationRequired(reason)
+
+
 def _write(agent: str, action: str, path: str, payload: dict[str, Any],
            target_id: str | None = None, parent_id: str | None = None,
            transport: Transport | None = None) -> dict[str, Any]:
     _require_access(agent, action)
+    probe = _verification_gate(action, _hash(action, agent, target_id, parent_id, payload))
     rid, _ = _reserve(agent, action, target_id, parent_id, payload)
+    if probe:
+        # Отметка расходуется здесь, а не в проверке: отказ по частоте или
+        # повтору не должен сжигать единственную пробу владельца.
+        TRUST_MARKER.unlink(missing_ok=True)
+        _record_check("verification_gate", True, "пробная запись по отметке владельца")
     try:
         response = _call("POST" if action != "edit" else "PATCH", path,
                          payload, transport=transport)

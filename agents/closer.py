@@ -213,7 +213,21 @@ def channel_health():
         pass
     c.close()
 
+    # Moltbook: канал доказан только опубликованной записью, а не отправленной.
+    try:
+        from core import moltbook
+        blocked = moltbook.writes_blocked()
+        mc = connect()
+        published = mc.execute("SELECT COUNT(*) FROM moltbook_receipts WHERE action IN "
+                               "('post','comment','reply') AND state='CONFIRMED'").fetchone()[0]
+        mc.close()
+        molt = ("Moltbook", published > 0 and not blocked,
+                f"опубликовано записей {published}" if published and not blocked
+                else "ВНЕШНИЙ БЛОКЕР: " + (blocked or "ни одной опубликованной записи"))
+    except Exception as e:
+        molt = ("Moltbook", False, f"состояние не прочитано: {type(e).__name__}")
     channels = [
+        molt,
         ("GitHub: публичные обсуждения", sent > 0,
          f"доказано {sent} отправками со ссылкой" if sent
          else "ни одной отправки — канал не доказан"),

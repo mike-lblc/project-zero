@@ -1151,7 +1151,9 @@ register(Agent(
     kpi="число ПРОВЕРЕННЫХ маршрутов получения и число поступлений, "
         "подтверждённых доказательством; запрос оплаты сам по себе не "
         "засчитывается — запрос не платёж",
-    tools=("verify_routes", "collect_payments", "money_report", "chain_economics"),
+    # watch_payments — шаг цикла, которым сборщик и работает; без него хозяином
+    # проверки поступлений числился охотник за баунти.
+    tools=("verify_routes", "collect_payments", "money_report", "chain_economics", "watch_payments"),
     system=COMMON + """
 ТЫ — СБОРЩИК ПЛАТЕЖЕЙ.
 

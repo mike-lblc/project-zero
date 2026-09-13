@@ -42,3 +42,6 @@ data/KILL_SWITCH
 # производные файлы: пересоздаются воркером и облачным прогоном
 data/registry.json
 data/deliveries/
+
+# решение владельца об одной пробной записи в Moltbook — локальное
+data/MOLTBOOK_TRUSTED
