@@ -480,6 +480,25 @@ def _payer_looks_real(repo, issue):
                    f"сумма ${amount:.0f} выше порога риска")
 
 
+# ЛОВУШКА НА ВЫПОЛНЕНИЕ ЧУЖОГО КОДА. Задача zeroeye ($30) требовала запустить
+# python3 build.py из чужого репозитория и закоммитить сгенерированный им
+# артефакт. build.py собирал имя пользователя, платформу и окружение и резал
+# архив по 40 МБ. Это выкачивание данных под видом баунти. Запуск чужого
+# скрипта запрещён нам по построению; задача, чья ПРИЁМКА этого требует,
+# невыполнима безопасно, и браться за неё нельзя.
+_EXEC_DEMAND = re.compile(
+    r"(run|execute|запусти\w*)\s+[`'\"]?(python3?|bash|sh|node|\./)"
+    r"|include\s+the\s+(generated|resulting)\s+\w+\s+artifact"
+    r"|commit\s+the\s+(generated|resulting|diagnostic)"
+    r"|\.logd|diagnostic/build-|ai_pipeline\.sh",
+    re.I)
+
+
+def demands_untrusted_execution(text):
+    """Требует ли приёмка запустить код чужого репозитория или закоммитить его вывод."""
+    return bool(_EXEC_DEMAND.search(text or ""))
+
+
 def claim(url, plan, dry_run=True):
     """Публично заявляет, что берём задачу. YELLOW: действие в чужом репозитории.
 
@@ -512,6 +531,13 @@ def claim(url, plan, dry_run=True):
         return {"ok": False, "why": f"задача {d['s']}, браться не за что"}
     if not we_can_do(d["t"]):
         return {"ok": False, "why": "класс задачи вне того, что мы можем доказуемо закрыть"}
+
+    # ПРИЁМКА, ТРЕБУЮЩАЯ ЗАПУСТИТЬ ЧУЖОЙ КОД, — ЛОВУШКА, А НЕ РАБОТА.
+    full = _gh(["issue", "view", str(num), "--repo", repo, "--json", "body", "--jq", ".body"])
+    if demands_untrusted_execution(full or ""):
+        return {"ok": False, "why": "НЕБЕЗОПАСНО: приёмка требует запустить код чужого "
+                                    "репозитория или закоммитить сгенерированный им артефакт — "
+                                    "выполнение недоверенного кода, запрещено"}
 
     # ПЛАТЕЛЬЩИК ПРОВЕРЯЕТСЯ ЗДЕСЬ, А НЕ ТОЛЬКО В РАЗВЕДКЕ.
     #
