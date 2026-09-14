@@ -37,7 +37,7 @@ from core import guard  # noqa: E402
 # 14.09.2026: Algora и Gitcoin сняты владельцем (сложная регистрация — «не вариант»);
 # replit.com/bounties мёртв (редирект на contra.com); OnlyDust закрыт. Добавлены
 # площадки, проверенные живьём: AIBTC (sBTC-баунти, открытый API), Dework
-# (задачи DAO, публичный GraphQL). Opire снят 14.09: выплаты только через Stripe (фиат).
+# (задачи DAO, публичный GraphQL).
 ALLOWED = (
     "mlcontests.com", "immunefi.com",
     "aibtc.com", "app.dework.xyz", "api.dework.xyz", "dework.xyz",
