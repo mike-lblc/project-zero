@@ -960,6 +960,18 @@ def pursue(dry_run=True):
                 d = {}
             if (d.get("s") or 0) < 200 or d.get("f"):
                 continue                                   # форк/пустой репозиторий — не проект
+            # Opire отдаёт награды и на ЗАКРЫТЫХ issue (14.09: все три поднятые оказались
+            # закрыты годами) — состояние проверяется до сигнала, закрытые снимаются.
+            state = (_gh(["api", f"repos/{m.group(1)}/issues/{m.group(2)}", "--jq", ".state"]) or "").strip()
+            if state and state != "open":
+                try:
+                    cc = _con()
+                    cc.execute("UPDATE bounties SET status='lost', note=? WHERE url=?",
+                               (f"снята цепочкой: issue {state}", u))
+                    cc.commit(); cc.close()
+                except Exception:
+                    pass
+                continue
             if _b._flag_once("frontier", u,
                              f"Задача настоящего проекта вне нашего класса: {m.group(1)} — «{t[:70]}» "
                              f"за ${usd or 0:.0f}, соперников {riv} — брать ли сильной моделью?",
