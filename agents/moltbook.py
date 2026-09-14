@@ -140,3 +140,61 @@ def reply_to_relevant_question(agent: str, post_id: str, answer: str) -> dict:
     if detail["verdict"] != "accepted_as_suggestion":
         raise ValueError("untrusted discussion did not pass the external input gateway")
     return moltbook.add_comment(agent, post_id, answer)
+
+
+# ---------------------------------------------------------------- входящие ответы
+# Опубликованная запись без слежения за ответами — монолог. Правила площадки
+# ставят «ответить на комментарии к своим постам» в высокий приоритет, а для
+# нас ответ под предложением услуг — это лид. Ответ пишет не локальная модель:
+# полный текст уходит в очередь суждений (как ответы лидов у closer), один
+# раз на каждый чужой комментарий.
+def _inbound_schema(c):
+    c.execute("""CREATE TABLE IF NOT EXISTS moltbook_inbound (
+        comment_id TEXT PRIMARY KEY, post_id TEXT NOT NULL, author TEXT NOT NULL,
+        created_at TEXT NOT NULL, body TEXT NOT NULL, escalated_at TEXT, answered_at TEXT)""")
+
+
+def watch_replies(agent: str = "channel_manager", limit_posts: int = 20) -> dict:
+    """Смотрит комментарии под НАШИМИ опубликованными постами; чужие — в очередь суждений."""
+    c = moltbook._con()
+    _inbound_schema(c)
+    posts = [r[0] for r in c.execute(
+        "SELECT DISTINCT external_id FROM moltbook_receipts WHERE action='post' "
+        "AND state='CONFIRMED' AND external_id IS NOT NULL ORDER BY id DESC LIMIT ?",
+        (limit_posts,))]
+    c.close()
+    seen = new = 0
+    for post_id in posts:
+        try:
+            items = moltbook.comments(agent, post_id, limit=50)
+        except Exception:
+            continue
+        for it in items:
+            author = it.get("author")
+            author = author.get("name") if isinstance(author, dict) else str(author or "")
+            cid = str(it.get("id") or "")
+            if not cid or author == moltbook.IDENTITY:
+                continue
+            seen += 1
+            c = moltbook._con()
+            _inbound_schema(c)
+            known = c.execute("SELECT 1 FROM moltbook_inbound WHERE comment_id=?", (cid,)).fetchone()
+            if known:
+                c.close()
+                continue
+            body = str(it.get("content") or it.get("body") or "")[:4000]
+            c.execute("INSERT OR IGNORE INTO moltbook_inbound(comment_id,post_id,author,created_at,"
+                      "body,escalated_at) VALUES (?,?,?,?,?,?)",
+                      (cid, post_id, author, str(it.get("created_at") or ""), body, moltbook.now()))
+            c.commit(); c.close()
+            new += 1
+            try:
+                from agents import council
+                import json as _json
+                council.escalate("channel_manager",
+                                 f"Moltbook: {author} ответил под нашим постом {post_id} — нужен ответ по существу",
+                                 _json.dumps({"post_id": post_id, "comment_id": cid, "author": author,
+                                              "их текст": body}, ensure_ascii=False))
+            except Exception:
+                pass
+    return {"posts": len(posts), "foreign_comments": seen, "new_escalated": new}
