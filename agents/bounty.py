@@ -784,6 +784,76 @@ def search_offsite(per_site=8):
     return rows
 
 
+# ДОСКА AIBTC — единственная найденная площадка, где ДРУГИЕ АГЕНТЫ И ЛЮДИ
+# ПЛАТЯТ АГЕНТАМ В КРИПТЕ (sBTC на Stacks) по открытому API без скрейпинга:
+# 56 задач, десятки со статусом paid, аудиты Clarity по 10–21k сатов. Найдена
+# 14.09.2026 через пост другого агента в clawtasks на Moltbook. Сдача
+# подписывается BTC-ключом зарегистрированного агента (L1), выплата — на
+# STX-адрес: до регистрации владельцем задачи попадают в очередь как
+# «найдено», а не «сдано».
+AIBTC_API = "https://aibtc.com/api/bounties?status=open&limit=100"
+
+
+def _btc_usd():
+    """Курс для перевода сатов в доллары: публичный спот Coinbase, без ключа."""
+    import urllib.request
+    try:
+        raw = urllib.request.urlopen(urllib.request.Request(
+            "https://api.coinbase.com/v2/prices/BTC-USD/spot",
+            headers={"User-Agent": "P0-agents/1.0"}), timeout=15).read()
+        return float(json.loads(raw)["data"]["amount"])
+    except Exception:
+        return None
+
+
+def search_aibtc():
+    """Открытые задачи доски AIBTC в формате ingest(): url, title, amount_usd, note.
+
+    Отсекаются задачи, где оплата — ставка (акции prediction-market), и задачи,
+    требующие самим заплатить («make one paid query»): первое — не деньги,
+    второе — трата, которая агентам запрещена.
+    """
+    import urllib.request
+    try:
+        raw = urllib.request.urlopen(urllib.request.Request(
+            AIBTC_API, headers={"User-Agent": "P0-agents/1.0", "Accept": "application/json"}),
+            timeout=25).read()
+        data = json.loads(raw)
+    except Exception as e:
+        _API_TROUBLE.append(f"aibtc.com: {type(e).__name__}")
+        return []
+    items = data.get("bounties") or data.get("items") or data.get("data") or []
+    price = _btc_usd()
+    rows = []
+    for b in items:
+        desc = str(b.get("description") or "")
+        low = desc.lower()
+        if "paid in shares" in low or "reward is paid in shares" in low or "choosing to be paid in a bet" in low:
+            continue                      # ставка, не деньги
+        if "make one paid" in low or "from your own wallet" in low:
+            continue                      # требует платить самим — запрещено
+        try:
+            sats = int(b.get("rewardSats") or 0)
+        except (TypeError, ValueError):
+            sats = 0
+        if sats <= 0:
+            continue
+        usd = round(sats / 1e8 * price, 2) if price else round(sats / 1e8 * 60000, 2)
+        rows.append({
+            "url": f"https://aibtc.com/bounties/{b.get('id')}",
+            "title": str(b.get("title") or "")[:180],
+            "amount_usd": usd,
+            "participants": int(b.get("submissionCount") or 0),
+            "note": (f"AIBTC: {sats} сатов sBTC на Stacks; срок {str(b.get('expiresAt'))[:10]}; "
+                     f"сдач {b.get('submissionCount')}; метки {', '.join(b.get('tags') or [])}. "
+                     f"Сдача — подпись BTC-ключом зарегистрированного агента (L1), выплата на "
+                     f"STX-адрес: нужна регистрация владельцем."),
+            "declared_proof": f"объявлено площадкой aibtc.com: {sats} sats, "
+                              f"poster {str(b.get('posterBtcAddress'))[:14]}…",
+        })
+    return rows
+
+
 # Конкурс опознаётся по источнику и пометке, а не по сумме.
 CONTEST_SQL = ("repo LIKE '%devpost%' OR repo LIKE '%mlcontests%' "
                "OR note LIKE '%конкурс%' OR note LIKE '%КОНКУРС%'")
@@ -893,6 +963,16 @@ def hunt(limit=60):
                                 f"Это не «работы нет» — это «я не смог посмотреть». "
                                 f"Повторю в следующем цикле.")
         return f"поиск не выполнен: {why}"
+    # Доска AIBTC — ДО открытия соединения ниже: ingest пишет сам, и две
+    # незакрытые записи в одной базе ловят «database is locked».
+    try:
+        new_ab, seen_ab = ingest(search_aibtc(), "aibtc.com",
+                                 note="AIBTC: задачи за sBTC, сдача подписью BTC-ключа (L1)")
+        if new_ab:
+            bus.broadcast("bounty", f"AIBTC: новых задач за sBTC — {new_ab} (в очереди как «найдено»; "
+                                    f"сдача возможна после регистрации агента владельцем).")
+    except Exception as e:
+        _API_TROUBLE.append(f"aibtc.com: {type(e).__name__}")
     c = _con()
     for r in rows:
         c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,stars,language,

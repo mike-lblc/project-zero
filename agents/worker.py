@@ -103,7 +103,7 @@ def note(agent, claim, source_id=None, conf=None):
 
 
 AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"watchdog","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","deliver_ready":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"channel_manager","mail_advance":"channel_manager","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
-            "moltbook_heartbeat":"channel_manager","moltbook_replies":"channel_manager",
+            "moltbook_heartbeat":"channel_manager","moltbook_replies":"channel_manager","moltbook_demand":"channel_manager",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"collector","refresh_market":"scout","scout_research":"scout",
             "health_check":"judge","explore":"explorer","study_market":"salesman",
@@ -904,6 +904,7 @@ CYCLE = [("watch_payments", watch_payments),        # миссия: первый
 SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("moltbook_heartbeat", lambda: __import__("agents.moltbook", fromlist=["heartbeat"]).heartbeat()),
               ("moltbook_replies", lambda: __import__("agents.moltbook", fromlist=["watch_replies"]).watch_replies()),
+              ("moltbook_demand", lambda: __import__("agents.moltbook", fromlist=["scan_demand"]).scan_demand()),
               ("scout_research", scout_research),
               ("critique", _growth("critique")),
               ("scribe", _team("scribe")),
@@ -992,6 +993,7 @@ SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстр
 CLOUD_STEPS = [
     "moltbook_heartbeat",  # verified account: guarded read, receipt reconciliation
     "moltbook_replies",    # чужие комментарии под нашими постами → очередь суждений (чтение)
+    "moltbook_demand",     # посты с намерением платить (clawtasks/forhire/…) → очередь суждений (чтение)
     "watch_payments",      # миссия: не пришёл ли платёж
     "advance_tasks",       # очередь задач должна двигаться и в облаке
     "refresh_market",      # свежесть рыночных данных

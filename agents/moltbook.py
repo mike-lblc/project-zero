@@ -5,6 +5,7 @@ auditable reason. No blanket promotional outreach or follower farming.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from core import moltbook
@@ -198,3 +199,81 @@ def watch_replies(agent: str = "channel_manager", limit_posts: int = 20) -> dict
             except Exception:
                 pass
     return {"posts": len(posts), "foreign_comments": seen, "new_escalated": new}
+
+
+# ---------------------------------------------------------------- спрос
+# ЛИД — ЭТО ДРУГОЙ АГЕНТ ИЛИ ЧЕЛОВЕК, КОТОРЫЙ ПЛАТИТ. На Moltbook он пишет в
+# clawtasks / forhire / agentcommerce / x402: «bounty», «need», «looking for»,
+# «paying», с суммой в сатах или USDC. Так 14.09 нашлась доска AIBTC (задачи
+# за sBTC) — из поста другого агента. Сканер читает эти ленты, отбирает посты
+# с намерением ПЛАТИТЬ (не продавать), кладёт их в таблицу и один раз на пост
+# отправляет полный текст в очередь суждений: ответ пишет не локальная модель.
+DEMAND_SUBMOLTS = ("clawtasks", "forhire", "agentcommerce", "x402", "x402-billing", "agentfinance")
+_MONEY = re.compile(r"(\$\s?\d|\d[\d,.]*\s*(sats?|usdc|usd|stx|sbtc|btc|eth|dollars?)|(bounty|reward))", re.I)
+_BUY_INTENT = ("bounty", "reward", "will pay", "paying", "paid for", "budget", "need someone",
+               "need an agent", "who can", "hiring", "wanted:", "request:", "rfq", "looking for someone",
+               "looking for an agent")
+# Продавец, а не покупатель: сам предлагает работу/услуги. Его пост — не спрос.
+_SELL_ONLY = ("for hire", "available:", "available for", "i sell", "we sell", "vendor drop", "offering",
+              "my catalog", "i offer", "we offer", "shop:", "looking for collaborators",
+              "looking for scoped", "looking for work", "checking in")
+
+
+def _demand_schema(c):
+    c.execute("""CREATE TABLE IF NOT EXISTS moltbook_demand (
+        post_id TEXT PRIMARY KEY, submolt TEXT, author TEXT NOT NULL, title TEXT NOT NULL,
+        body TEXT NOT NULL, created_at TEXT, found_at TEXT NOT NULL, escalated_at TEXT,
+        answered_at TEXT)""")
+
+
+def _buyer_intent(title: str, body: str) -> bool:
+    """Намерение ПЛАТИТЬ, а не продавать: нужен признак денег (сумма/валюта или
+    bounty/reward) И слово спроса; посты продавцов отсекаются. Первый заход без
+    признака денег поднял 14 постов, из них платящих — один (N-BTY-003)."""
+    t = (title + " " + body[:800]).lower()
+    if any(k in t for k in _SELL_ONLY) and not any(k in t for k in ("bounty", "reward", "will pay")):
+        return False
+    return bool(_MONEY.search(t)) and any(k in t for k in _BUY_INTENT)
+
+
+def scan_demand(agent: str = "channel_manager", per_submolt: int = 20) -> dict:
+    """Ищет посты с намерением ПЛАТИТЬ; новые — в очередь суждений с полным текстом."""
+    seen = new = 0
+    for name in DEMAND_SUBMOLTS:
+        try:
+            r = moltbook._call("GET", f"/submolts/{name}/feed?sort=new&limit={per_submolt}")
+            posts = moltbook._posts(r.body if isinstance(r.body, dict) else {})
+        except Exception:
+            continue
+        for p in posts:
+            author = p.get("author")
+            author = author.get("name") if isinstance(author, dict) else str(author or "")
+            pid = str(p.get("id") or "")
+            title = str(p.get("title") or "")
+            body = str(p.get("content") or "")
+            if not pid or author == moltbook.IDENTITY or not _buyer_intent(title, body):
+                continue
+            seen += 1
+            c = moltbook._con()
+            _demand_schema(c)
+            if c.execute("SELECT 1 FROM moltbook_demand WHERE post_id=?", (pid,)).fetchone():
+                c.close()
+                continue
+            c.execute("INSERT OR IGNORE INTO moltbook_demand(post_id,submolt,author,title,body,"
+                      "created_at,found_at,escalated_at) VALUES (?,?,?,?,?,?,?,?)",
+                      (pid, name, author, title[:200], body[:4000], str(p.get("created_at") or ""),
+                       moltbook.now(), moltbook.now()))
+            c.commit(); c.close()
+            new += 1
+            try:
+                from agents import council
+                import json as _json
+                council.escalate("channel_manager",
+                                 f"Moltbook/{name}: {author} хочет платить — «{title[:80]}» — "
+                                 f"нужен ответ-предложение по существу (пост {pid})",
+                                 _json.dumps({"post_id": pid, "submolt": name, "author": author,
+                                              "title": title, "их текст": body[:3000]},
+                                             ensure_ascii=False))
+            except Exception:
+                pass
+    return {"submolts": len(DEMAND_SUBMOLTS), "buyer_posts": seen, "new_escalated": new}
