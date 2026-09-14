@@ -171,7 +171,7 @@ def competition(repo, issue_number):
         if "has been awarded" in low or "you've been awarded" in low \
                 or "you have been awarded" in low:
             paid = True
-        if re.search(r"/attempt\b|/claim\b|/start\b|/opire try\b", low) \
+        if re.search(r"/attempt\b|/claim\b|/start\b", low) \
                 or "github.com/" in low and "/pull/" in low:
             claimants.add(c.get("u") or b[:20])
     return len(claimants), paid
@@ -226,24 +226,6 @@ def _router_answer(text):
     if answers and all(a is False for a in answers):
         return False
     return None
-
-
-def _opire_reward(repo, number):
-    """Сумма наград Opire по issue: бот opirebot пишет «created a $40.00 reward».
-    Складываем все награды (у одной issue их может быть несколько); нет — None."""
-    if not repo or not number:
-        return None
-    out = _gh(["api", f"repos/{repo}/issues/{number}/comments?per_page=100",
-               "--jq", '[.[] | select(.user.login | test("opire";"i")) | .body] | join(" ")'])
-    if not out:
-        return None
-    total = 0.0
-    for m in re.finditer(r"\$\s?([\d,]+(?:\.\d+)?)\s*reward", out, re.I):
-        try:
-            total += float(m.group(1).replace(",", ""))
-        except ValueError:
-            continue
-    return total if 5 <= total <= 50000 else None
 
 
 # Кто в проекте имеет право объявлять награду. GitHub отдаёт это в поле
@@ -365,7 +347,7 @@ def looks_like_real_money(body, labels):
     # был самый достоверный признак из всех: метку «💎 Bounty» ставит сам бот
     # выплат. Задачи, где сумма указана только меткой, отсеивались как мусор.
     lab = " ".join(labels or []).lower()
-    if "bounty" in lab or "reward" in lab or "💎" in lab or "💰" in lab or "opire" in lab:
+    if "bounty" in lab or "reward" in lab or "💎" in lab or "💰" in lab:
         return True
     if "/bounty" in b or "algora" in b:
         return True
@@ -471,8 +453,8 @@ def search(limit=60):
         '"gitcoin" in:body state:open is:issue created:>2026-08-15',
     ]
     # КВОТА НА ЗАПРОС. Раньше строки складывались по порядку и резались на limit:
-    # первые два запроса съедали всё, и запрос Opire (103 открытых задачи) давал
-    # в очередь ноль. Теперь каждый запрос вносит не больше своей доли.
+    # первые два запроса съедали всё, и поздние источники давали в очередь ноль.
+    # Теперь каждый запрос вносит не больше своей доли.
     per_query = max(8, limit // max(1, len(queries) // 2))
     seen, rows = set(), []
     for q in queries:
@@ -493,8 +475,6 @@ def search(limit=60):
             if d["u"] in seen:
                 continue
             seen.add(d["u"])
-            if "opirebot" in q:
-                d["l"] = list(d.get("l") or []) + ["opire"]    # источник награды — бот Opire
             rows.append(d)
             taken += 1
     return rows[:limit]
@@ -509,8 +489,6 @@ def enrich_and_score(rows):
         if not looks_like_real_money(body, d.get("l", [])):
             continue                      # песочница или своя валюта — мимо
         amount = parse_amount(d["t"] + " " + body)
-        if not amount and "opire" in (d.get("l") or []):
-            amount = _opire_reward(d["r"], d.get("n"))     # награда живёт в комментарии opirebot
         if not amount:
             continue
         repo = d["r"]
@@ -1024,78 +1002,6 @@ def search_dework(pages=4):
     return rows
 
 
-# OPIRE (opire.dev) — награды на issue GitHub. Публичный список: api.opire.dev/rewards
-# (страницы ?page=N по 30). Поиск GitHub по боту opirebot давал спам-форки с
-# «награды нет», поэтому источник — только API. ОСТОРОЖНО С СУММОЙ: pendingPrice —
-# сумма ОБЕЩАНИЙ любых пользователей без эскроу (у GmsCore «$1,9 млн» при заявленных
-# в заголовке $14 999) — берём не больше суммы из заголовка, если она там есть.
-# Поток: /try в issue → PR → /claim #N в PR; платит создатель награды после проверки;
-# рельс выплат Opire — Stripe (фиат) → при /claim просить USDC напрямую.
-OPIRE_API = "https://api.opire.dev/rewards"
-
-
-def search_opire(pages=3):
-    """Открытые награды Opire в формате ingest(): url, title, amount_usd, participants, note."""
-    import urllib.request
-    rows = []
-    for page in range(1, pages + 1):
-        url = OPIRE_API + (f"?page={page}" if page > 1 else "")
-        try:
-            raw = urllib.request.urlopen(urllib.request.Request(
-                url, headers={"User-Agent": "P0-agents/1.0", "Accept": "application/json"}),
-                timeout=30).read()
-            items = json.loads(raw)
-        except Exception as e:
-            _API_TROUBLE.append(f"opire.dev: {type(e).__name__}")
-            break
-        if not isinstance(items, list) or not items:
-            break
-        for it in items:
-            price = it.get("pendingPrice") or {}
-            try:
-                pending = float(price.get("value") or 0) / (100.0 if price.get("unit") == "USD_CENT" else 1.0)
-            except (TypeError, ValueError):
-                pending = 0.0
-            title = str(it.get("title") or "")
-            declared = parse_amount(title)          # сумма, названная в заголовке проектом
-            if not declared:                         # «[14999$]» — доллар после числа
-                m = re.search(r"(\d[\d,]{0,6})\s?\$", title)
-                if m:
-                    try:
-                        v = float(m.group(1).replace(",", ""))
-                        declared = v if 5 <= v <= 50000 else None
-                    except ValueError:
-                        declared = None
-            # Без суммы в заголовке доверяем ожиданию только до $5 000: выше — почти
-            # всегда обещания ботов без эскроу (14.09: «$1,36 млн» у пустого репо).
-            amount = min(pending, declared) if declared else (pending if pending <= 5000 else None)
-            if not amount or amount < 5:
-                continue
-            issue_url = str(it.get("url") or "")
-            if "github.com" not in issue_url:
-                continue
-            claimers = len(it.get("claimerUsers") or [])
-            triers = len(it.get("tryingUsers") or [])
-            org = (it.get("organization") or {}).get("name") or ""
-            proj = (it.get("project") or {}).get("name") or ""
-            langs = ", ".join(it.get("programmingLanguages") or [])[:60]
-            rows.append({
-                "url": issue_url,
-                "title": f"[{org}/{proj}] {title}"[:180],
-                "amount_usd": round(amount, 2),
-                "participants": max(claimers, triers),
-                "note": (f"Opire: в ожидании ${pending:,.0f} (обещания без эскроу"
-                         + (f"; в заголовке ${declared:,.0f}" if declared else "") + f"); "
-                         f"заявили /try {triers}, /claim {claimers}; языки {langs or '-'}. "
-                         f"Поток: /try → PR → /claim #N; платит создатель награды; рельс Opire — "
-                         f"Stripe (фиат) → просить USDC напрямую."),
-                "declared_proof": f"награда опубликована площадкой opire.dev: ${amount:,.0f}",
-            })
-        if len(items) < 30:
-            break
-    return rows
-
-
 # Конкурс опознаётся по источнику и пометке, а не по сумме.
 CONTEST_SQL = ("repo LIKE '%devpost%' OR repo LIKE '%mlcontests%' "
                "OR note LIKE '%конкурс%' OR note LIKE '%КОНКУРС%'")
@@ -1215,14 +1121,6 @@ def hunt(limit=60):
                                     f"сдача возможна после регистрации агента владельцем).")
     except Exception as e:
         _API_TROUBLE.append(f"aibtc.com: {type(e).__name__}")
-    try:
-        new_op, _ = ingest(search_opire(), "opire.dev",
-                           note="Opire: награды на issue GitHub (публичный API); /try → PR → /claim #N")
-        if new_op:
-            bus.broadcast("bounty", f"Opire: новых наград — {new_op} (владелец подключил GitHub к Opire; "
-                                    f"сдача — /try, PR, /claim #N; выплату просить в USDC).")
-    except Exception as e:
-        _API_TROUBLE.append(f"opire.dev: {type(e).__name__}")
     try:
         new_dw, _ = ingest(search_dework(), "dework.xyz",
                            note="Dework: задачи DAO с наградой в криптотокенах (публичный GraphQL)")

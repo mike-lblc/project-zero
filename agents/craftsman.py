@@ -503,32 +503,6 @@ def demands_untrusted_execution(text):
     return bool(_EXEC_DEMAND.search(text or ""))
 
 
-def _opire_issues(repo):
-    """Номера issue репозитория, чьи награды лежат на Opire (источник opire.dev в очереди).
-
-    У Opire свои команды: /try — беру задачу, /claim #N — в PR. Алгоровский
-    /attempt там ничего не значит, а без /claim награда не привязывается к PR.
-    """
-    try:
-        c = _con()
-        rows = c.execute("SELECT url FROM bounties WHERE repo='opire.dev' AND url LIKE ?",
-                         (f"https://github.com/{repo}/issues/%",)).fetchall()
-        c.close()
-    except Exception:
-        return set()
-    out = set()
-    for (u,) in rows:
-        m = re.search(r"/issues/(\d+)$", u or "")
-        if m:
-            out.add(int(m.group(1)))
-    return out
-
-
-OPIRE_PAYOUT_NOTE = ("Payout note: this issue is funded through Opire, whose payouts run on Stripe, "
-                     "which is unavailable to us. If the work is accepted, we can receive the reward "
-                     "in USDC (Base, Ethereum, Polygon, Arbitrum), BTC or SOL. Happy to work either way.")
-
-
 def claim(url, plan, dry_run=True):
     """Публично заявляет, что берём задачу. YELLOW: действие в чужом репозитории.
 
@@ -596,10 +570,8 @@ def claim(url, plan, dry_run=True):
     if rivals >= 4:
         return {"ok": False, "why": f"заявок уже {rivals} — идти туда значит добавлять шум"}
 
-    opire = num in _opire_issues(repo)
-    body = ((f"/try\n\n" if opire else f"/attempt #{num}\n\n") +
-            f"План работы:\n{plan.strip()}\n\n" +
-            (OPIRE_PAYOUT_NOTE + "\n\n" if opire else "") +
+    body = (f"/attempt #{num}\n\n"
+            f"План работы:\n{plan.strip()}\n\n"
             f"Все команды и флаги в тексте сверяются с исходниками репозитория "
             f"построчно перед отправкой; несуществующих в PR не будет.")
     guard.check_action("bounty_claim", "YELLOW")
@@ -683,13 +655,6 @@ def deliver(repo, branch, files, title, body, base="main", dry_run=True):
     if not written:
         return {"ok": False, "why": "ни один файл не записался"}
 
-    # OPIRE: награда привязывается к PR только командой /claim #N в его тексте.
-    opire_nums = _opire_issues(repo)
-    if opire_nums:
-        ref = re.findall(r"#(\d+)", body or "")
-        targets = [int(n) for n in ref if int(n) in opire_nums] or sorted(opire_nums)[:1]
-        claims = "\n".join(f"/claim #{n}" for n in targets)
-        body = f"{claims}\n\n{body}\n\n{OPIRE_PAYOUT_NOTE}"
     pr = _gh(["pr", "create", "--repo", repo, "--base", base,
               "--head", f"{US}:{branch}", "--title", title, "--body", body], timeout=120)
     url = (pr or "").strip().split("\n")[-1] if pr else ""
@@ -769,7 +734,6 @@ def deliver_ready(dry_run=False):
         "Adds a command reference generated from the CLI's own source and "
         "verified line-by-line against it: every command, argument and default "
         "is traced to source. New file, nothing overwritten."
-        + "\n\n" + "\U0001F916 Generated with [Claude Code](https://claude.com/claude-code)"
     )
 
     res = deliver(repo, branch, {target: content}, title, body, dry_run=dry_run)
@@ -960,7 +924,7 @@ def pursue(dry_run=True):
                 d = {}
             if (d.get("s") or 0) < 200 or d.get("f"):
                 continue                                   # форк/пустой репозиторий — не проект
-            # Opire отдаёт награды и на ЗАКРЫТЫХ issue (14.09: все три поднятые оказались
+            # Площадки отдают награды и на ЗАКРЫТЫХ issue (14.09: все три поднятые оказались
             # закрыты годами) — состояние проверяется до сигнала, закрытые снимаются.
             state = (_gh(["api", f"repos/{m.group(1)}/issues/{m.group(2)}", "--jq", ".state"]) or "").strip()
             if state and state != "open":
@@ -992,10 +956,10 @@ def pursue(dry_run=True):
     # Смотреть репозиторий умеет исполнитель, и он уже в составе. Разница между
     # «мы посмотрим» и «мы посмотрели, вот файлы» — это вся разница между
     # заявкой и шумом.
-    # РЕПОЗИТОРИЙ — ИЗ ССЫЛКИ, НЕ ИЗ КОЛОНКИ. У задач с площадок (opire.dev,
-    # dework.xyz, aibtc.com) в колонке repo стоит имя ИСТОЧНИКА, и план искался
-    # в «репозитории opire.dev» — файлов там нет, заявка не подавалась никогда
-    # (14.09: 55 наград Opire в очереди, заявок 0). Пробуем несколько задач,
+    # РЕПОЗИТОРИЙ — ИЗ ССЫЛКИ, НЕ ИЗ КОЛОНКИ. У задач с площадок (dework.xyz,
+    # aibtc.com) в колонке repo стоит имя ИСТОЧНИКА, и план искался в
+    # «репозитории площадки» — файлов там нет, заявка не подавалась никогда
+    # (14.09: 55 наград в очереди, заявок 0). Пробуем несколько задач,
     # а не только первую: одна без плана не значит, что нет ни одной.
     picked, tried = None, []
     for url, repo, title, usd in doable[:8]:

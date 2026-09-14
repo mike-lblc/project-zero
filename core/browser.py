@@ -37,9 +37,9 @@ from core import guard  # noqa: E402
 # 14.09.2026: Algora и Gitcoin сняты владельцем (сложная регистрация — «не вариант»);
 # replit.com/bounties мёртв (редирект на contra.com); OnlyDust закрыт. Добавлены
 # площадки, проверенные живьём: AIBTC (sBTC-баунти, открытый API), Dework
-# (задачи DAO, публичный GraphQL), Opire (награды на issue GitHub, бот opirebot).
+# (задачи DAO, публичный GraphQL). Opire снят 14.09: выплаты только через Stripe (фиат).
 ALLOWED = (
-    "mlcontests.com", "immunefi.com", "opire.dev", "app.opire.dev", "docs.opire.dev",
+    "mlcontests.com", "immunefi.com",
     "aibtc.com", "app.dework.xyz", "api.dework.xyz", "dework.xyz",
     "solanacompass.com", "github.com", "registry.modelcontextprotocol.io",
 )
@@ -124,8 +124,7 @@ def probe(url, wait_for=None):
 
 
 if __name__ == "__main__":
-    for u, sel in [("https://app.opire.dev/home", None),
-                   ("https://app.dework.xyz", None),
+    for u, sel in [("https://app.dework.xyz", None),
                    ("https://aibtc.com/bounties", None)]:
         r = probe(u, sel)
         print(f"{u}\n   {r}\n")
