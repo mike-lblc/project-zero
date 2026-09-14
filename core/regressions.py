@@ -44,6 +44,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STORE = ROOT / "data" / "invariants.json"
+
+# СПИСАННЫЕ ИНВАРИАНТЫ. Каталог только рос: убрать устаревшую проверку можно
+# было лишь руками в одной базе, а облачная база хранила её дальше и роняла
+# прогон (14.09: «запись не уходит без проверки» после того, как владелец
+# разрешил решать проверку Moltbook). Списание — тоже код, с датой и причиной.
+RETIRED = (
+    # 14.09.2026: заменён тремя — «решает проверочную задачу сама», «предохранитель
+    # ниже порога блокировки», «решатель не гадает, когда не уверен»
+    "запись в Moltbook не уходит без пройденной проверки",
+)
+
+
+def _purge_retired(c):
+    for name in RETIRED:
+        write(c, "DELETE FROM invariants WHERE name=?", (name,))
 sys.path.insert(0, str(ROOT))
 from core.db import connect, ensure_schema, write  # noqa: E402
 
@@ -288,6 +303,7 @@ def _check_one(inv):
 def run(verbose=True):
     """Гоняет ВЕСЬ каталог. Число проверок растёт само по мере находок."""
     c = _con()
+    _purge_retired(c)          # облачная база живёт отдельно — списанное убираем при каждом прогоне
     rows = [dict(r) for r in c.execute("SELECT * FROM invariants ORDER BY id")]
     c.close()
     ok = bad = skipped = 0
@@ -562,6 +578,7 @@ def restore():
         return 0, "корень каталога не является списком"
 
     c = _con()
+    _purge_retired(c)
     before = c.total_changes
     for row in rows:
         if not isinstance(row, dict):
