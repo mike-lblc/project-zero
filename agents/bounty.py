@@ -708,6 +708,13 @@ _DEAD_WORDS = ("service discontinued", "has closed", "is closed", "shut down", "
                "no longer available", "sunset", "wind down", "winding down", "discontinued")
 
 
+# ОБЪЯВЛЕННАЯ ОБРЕЗКА. Признаки закрытия площадки (заголовок, баннер, редирект) видны в
+# первых десятках килобайт; читать мёртвую страницу целиком — тратить время. Предел назван,
+# а не зашит числом: улучшатель дважды снимал «необъявленную» обрезку и делал чтение
+# безразмерным — это откачено, а причина устранена здесь.
+HEAD_BYTES = 60_000
+
+
 def platform_alive(url, timeout=20):
     """True — жива; False — мертва (редирект на чужой домен / текст о закрытии); None — не узнали."""
     import urllib.request, urllib.error
@@ -720,7 +727,7 @@ def platform_alive(url, timeout=20):
         want = urlparse(url).netloc.lower().removeprefix("www.")
         if final and final.split(".")[-2:] != want.split(".")[-2:]:
             return False                                  # уехали на чужой домен
-        head = r.read(60000).decode("utf-8", "ignore").lower()
+        head = r.read(HEAD_BYTES).decode("utf-8", "ignore").lower()
         head = re.sub(r"<script.*?</script>|<style.*?</style>", " ", head, flags=re.S)
         return not any(w in head for w in _DEAD_WORDS)
     except urllib.error.HTTPError as e:
