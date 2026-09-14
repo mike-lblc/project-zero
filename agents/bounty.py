@@ -448,6 +448,10 @@ def search(limit=60):
         '"/bounty" in:body state:open is:issue language:typescript created:>2026-08-15',
         '"/bounty" in:body state:open is:issue created:>2026-09-01',
         'commenter:algora-pbc state:open is:issue',
+        # Opire (opire.dev): бот opirebot[bot] вешает награду на issue; /try -> PR -> /claim #N;
+        # платит создатель награды после проверки. Владелец подключил GitHub к Opire 14.09.
+        # Осторожно: рельс выплат Opire — Stripe (фиат); просить USDC у создателя напрямую.
+        'commenter:app/opirebot state:open is:issue',
         'label:bounty state:open is:issue label:i18n archived:false',
         'label:"bounty 💰" state:open is:issue archived:false',
         '"gitcoin" in:body state:open is:issue created:>2026-08-15',
@@ -690,9 +694,37 @@ OFFSITE = [
      "соревнования по данным: призовой фонд объявлен заранее"),
     ("immunefi.com", "https://immunefi.com/bug-bounty/",
      "премии за найденные уязвимости, выплата в крипте"),
-    ("replit.com", "https://replit.com/bounties",
-     "мелкие задачи на заказ с фиксированной ценой"),
+    # replit.com/bounties убран 14.09.2026: адрес редиректит на contra.com —
+    # площадка закрыта. Источник, который не проверяют на жизнь, врёт молча.
 ]
+
+# ЖИВА ЛИ ПЛОЩАДКА. Владелец поймал предложение мёртвого OnlyDust («Service
+# discontinued. OnlyDust Has Closed»): страница отвечает 200, но это некролог.
+# Признаки смерти — редирект на чужой домен или текст о закрытии; тишина сети
+# — незнание (None), не смерть.
+_DEAD_WORDS = ("service discontinued", "has closed", "is closed", "shut down", "shutting down",
+               "no longer available", "sunset", "wind down", "winding down", "discontinued")
+
+
+def platform_alive(url, timeout=20):
+    """True — жива; False — мертва (редирект на чужой домен / текст о закрытии); None — не узнали."""
+    import urllib.request, urllib.error
+    from urllib.parse import urlparse
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(
+            url, headers={"User-Agent": "P0-agents/1.0 (+https://github.com/mike-lblc/project-zero)"}),
+            timeout=timeout)
+        final = urlparse(r.geturl()).netloc.lower().removeprefix("www.")
+        want = urlparse(url).netloc.lower().removeprefix("www.")
+        if final and final.split(".")[-2:] != want.split(".")[-2:]:
+            return False                                  # уехали на чужой домен
+        head = r.read(60000).decode("utf-8", "ignore").lower()
+        head = re.sub(r"<script.*?</script>|<style.*?</style>", " ", head, flags=re.S)
+        return not any(w in head for w in _DEAD_WORDS)
+    except urllib.error.HTTPError as e:
+        return False if e.code in (404, 410) else None
+    except Exception:
+        return None
 
 _MONEY_RE = re.compile(r"\$\s?([\d,]{2,})(?!\d)")
 _TITLE_RE = re.compile(r"<(?:h[1-4]|a)[^>]*>([^<]{12,90})</(?:h[1-4]|a)>", re.I)
@@ -714,6 +746,12 @@ def search_offsite(per_site=8):
     ua = {"User-Agent": "P0-agents/1.0 (+https://github.com/mike-lblc/project-zero)"}
     rows = []
     for site, url, what in OFFSITE:
+        alive = platform_alive(url)
+        if alive is False:
+            _API_TROUBLE.append(f"{site}: площадка мертва (редирект/закрытие)")
+            bus.broadcast("bounty", f"Площадка {site} мертва (редирект на чужой домен или текст о "
+                                    f"закрытии) — источник пропущен; предлагать её нельзя.")
+            continue
         try:
             html = urllib.request.urlopen(
                 urllib.request.Request(url, headers=ua), timeout=25
@@ -854,6 +892,78 @@ def search_aibtc():
     return rows
 
 
+# DEWORK (app.dework.xyz) — доска задач DAO с наградами в криптотокенах. GraphQL-API
+# публичный (без входа): getPaginatedTasks(filter: SearchTasksInput). Заявка и
+# выплата — через аккаунт владельца (вход кошельком; вход через GitHub у них
+# ломается собственным CSP). Интроспекция закрыта — форма запроса снята с их
+# фронтенда 14.09.2026.
+DEWORK_GQL = "https://api.dework.xyz/graphql"
+_DEWORK_Q = ("query P($filter: SearchTasksInput!, $cursor: String) { paginated: getPaginatedTasks("
+             "filter: $filter, cursor: $cursor) { total cursor tasks { id name status dueDate createdAt "
+             "rewards { amount peggedToUsd token { symbol %s network { slug } } } "
+             "workspace { slug organization { name slug } } applications { id } } } }")
+_STABLE = {"USDC": 6, "USDT": 6, "USDC.E": 6, "DAI": 18, "USDBC": 6, "BUSD": 18}
+# Десятичность известных токенов (у PaymentToken в API поля decimals нет): без неё
+# 500000000 wei читалось как 5e-10 ETH, а 1 SOL — как 1e-9.
+_DECIMALS = {**_STABLE, "ETH": 18, "WETH": 18, "MATIC": 18, "POL": 18, "SOL": 9, "BTC": 8, "WBTC": 8}
+
+
+def search_dework(pages=4):
+    """Задачи Dework с ненулевой наградой в формате ingest()."""
+    import urllib.request
+    rows, cursor = [], None
+    query = _DEWORK_Q % ""          # у PaymentToken нет поля decimals — десятичность по таблице стейблов
+    for _ in range(pages):
+        body = json.dumps({"query": query, "variables": {
+            "filter": {"statuses": ["TODO"], "sortBy": {"field": "createdAt", "direction": "DESC"}},
+            "cursor": cursor}}).encode()
+        try:
+            raw = urllib.request.urlopen(urllib.request.Request(
+                DEWORK_GQL, data=body, headers={"Content-Type": "application/json",
+                                                "User-Agent": "P0-agents/1.0"}), timeout=30).read()
+            data = json.loads(raw)
+        except Exception as e:
+            _API_TROUBLE.append(f"dework: {type(e).__name__}")
+            break
+        if data.get("errors"):
+            _API_TROUBLE.append("dework: graphql errors")
+            break
+        page = (data.get("data") or {}).get("paginated") or {}
+        for t in page.get("tasks") or []:
+            rewards = [r for r in (t.get("rewards") or []) if r.get("amount")]
+            if not rewards:
+                continue
+            ws = t.get("workspace") or {}
+            org = (ws.get("organization") or {})
+            usd, parts = 0.0, []
+            for r in rewards:
+                tok = r.get("token") or {}
+                sym = str(tok.get("symbol") or "?")
+                dec = _DECIMALS.get(sym.upper(), 18)
+                try:
+                    amt = int(r["amount"]) / (10 ** int(dec))
+                except (TypeError, ValueError):
+                    continue
+                parts.append(f"{amt:g} {sym} ({(tok.get('network') or {}).get('slug')})")
+                if sym.upper() in _STABLE or r.get("peggedToUsd"):
+                    usd += amt
+            url = (f"https://app.dework.xyz/o/{org.get('slug')}/p/{ws.get('slug')}?taskId={t['id']}"
+                   if org.get("slug") and ws.get("slug") else f"https://app.dework.xyz/task/{t['id']}")
+            rows.append({
+                "url": url, "title": f"[{org.get('name') or 'DAO'}] {t.get('name') or ''}"[:180],
+                "amount_usd": round(usd, 2),
+                "participants": len(t.get("applications") or []),
+                "note": (f"Dework: награда {', '.join(parts)}; заявок {len(t.get('applications') or [])}; "
+                         f"срок {str(t.get('dueDate') or '-')[:10]}. Заявка и выплата — через аккаунт "
+                         f"владельца на Dework (вход кошельком)."),
+                "declared_proof": f"объявлено DAO на Dework: {', '.join(parts)}",
+            })
+        cursor = page.get("cursor")
+        if not cursor:
+            break
+    return rows
+
+
 # Конкурс опознаётся по источнику и пометке, а не по сумме.
 CONTEST_SQL = ("repo LIKE '%devpost%' OR repo LIKE '%mlcontests%' "
                "OR note LIKE '%конкурс%' OR note LIKE '%КОНКУРС%'")
@@ -973,6 +1083,13 @@ def hunt(limit=60):
                                     f"сдача возможна после регистрации агента владельцем).")
     except Exception as e:
         _API_TROUBLE.append(f"aibtc.com: {type(e).__name__}")
+    try:
+        new_dw, _ = ingest(search_dework(), "dework.xyz",
+                           note="Dework: задачи DAO с наградой в криптотокенах (публичный GraphQL)")
+        if new_dw:
+            bus.broadcast("bounty", f"Dework: новых задач с наградой — {new_dw} (в очереди как «найдено»).")
+    except Exception as e:
+        _API_TROUBLE.append(f"dework: {type(e).__name__}")
     c = _con()
     for r in rows:
         c.execute("""INSERT INTO bounties(url,repo,title,amount_usd,currency,stars,language,

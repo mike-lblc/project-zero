@@ -34,10 +34,14 @@ from core import guard  # noqa: E402
 
 # Куда агенту разрешено смотреть. Только площадки, уже проверенные разведчиком.
 # Список растёт не по желанию модели, а по результату проверки о стены.
+# 14.09.2026: Algora и Gitcoin сняты владельцем (сложная регистрация — «не вариант»);
+# replit.com/bounties мёртв (редирект на contra.com); OnlyDust закрыт. Добавлены
+# площадки, проверенные живьём: AIBTC (sBTC-баунти, открытый API), Dework
+# (задачи DAO, публичный GraphQL), Opire (награды на issue GitHub, бот opirebot).
 ALLOWED = (
-    "mlcontests.com", "immunefi.com", "replit.com", "algora.io",
-    "bounties.network", "solanacompass.com", "gitcoin.co", "opire.dev",
-    "console.algora.io", "github.com", "registry.modelcontextprotocol.io",
+    "mlcontests.com", "immunefi.com", "opire.dev", "app.opire.dev", "docs.opire.dev",
+    "aibtc.com", "app.dework.xyz", "api.dework.xyz", "dework.xyz",
+    "solanacompass.com", "github.com", "registry.modelcontextprotocol.io",
 )
 
 # ЧЕСТНЫЙ ЗАГОЛОВОК. Здесь стоял заголовок браузера Chrome. Проверено 13.09.2026:
@@ -120,8 +124,8 @@ def probe(url, wait_for=None):
 
 
 if __name__ == "__main__":
-    for u, sel in [("https://algora.io/bounties", None),
-                   ("https://bounties.network/", None),
-                   ("https://replit.com/bounties", None)]:
+    for u, sel in [("https://app.opire.dev/home", None),
+                   ("https://app.dework.xyz", None),
+                   ("https://aibtc.com/bounties", None)]:
         r = probe(u, sel)
         print(f"{u}\n   {r}\n")
