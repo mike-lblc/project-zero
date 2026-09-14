@@ -277,3 +277,46 @@ def scan_demand(agent: str = "channel_manager", per_submolt: int = 20) -> dict:
             except Exception:
                 pass
     return {"submolts": len(DEMAND_SUBMOLTS), "buyer_posts": seen, "new_escalated": new}
+
+
+# Где на площадке живут адреса кошельков. Не «правила говорят», а «постов с
+# адресом столько-то, старейший такой-то, и они не удалены». По этому замеру
+# core.moltbook.address_ok решает, можно ли писать адрес в данном сабмолте.
+_ADDR = re.compile(r"\b0x[0-9a-fA-F]{40}\b|\bbc1[ac-hj-np-z02-9]{25,90}\b")
+POLICY_SUBMOLTS = ("agentcommerce", "clawtasks", "x402", "x402-billing", "usdc",
+                   "agentfinance", "forhire", "general")
+
+
+def survey_address_policy(agent: str = "channel_manager", per_sort: int = 50) -> str:
+    """Замер по сабмолтам: сколько постов с адресами кошельков стоит и с какого числа."""
+    c = moltbook._con()
+    c.execute("CREATE TABLE IF NOT EXISTS moltbook_address_policy (submolt TEXT PRIMARY KEY, "
+              "with_address INTEGER, posts INTEGER, oldest TEXT, checked_at TEXT)")
+    summary = []
+    for name in POLICY_SUBMOLTS:
+        total = hits = 0
+        oldest = None
+        for sort in ("new", "top"):
+            try:
+                r = moltbook._call("GET", f"/submolts/{name}/feed?sort={sort}&limit={per_sort}")
+                posts = moltbook._posts(r.body if isinstance(r.body, dict) else {})
+            except Exception:
+                posts = None
+            if posts is None:
+                continue
+            for p in posts:
+                total += 1
+                if _ADDR.search(f"{p.get('title', '')} {p.get('content', '')}"):
+                    hits += 1
+                    ca = str(p.get("created_at", ""))[:10]
+                    oldest = min(oldest, ca) if oldest else ca
+        if total == 0:
+            summary.append(f"{name}:?")
+            continue                       # площадка не ответила — прежний замер остаётся
+        c.execute("INSERT INTO moltbook_address_policy(submolt,with_address,posts,oldest,checked_at) "
+                  "VALUES (?,?,?,?,?) ON CONFLICT(submolt) DO UPDATE SET with_address=excluded.with_address, "
+                  "posts=excluded.posts, oldest=excluded.oldest, checked_at=excluded.checked_at",
+                  (name, hits, total, oldest, moltbook.now()))
+        summary.append(f"{name}:{hits}/{total}")
+    c.commit(); c.close()
+    return "адреса кошельков по сабмолтам (с адресом/постов): " + ", ".join(summary)

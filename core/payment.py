@@ -166,6 +166,14 @@ OWNER_DESTINATIONS = {
     # остаётся unverified, пока он не появится. TRON ни один наш канал не платит —
     # адрес записан на всякий случай, маршрута нет.
     "sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
+    # Кошелёк агента AIBTC (вариант «А», 14.09): Trust Wallet не знает Stacks, seed у
+    # владельца; сюда доска AIBTC платит sBTC за сданную работу. Перевод с него самого
+    # доходом не считается — адрес в этом же списке.
+    "stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
+    # Кошелёк агента AIBTC (вариант «А», 14.09): Trust Wallet не знает Stacks, seed у
+    # владельца; сюда доска AIBTC платит sBTC за сданную работу. Перевод с него самого
+    # доходом не считается — адрес в этом же списке.
+    "stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
     "tron": "TB9rHqT8yLxwdsWCb3zN2nvjc8wLhsUdaQ",
 }
 
@@ -189,6 +197,10 @@ SEED_ROUTES = [
     ("self-custody", "crypto", "USDC.e", "arbitrum", OWNER_DESTINATIONS["evm"]),
     ("self-custody", "crypto", "USDC", "solana", OWNER_DESTINATIONS["sol"]),
     ("self-custody", "crypto", "SOL", "solana", OWNER_DESTINATIONS["sol"]),
+    ("self-custody", "crypto", "sBTC", "stacks", OWNER_DESTINATIONS["stx"]),
+    ("self-custody", "crypto", "STX", "stacks", OWNER_DESTINATIONS["stx"]),
+    ("self-custody", "crypto", "sBTC", "stacks", OWNER_DESTINATIONS["stx"]),
+    ("self-custody", "crypto", "STX", "stacks", OWNER_DESTINATIONS["stx"]),
     ("algora", "bounty_platform", "USD", "", None),
     ("polar", "bounty_platform", "USD", "", None),
     ("gitcoin", "bounty_platform", "USD", "", None),
@@ -224,12 +236,18 @@ SEED_NETWORKS = [
     ("bitcoin", "bitcoin", "BTC", 1, "адрес bech32, сегвит"),
     ("solana", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "SOL", 1,
      "USDC mint EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v (по каталогу x402); наблюдателя поступлений нет"),
+    ("stacks", "stacks:1", "STX", 1,
+     "кошелёк агента AIBTC; sBTC SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token; "
+     "наблюдатель — Hiro API (без ключа)"),
 ]
 
 SEED_CURRENCIES = [
     ("USDC", "stablecoin", 1, None),
     ("ETH", "crypto", 1, None),
     ("BTC", "crypto", 1, None),
+    ("SOL", "crypto", 1, None),
+    ("sBTC", "crypto", 1, "биткоин на Stacks; так платит доска AIBTC"),
+    ("STX", "crypto", 1, None),
     ("USD", "fiat", 1, "через площадку или банк"),
     ("giftcard", "voucher", 0,
      "засчитывается ТОЛЬКО если законна, передаваема и полезна владельцу"),

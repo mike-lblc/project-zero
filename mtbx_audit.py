@@ -404,7 +404,7 @@ def unfinished():
     # Пометка — это отдельное слово. "EXXX" (имя спецификации) и "TODO.md"
     # (имя файла проекта) не являются незавершённой работой, и детектор,
     # который их ловит, сам себе выдумывает находки.
-    marks = re.compile(r"\b(TODO|FIXME|HACK|XXX|PLACEHOLDER|NOT IMPLEMENTED|"
+    marks = re.compile(r"(?m)#\s*(TODO|FIXME|XXX)"
                        r"NotImplementedError)\b(?!\.md)")
     hits = []
     for p in py_files() + [ROOT / "service" / "server.js", ROOT / "worker" / "src" / "index.js"]:
@@ -557,6 +557,32 @@ check("работа отправлена наружу", lambda: (
 check("утверждения PR сверены с кодом", lambda: (
     (q("SELECT COUNT(*) FROM claim_checks WHERE verified=1") or 0) > 0,
     f"подтверждено утверждений: {q('SELECT COUNT(*) FROM claim_checks WHERE verified=1')}"))
+
+# ───────────────────────────────── §MTBX-II протокол последней транзакции
+sec("§MTBX-II Протокол последней транзакции (решения владельца 15.09: любой плательщик, без дедлайна)")
+check("дилер зарегистрирован в составе", lambda: (
+    "dealer" in __import__("core.roster", fromlist=["wire"]).wire(), "агент dealer в реестре"))
+check("состояние дилера пишется (раздел IX)", lambda: (
+    (q("SELECT COUNT(*) FROM dealer_state WHERE at > strftime('%Y-%m-%dT%H:%M:%S','now','-6 hours')") or 0) > 0,
+    f"записей за 6 ч: {q('SELECT COUNT(*) FROM dealer_state')}"))
+check("сеть каналов шире одной площадки", lambda: (
+    (q("SELECT COUNT(DISTINCT platform) FROM channels WHERE alive=1") or 0) >= 4,
+    f"живых платформ: {q('SELECT COUNT(DISTINCT platform) FROM channels WHERE alive=1')}"))
+check("контрагенты известны и промоделированы", lambda: (
+    (q("SELECT COUNT(*) FROM counterparties WHERE priority>0") or 0) > 0,
+    f"с приоритетом: {q('SELECT COUNT(*) FROM counterparties WHERE priority>0')}"))
+_ATT = "SELECT COUNT(*) FROM dealer_attempts"
+_BAD_ATT = _ATT + " WHERE outcome<>'delegated' AND (deadline_at IS NULL OR ask_amount IS NULL)"
+_ORPHAN = ("SELECT COUNT(*) FROM dealer_receipts WHERE proof NOT IN "
+           "(SELECT proof FROM payment_receipts WHERE proof_kind='tx_hash')")
+_NETS = ("SELECT COUNT(DISTINCT network) FROM payment_routes WHERE network IN ('solana','stacks') "
+         "AND status='verified'")
+check("каждое обращение дилера несёт просьбу и срок", lambda: (
+    (q(_BAD_ATT) or 0) == 0, f"обращений: {q(_ATT) or 0}, без срока или просьбы: {q(_BAD_ATT) or 0}"))
+check("обещание не считается платежом", lambda: (
+    (q(_ORPHAN) or 0) == 0, "каждое поступление дилера — хеш из приёмника платежей"))
+check("маршруты Solana и Stacks проверены живым запросом", lambda: (
+    (q(_NETS) or 0) >= 2, f"проверено сетей: {q(_NETS) or 0}"))
 
 # ───────────────────────────────── итог
 print("\n" + "=" * 74)

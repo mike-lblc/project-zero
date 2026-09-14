@@ -333,8 +333,36 @@ def dm_check(agent: str, transport: Transport | None = None) -> dict[str, Any]:
 ALLOWED_LINK_HOSTS = ("x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev",)
 
 
+def address_ok(submolt: str | None) -> bool:
+    """Живут ли адреса кошельков в этом сабмолте — по замеру, а не по вере.
+
+    Замер 15.09: в clawtasks адреса стоят с 09.07, в usdc — с 20.07, в x402,
+    forhire, agentcommerce, agentfinance — тоже; в general — ни одного. Правило
+    площадки против крипто-контента действует в обычных сабмолтах, а в
+    криптосабмолтах адрес — норма. Замер обновляет channel_manager (survey_address_policy).
+    """
+    if not submolt:
+        return False
+    try:
+        c = _con()
+        c.execute("CREATE TABLE IF NOT EXISTS moltbook_address_policy (submolt TEXT PRIMARY KEY, "
+                  "with_address INTEGER, posts INTEGER, oldest TEXT, checked_at TEXT)")
+        r = c.execute("SELECT with_address, checked_at FROM moltbook_address_policy WHERE submolt=?",
+                      (str(submolt).lower(),)).fetchone()
+        c.close()
+    except Exception:
+        return False
+    if not r or not r[0]:
+        return False
+    try:
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(str(r[1]))
+        return age <= timedelta(days=14)
+    except Exception:
+        return False
+
+
 def _clean_content(content: str, minimum: int = 40, maximum: int = 2000,
-                   allow_own_links: bool = False) -> str:
+                   allow_own_links: bool = False, allow_addresses: bool = False) -> str:
     text = "\n".join(line.rstrip() for line in str(content or "").strip().splitlines())
     if len(text) < minimum or len(text) > maximum:
         raise UnsafeContent(f"content length must be {minimum}..{maximum} characters")
@@ -346,7 +374,7 @@ def _clean_content(content: str, minimum: int = 40, maximum: int = 2000,
     )
     if any(term in low for term in banned):
         raise UnsafeContent("content contains a prohibited solicitation or credential phrase")
-    if re.search(r"\b0x[0-9a-f]{40}\b|\bbc1[ac-hj-np-z02-9]{25,90}\b", text, re.I):
+    if not allow_addresses and re.search(r"\b0x[0-9a-f]{40}\b|\bbc1[ac-hj-np-z02-9]{25,90}\b", text, re.I):
         raise UnsafeContent("wallet addresses are not allowed in Moltbook content")
     for m in re.finditer(r"https?://([^/\s)>\]]+)", text, re.I):
         if not (allow_own_links and m.group(1).lower() in ALLOWED_LINK_HOSTS):
@@ -684,31 +712,43 @@ def _write(agent: str, action: str, path: str, payload: dict[str, Any],
 
 def create_post(agent: str, title: str, content: str, submolt: str = "general",
                 transport: Transport | None = None,
-                allow_own_links: bool = False) -> dict[str, Any]:
+                allow_own_links: bool = False,
+                allow_addresses: bool | None = None) -> dict[str, Any]:
     title = " ".join(str(title or "").split())[:180]
     if len(title) < 8:
         raise UnsafeContent("post title is too short")
-    content = _attributed(agent, _clean_content(content, 80, 5000,
-                                                allow_own_links=allow_own_links), 5000)
     if not re.fullmatch(r"[a-z0-9_-]{2,40}", submolt, re.I):
         raise ValueError("invalid submolt")
+    if allow_addresses is None:
+        allow_addresses = address_ok(submolt)
+    content = _attributed(agent, _clean_content(content, 80, 5000,
+                                                allow_own_links=allow_own_links,
+                                                allow_addresses=allow_addresses), 5000)
     payload = {"submolt": submolt, "title": title, "content": content}
     return _write(agent, "post", "/posts", payload, transport=transport)
 
 
 def add_comment(agent: str, post_id: str, content: str,
-                transport: Transport | None = None) -> dict[str, Any]:
+                transport: Transport | None = None, *,
+                submolt: str | None = None,
+                allow_addresses: bool | None = None) -> dict[str, Any]:
     post_id = _id(post_id, "post id")
-    payload = {"content": _attributed(agent, _clean_content(content), 2000)}
+    if allow_addresses is None:
+        allow_addresses = address_ok(submolt)
+    payload = {"content": _attributed(agent, _clean_content(content, allow_addresses=allow_addresses), 2000)}
     return _write(agent, "comment", f"/posts/{post_id}/comments", payload,
                   target_id=post_id, transport=transport)
 
 
 def reply(agent: str, post_id: str, parent_id: str, content: str,
-          transport: Transport | None = None) -> dict[str, Any]:
+          transport: Transport | None = None, *,
+          submolt: str | None = None,
+          allow_addresses: bool | None = None) -> dict[str, Any]:
     post_id = _id(post_id, "post id")
     parent_id = _id(parent_id, "parent comment id")
-    payload = {"content": _attributed(agent, _clean_content(content), 2000),
+    if allow_addresses is None:
+        allow_addresses = address_ok(submolt)
+    payload = {"content": _attributed(agent, _clean_content(content, allow_addresses=allow_addresses), 2000),
                "parent_id": parent_id}
     return _write(agent, "reply", f"/posts/{post_id}/comments", payload,
                   target_id=post_id, parent_id=parent_id, transport=transport)
@@ -724,8 +764,11 @@ def edit_post(agent: str, post_id: str, title: str, content: str,
     if author_name != IDENTITY:
         raise PermissionError("Moltbook editing is restricted to our own posts")
     title = " ".join(str(title or "").split())[:180]
+    own_sub = own.get("submolt")
+    own_sub = own_sub.get("name") if isinstance(own_sub, dict) else own_sub
     payload = {"title": title,
-               "content": _attributed(agent, _clean_content(content, 80, 5000, allow_own_links=True), 5000)}
+               "content": _attributed(agent, _clean_content(content, 80, 5000, allow_own_links=True,
+                                                            allow_addresses=address_ok(own_sub)), 5000)}
     result = _write(agent, "edit", f"/posts/{post_id}", payload,
                     target_id=post_id, transport=transport)
     if result["state"] in {"FAILED", "UNSUPPORTED", "AMBIGUOUS"}:

@@ -125,7 +125,9 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "market_demand":"explorer", "chain_economics":"collector", "rich_targets":"leads",
             "package_docs":"executor", "supply_check":"supplier", "where_time_goes":"optimizer",
             "produce_work":"executor", "check_work":"executor", "guard_knowledge":"verifier",
-            "improve_code":"improver", "reach_out":"salesman"}
+            "improve_code":"improver", "reach_out":"salesman",
+            "dealer_cycle":"dealer", "dealer_state":"dealer",
+            "moltbook_address_survey":"dealer"}
 
 
 def _iso(t):
@@ -963,7 +965,8 @@ CYCLE = [("watch_payments", watch_payments),        # миссия: первый
          ("refresh_market", refresh_market),        # свежесть данных = свежесть диагнозов
          ("audit", audit),                          # целостность доказательства
          ("advance_tasks", advance_tasks),           # двигает очередь — её не двигал никто
-         ("watchdog", _team("watchdog"))]           # живость агентов
+         ("watchdog", _team("watchdog")),          # живость агентов
+         ("dealer_state", _src("dealer_state"))]   # состояние сети путей к платежу (раздел IX)
 
 # РЕДКИЕ — полезны, но не ежеминутно.
 SLOW_CYCLE = [("mechanic", _mech("mechanic")),
@@ -1041,14 +1044,19 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("open_deals", _src("open_deals")),
               # Каталог услуг перепроверяет исполнимость каждой строки: исполнитель
               # импортируется, способ оплаты есть в маршрутизаторе.
-              ("services_catalog", _src("services_catalog"))]
+              ("services_catalog", _src("services_catalog")),
+              # ДИЛЕР — сеть путей к платежу по MTBX: каналы, контрагенты, обращения,
+              # сверка поступлений, обучение. Замер адресов — его же инструмент.
+              ("dealer_cycle", _src("dealer_cycle")),
+              ("moltbook_address_survey", _src("moltbook_address_survey"))]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 # ДЕНЕЖНЫЕ ШАГИ — СВОЙ СЛОТ. Заявка, доставка, поиск наград, ответы лидам и сбор
 # выплат делили один редкий слот на полсотни шагов и получали ход раз в
 # полтора-два часа (pursue: 11:50 — и больше ни разу за день при 55 наградах в
 # очереди). Между редкими слотами теперь есть ещё один, только для них.
 MONEY_STEPS = ("pursue", "find_doc_work", "deliver_ready", "hunt_bounties", "fresh_bounties",
-               "check_replies", "reach_out", "watch_prs", "collect_payouts", "moltbook_demand")
+               "check_replies", "reach_out", "watch_prs", "collect_payouts", "moltbook_demand",
+               "dealer_cycle")
 MONEY_CYCLE = []
 for _n, _f in SLOW_CYCLE:
     if _n in MONEY_STEPS and all(_n != m for m, _ in MONEY_CYCLE):
@@ -1071,6 +1079,8 @@ CLOUD_STEPS = [
     "moltbook_replies",    # чужие комментарии под нашими постами → очередь суждений (чтение)
     "moltbook_demand",     # посты с намерением платить (clawtasks/forhire/…) → очередь суждений (чтение)
     "watch_payments",      # миссия: не пришёл ли платёж
+    "dealer_state",        # состояние сети путей к платежу — чтение и запись состояния
+    "moltbook_address_survey",  # замер политики адресов — только чтение площадки
     "advance_tasks",       # очередь задач должна двигаться и в облаке
     "refresh_market",      # свежесть рыночных данных
     "audit",               # целостность доказательства
@@ -1142,6 +1152,8 @@ CLOUD_CANNOT = {
     "deep_check": "тоже через локальную модель",
     "mechanic": "правит код и публикует — из облака это менять репозиторий на ходу",
     "mtbx_audit": "часть проверок обращается к локальному сервису",
+    "dealer_cycle": "обращения к контрагентам из двух баз (облачной и локальной) продублировали "
+                    "бы сообщение одному адресату; оборот дилера идёт только с одной машины",
 }
 
 

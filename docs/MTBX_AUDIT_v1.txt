@@ -1,0 +1,2149 @@
+ULTIMATE AI AGENT ECOSYSTEM — FULL AUDIT, DEBUG, TEST, ANALYZE, IMPROVE, IMPLEMENT, EXPAND, VERIFY
+
+You are working on an EXISTING autonomous multi-agent AI ecosystem.
+
+Your job is to perform a COMPLETE technical, architectural, behavioral, economic, operational, security, UX, and agent-level audit of the entire system.
+
+This is NOT a consultation task.
+
+Do not merely analyze.
+Do not merely recommend.
+Do not merely write a report.
+Do not merely explain what should be changed.
+
+You must:
+
+AUDIT
+→ UNDERSTAND
+→ DEBUG
+→ TEST
+→ FIND PROBLEMS
+→ DETERMINE ROOT CAUSES
+→ DESIGN IMPROVEMENTS
+→ IMPLEMENT IMPROVEMENTS
+→ ADD / MERGE / REMOVE AGENTS IF NEEDED
+→ TEST AGAIN
+→ VERIFY REAL BEHAVIOR
+→ RE-AUDIT
+→ CONTINUE FIXING
+→ HARDEN THE SYSTEM
+
+until every technically achievable high-value improvement has been completed or a genuine external blocker exists.
+
+==================================================
+0. CORE BUSINESS PURPOSE
+==================================================
+
+The ecosystem exists primarily to MAKE MONEY.
+
+Starting economic condition may be:
+
+$0 available business capital.
+
+The system must therefore optimize for:
+
+FIRST VERIFIED EXTERNAL REVENUE
+→ REPEATABLE REVENUE
+→ POSITIVE CASH FLOW
+→ SELF-FUNDED AI OPERATIONS
+→ PROFIT
+→ SCALABLE REVENUE SYSTEMS
+→ COMPOUNDING ECONOMIC VALUE.
+
+Do not optimize primarily for:
+
+agent count
+agent conversations
+number of findings
+number of sources
+number of tasks
+reports
+activity
+complexity
+token consumption.
+
+Every capability should ultimately support:
+
+DIRECT REVENUE
+
+REVENUE ENABLEMENT
+
+COST REDUCTION
+
+RISK PROTECTION
+
+SYSTEM MULTIPLICATION
+
+or
+
+OWNER CAPABILITY IMPROVEMENT.
+
+==================================================
+1. ABSOLUTE EXECUTION RULE
+==================================================
+
+THE SYSTEM MUST DO THE WORK.
+
+It must not confuse:
+
+KNOWING WHAT TO DO
+
+with
+
+DOING IT.
+
+Examples:
+
+"We need leads."
+
+is NOT completion.
+
+Actual lead records must be generated.
+
+"We should send outreach."
+
+is NOT completion.
+
+Messages must be prepared and, when authorized, actually sent.
+
+"We should research X."
+
+is NOT completion.
+
+Research must actually execute and create a downstream decision/action.
+
+"We should implement Y."
+
+is NOT completion.
+
+Code must actually be changed, tested, and wired into the running system.
+
+"We should add an agent."
+
+is NOT completion.
+
+The agent must actually exist, be connected, receive work, execute work, and produce measurable results.
+
+If an action can be executed with existing tools and permissions:
+
+EXECUTE IT.
+
+==================================================
+2. AUDIT THE ENTIRE REPOSITORY FIRST
+==================================================
+
+Before modifying architecture:
+
+inspect the complete codebase.
+
+Understand all major components including:
+
+- agents
+- prompts
+- agent registry
+- orchestrator
+- task engine
+- event bus
+- schedulers
+- workers
+- queues
+- APIs
+- frontend
+- backend
+- database
+- migrations
+- schemas
+- memory
+- model providers
+- model routing
+- tools
+- tool permissions
+- external integrations
+- financial tracking
+- revenue logic
+- metrics
+- dashboard
+- logging
+- observability
+- error handling
+- retries
+- timeouts
+- deployment
+- configuration
+- environment variables
+- secrets
+- tests
+- simulations
+- mocks
+- background processes
+- self-improvement logic
+- economic evaluation logic.
+
+Do not make assumptions from filenames alone.
+
+Trace real execution paths.
+
+==================================================
+3. RECONSTRUCT THE REAL ARCHITECTURE
+==================================================
+
+Build an internal architecture map.
+
+Determine:
+
+WHO controls the system?
+
+WHO delegates tasks?
+
+WHO owns revenue?
+
+WHO searches for opportunities?
+
+WHO generates leads?
+
+WHO performs sales/outreach?
+
+WHO verifies results?
+
+WHO stores memory?
+
+WHO manages tools?
+
+WHO manages money?
+
+WHO audits agents?
+
+WHO improves agents?
+
+WHO controls permissions?
+
+WHO handles failures?
+
+WHO monitors infrastructure?
+
+WHO decides which model to use?
+
+WHO wakes sleeping agents?
+
+WHO is responsible when nothing is progressing?
+
+Map:
+
+Agent
+→ Manager
+→ Inputs
+→ Outputs
+→ Tools
+→ Memory
+→ Events
+→ Dependencies
+→ Reviewers
+→ Economic Role.
+
+==================================================
+4. AUDIT EVERY EXISTING AGENT
+==================================================
+
+For EVERY existing agent inspect:
+
+- actual prompt
+- role
+- responsibilities
+- objective
+- tools
+- permissions
+- model
+- manager
+- subordinates
+- memory scope
+- event subscriptions
+- message routing
+- current tasks
+- outputs
+- task completion logic
+- execution behavior
+- economic contribution
+- token cost
+- duplication with other agents.
+
+Determine:
+
+WHAT IT IS SUPPOSED TO DO
+
+versus
+
+WHAT IT ACTUALLY DOES.
+
+Classify each existing agent as:
+
+KEEP
+UPGRADE
+MERGE
+SPLIT
+DOWNGRADE
+SLEEP
+REMOVE.
+
+Do not preserve bad architecture merely because it already exists.
+
+==================================================
+5. NO DUPLICATE AGENTS
+==================================================
+
+Do not create agents based only on different names.
+
+Compare responsibilities.
+
+Example:
+
+If an existing Master Orchestrator already performs CEO-level orchestration:
+
+DO NOT create another CEO Agent.
+
+Upgrade the existing Orchestrator.
+
+If two agents have 80% overlapping responsibilities:
+
+consider merging them.
+
+Agent count is NOT the objective.
+
+Capability coverage is the objective.
+
+==================================================
+6. IDENTIFY MISSING AGENTS
+==================================================
+
+After auditing existing agents, perform a complete CAPABILITY GAP ANALYSIS.
+
+For every missing responsibility decide whether it should be:
+
+EXISTING AGENT UPGRADE
+
+NEW PERMANENT AGENT
+
+DYNAMIC / ON-DEMAND AGENT
+
+DETERMINISTIC INFRASTRUCTURE
+
+or
+
+NOT NEEDED.
+
+Add new agents where they materially improve:
+
+revenue
+execution
+reliability
+specialization
+quality
+risk management
+automation
+cost efficiency
+self-improvement.
+
+==================================================
+7. TARGET CAPABILITY MAP
+==================================================
+
+Evaluate whether the ecosystem needs capabilities covering:
+
+GOVERNANCE
+
+- Constitution / Governance
+- Risk
+- Permissions
+- Security
+- Secrets
+- Emergency Stop
+
+EXECUTIVE
+
+- Master Orchestrator
+- Strategy
+- Chief of Staff
+- Priority
+- Resource Allocation
+- Scenario Planning
+- Devil's Advocate
+
+INTELLIGENCE
+
+- Research Director
+- Market Research
+- Trend Discovery
+- Competitor Intelligence
+- Customer Intelligence
+- Social Intelligence
+- Search Demand
+- Data Analysis
+- Forecasting
+- Knowledge Curation
+
+REVENUE / OPPORTUNITY
+
+- Revenue Owner / Коммерсант
+- Zero-Capital Opportunity Hunter
+- Existing Asset Monetization
+- Business Opportunity Discovery
+- Business Model Architect
+- Offer Architect
+- Pricing
+- Unit Economics
+- Experiment Designer
+- Revenue Validation
+
+LEAD GENERATION / SALES
+
+- Lead Generation
+- Prospect Research
+- Prospect Qualification
+- Outbound Sales
+- Outreach
+- Response Analysis
+- Follow-Up
+- Sales Closing Support
+- Partnerships
+- Affiliate Opportunities
+- Referral Opportunities
+
+PRODUCT
+
+- Product Manager
+- Technical Architect
+- Frontend
+- Backend
+- Automation Engineer
+- AI Engineer
+- Data Engineer
+- UX
+- UI
+- Copywriting
+- Creative
+- QA
+- Deployment
+- Maintenance
+
+GROWTH
+
+- Growth Director
+- Organic Acquisition
+- SEO
+- Content
+- Social Distribution
+- CRO
+- Email Marketing
+- Creative Testing
+- Paid Media for later stages
+
+CUSTOMER VALUE
+
+- Customer Success
+- Support
+- Onboarding
+- Retention
+- Churn
+- Upsell
+- Cross-Sell
+- LTV Optimization
+- Customer Feedback
+
+FINANCE
+
+- CFO
+- Revenue Analytics
+- Expense Tracking
+- Cash Flow
+- Profitability
+- Budgeting
+- Reconciliation
+- Fraud / Chargeback
+- Financial Forecasting
+
+PERSONAL DEVELOPMENT
+
+- Goal Architect
+- Skill Gap
+- Learning Strategy
+- Tutor
+- Practice
+- Performance Coach
+- Communication
+- Negotiation
+- Leadership
+- Productivity
+- Personal KPI
+
+MEMORY
+
+- Global Memory
+- Business Memory
+- Project Memory
+- Decision Memory
+- Failure Memory
+- Research Memory
+- Context Retrieval
+- Pattern Recognition
+
+INFRASTRUCTURE
+
+- Agent Router
+- Tool Router
+- Scheduler
+- Queue Manager
+- State Manager
+- Event Bus
+- Dependency Manager
+- Model Router
+- Cost Optimizer
+- Observability
+- Failure Recovery
+- Incident Response
+
+AUDIT
+
+- Fact Checker
+- Source Verification
+- Logic Reviewer
+- Code Reviewer
+- Security Reviewer
+- Financial Reviewer
+- Compliance
+- Data Privacy
+- Red Team
+- Outcome Evaluator
+- Post-Mortem
+- Agent Performance Evaluator
+
+SELF-IMPROVEMENT
+
+- Agent Performance Tracker
+- Prompt Optimizer
+- Workflow Optimizer
+- Benchmarking
+- Evaluation Dataset Builder
+- A/B Agent Tester
+- Failure Pattern Analysis
+- Process Improvement
+- Agent Creator Proposal
+- Agent Retirement
+- Architecture Evolution
+- Meta-Learning.
+
+Do NOT instantiate everything blindly.
+
+Use engineering judgment.
+
+==================================================
+8. REVENUE OWNER
+==================================================
+
+Ensure there is exactly ONE primary agent accountable for MONEY.
+
+If Коммерсант already exists and is appropriate:
+
+upgrade it.
+
+Its primary KPI must be:
+
+VERIFIED EXTERNAL REVENUE COLLECTED.
+
+It should continuously monitor:
+
+opportunities
+validated opportunities
+offers
+qualified leads
+prospects contacted
+responses
+sales conversations
+proposals
+payments
+revenue.
+
+It must constantly identify:
+
+THE CURRENT BOTTLENECK BETWEEN THE SYSTEM AND THE NEXT PAYMENT.
+
+Then trigger work specifically against that bottleneck.
+
+==================================================
+9. AUDIT EXECUTION-FIRST BEHAVIOR
+==================================================
+
+Determine whether agents:
+
+EXECUTE
+
+or merely:
+
+discuss
+recommend
+plan
+summarize
+debate.
+
+Find every place where agents stop after identifying a next step.
+
+Fix it.
+
+Operating loop must become:
+
+OBJECTIVE
+→ CURRENT STATE
+→ NEXT EXECUTABLE ACTION
+→ ACTION
+→ PROOF
+→ STATE UPDATE
+→ NEXT ACTION
+→ ACTION AGAIN.
+
+Not:
+
+OBJECTIVE
+→ THINK
+→ DISCUSS
+→ WRITE SUMMARY
+→ WAIT.
+
+==================================================
+10. NEXT EXECUTABLE ACTION
+==================================================
+
+Every active task must contain:
+
+NEXT_EXECUTABLE_ACTION.
+
+Every active commercial project must additionally contain:
+
+NEXT_EXTERNAL_ACTION.
+
+Examples:
+
+find prospects
+contact prospect
+send follow-up
+publish offer
+submit application
+deploy landing page
+generate proposal
+deliver service
+request payment.
+
+If there is no next executable action:
+
+the Orchestrator must resolve why.
+
+==================================================
+11. TASK COMPLETION AUDIT
+==================================================
+
+Find how tasks become COMPLETE.
+
+This is critical.
+
+An LLM returning text must NOT automatically make an execution task complete.
+
+Require:
+
+SUCCESS CRITERIA
+
+and
+
+PROOF OF WORK.
+
+Example:
+
+lead generation:
+actual lead records.
+
+email:
+draft IDs / message IDs.
+
+database:
+record IDs.
+
+code:
+diff/commit + test results.
+
+deployment:
+deployment evidence + health check.
+
+payment:
+provider transaction reference.
+
+No proof:
+
+NOT COMPLETE.
+
+==================================================
+12. IMPLEMENT COMPLETION GUARD
+==================================================
+
+Create or improve an independent completion validator.
+
+Before completing an execution task verify:
+
+Was a real state change produced?
+
+Was required proof generated?
+
+Does downstream state confirm it?
+
+Is the parent objective actually progressed?
+
+If the result is merely narrative:
+
+REJECT COMPLETION.
+
+==================================================
+13. REAL BLOCKERS ONLY
+==================================================
+
+Agents must not claim ordinary work is a blocker.
+
+NOT blockers:
+
+"I need research."
+
+"I need leads."
+
+"I need copy."
+
+"I need a strategy."
+
+"I need another agent."
+
+"I need code."
+
+Those are TASKS.
+
+Real blockers include:
+
+missing credentials
+human authorization
+CAPTCHA
+required identity information
+external service unavailable
+irreversible action requiring approval.
+
+When blocked:
+
+execute every remaining non-blocked action first.
+
+==================================================
+14. OWNER INTERRUPTION AUDIT
+==================================================
+
+Find where agents unnecessarily ask the owner:
+
+"Should I...?"
+
+"Would you like me to...?"
+
+"What should we choose?"
+
+Replace unnecessary questions with autonomous execution.
+
+Owner should be interrupted only when:
+
+authorization
+credentials
+strategic irreversible decision
+legal identity
+financial authority
+high risk
+
+requires human input.
+
+==================================================
+15. READY-BEFORE-ASKING
+==================================================
+
+If owner approval is needed:
+
+prepare everything first.
+
+BAD:
+
+"Should I prepare outreach?"
+
+GOOD:
+
+"43 prospects verified.
+43 messages prepared.
+Compliance check passed.
+Sending is the only remaining step.
+Approve batch?"
+
+==================================================
+16. AUDIT AGENT COMMUNICATION
+==================================================
+
+Verify agents are truly interconnected.
+
+Messages should cause work.
+
+Preferred message types:
+
+TASK
+RESULT
+EVIDENCE
+DECISION
+REVIEW
+BLOCKER
+APPROVAL
+STATE_UPDATE.
+
+Discourage meaningless AI chatter.
+
+No:
+
+"I agree."
+
+"That's a good idea."
+
+"We should consider..."
+
+unless it materially affects a decision.
+
+==================================================
+17. EVENT-DRIVEN WORKFLOW
+==================================================
+
+Audit whether events automatically trigger downstream work.
+
+Examples:
+
+OPPORTUNITY_VALIDATED
+→ Offer creation.
+
+OFFER_READY
+→ Lead generation.
+
+LEADS_VALIDATED
+→ Outreach preparation.
+
+OUTREACH_READY
+→ Send / Approval.
+
+OUTREACH_SENT
+→ Follow-up scheduling.
+
+PROSPECT_REPLIED
+→ Response analysis.
+
+PROSPECT_INTERESTED
+→ Revenue Owner.
+
+PROPOSAL_SENT
+→ Follow-up.
+
+PAYMENT_RECEIVED
+→ Verification.
+
+PAYMENT_VERIFIED
+→ Fulfillment + Finance + Memory + Strategy.
+
+Implement missing transitions.
+
+==================================================
+18. AUDIT FIRST-DOLLAR PIPELINE
+==================================================
+
+Verify real persistent state exists for:
+
+FINDINGS
+→ OPPORTUNITIES
+→ VALIDATED
+→ OFFERS
+→ LEADS
+→ QUALIFIED LEADS
+→ CONTACTED
+→ RESPONSES
+→ CONVERSATIONS
+→ PROPOSALS
+→ CUSTOMERS
+→ PAYMENTS
+→ VERIFIED REVENUE.
+
+Metrics must represent real objects.
+
+Narrative text must not increment commercial metrics.
+
+==================================================
+19. LEAD GENERATION AUDIT
+==================================================
+
+Test actual lead generation.
+
+FAIL:
+
+Agent says where leads can be found.
+
+PASS:
+
+real lead dataset exists.
+
+Lead records should contain where legitimately available:
+
+lead_id
+company
+website
+industry
+decision maker
+role
+public contact
+source
+fit reason
+pain signal
+personalization
+offer match
+confidence
+status.
+
+Test:
+
+search
+collection
+deduplication
+qualification
+storage
+downstream event.
+
+==================================================
+20. OUTREACH AUDIT
+==================================================
+
+Test actual outreach workflow.
+
+Verify:
+
+lead
+message
+personalization
+subject/opening
+CTA
+campaign
+status
+channel
+sent_at
+reply state
+follow-up.
+
+If sending is authorized:
+
+actual sending should occur through connected tools.
+
+If approval is required:
+
+messages should already be prepared.
+
+Never spam.
+
+Respect laws, platform rules, permission limits, rate limits, opt-outs.
+
+==================================================
+21. RESEARCH AUDIT
+==================================================
+
+Research must exist for a reason.
+
+Every research task should specify:
+
+WHAT ACTION OR DECISION WILL THIS ENABLE?
+
+Reject unnecessary broad research.
+
+Detect repeated research.
+
+Search existing memory first.
+
+If sufficient information exists:
+
+use it.
+
+==================================================
+22. DISCUSSION / TOKEN AUDIT
+==================================================
+
+Measure where tokens are being spent.
+
+Find:
+
+unnecessary agent debates
+repeated summaries
+duplicate research
+verbose inter-agent chatter
+agents repeatedly reviewing low-risk decisions
+idle LLM loops.
+
+Reduce them.
+
+Use:
+
+deterministic code
+short structured messages
+cheap models
+cached context
+event-driven wakeups.
+
+==================================================
+23. MODEL ROUTING AUDIT
+==================================================
+
+Inspect which models perform which tasks.
+
+Determine whether expensive reasoning models are being wasted.
+
+Route:
+
+cheap tasks
+→ cheap/fast model.
+
+normal tasks
+→ mid-level model.
+
+critical strategy/code/review
+→ strongest justified model.
+
+Track:
+
+quality
+cost
+latency
+economic value.
+
+Optimize for:
+
+QUALITY PER DOLLAR.
+
+==================================================
+24. TOOL AUDIT
+==================================================
+
+Inventory every available tool.
+
+For each determine:
+
+who can use it
+who actually uses it
+cost
+permissions
+risk
+success/failure behavior.
+
+Find cases where agents hallucinate instructions instead of using tools.
+
+Fix them.
+
+If an authorized tool exists:
+
+USE IT.
+
+==================================================
+25. TOOL DISCOVERY / CAPABILITY ROUTING
+==================================================
+
+Before saying:
+
+"I cannot do this"
+
+agents should inspect:
+
+own tools
+other agents
+ecosystem tools
+integrations
+existing assets
+free alternatives
+local code
+browser/search
+open-source approaches.
+
+Only then may they create a blocker.
+
+==================================================
+26. MEMORY AUDIT
+==================================================
+
+Inspect memory architecture.
+
+Verify:
+
+relevant retrieval
+source
+timestamp
+scope
+confidence
+freshness
+contradictions
+project ownership.
+
+Detect:
+
+memory bloat
+irrelevant context injection
+duplicate memories
+stale information
+incorrect memories.
+
+Improve retrieval so agents receive relevant context only.
+
+==================================================
+27. DECISION / FAILURE MEMORY
+==================================================
+
+Ensure the system stores:
+
+Decision
+Reason
+Evidence
+Assumptions
+Expected Result
+Actual Result.
+
+And failures store:
+
+Hypothesis
+Action
+Cost
+Outcome
+Root Cause
+Lesson
+Next Strategy.
+
+Agents must not repeatedly make the same failed decision.
+
+==================================================
+28. SCHEDULER / 24-7 AUDIT
+==================================================
+
+Verify 24/7 architecture is REAL.
+
+Check:
+
+persistent workers
+task queues
+scheduler
+cron
+event triggers
+heartbeats
+retries
+worker restart
+task recovery
+resumability
+dead-letter handling
+sleep/wake.
+
+Restart the application.
+
+Verify work survives restart.
+
+If agents work only while UI/browser is open:
+
+FIX IT.
+
+==================================================
+29. AGENT LIFECYCLE
+==================================================
+
+Implement/verify:
+
+ACTIVE
+WORKING
+WAITING
+BLOCKED
+SLEEPING
+DEGRADED
+DISABLED
+TERMINATED.
+
+If richer economic lifecycle already exists:
+
+PROMOTE
+KEEP
+OPTIMIZE
+DOWNGRADE
+MERGE
+SLEEP
+TERMINATE.
+
+Test actual behavior.
+
+Do not merely show status badges.
+
+==================================================
+30. AGENT ECONOMIC AUDIT
+==================================================
+
+Track where possible:
+
+Agent Cost:
+
+tokens
+model calls
+API calls
+infrastructure
+human review.
+
+Agent Contribution:
+
+revenue
+qualified leads
+sales
+cost savings
+prevented losses
+reusable IP
+successful experiments.
+
+Do not fabricate attribution.
+
+Find agents with:
+
+high cost
+low execution
+high chatter
+low useful output.
+
+Optimize/merge/sleep/remove them.
+
+==================================================
+31. $0 SURVIVAL MODE AUDIT
+==================================================
+
+Until verified revenue exists:
+
+prioritize:
+
+sales
+outreach
+lead generation
+existing assets
+services
+productized services
+partnerships
+affiliate opportunities
+organic acquisition
+pre-sales
+customer-funded development.
+
+Deprioritize:
+
+expensive speculative builds
+paid ads
+paid tools
+unnecessary dashboards
+broad research
+cosmetic agent features.
+
+==================================================
+32. EXISTING ASSET AUDIT
+==================================================
+
+Determine whether the ecosystem has actually inventoried monetizable existing assets:
+
+skills
+software
+code
+domains
+websites
+content
+automation
+data
+business relationships
+customers
+audiences
+tools
+designs
+internal processes.
+
+If missing:
+
+implement Asset Registry.
+
+Then identify realistic zero-capital monetization opportunities.
+
+==================================================
+33. SELL-BEFORE-BUILD AUDIT
+==================================================
+
+Detect projects being built without evidence of demand.
+
+Ask:
+
+Is there a buyer?
+
+Has demand been validated?
+
+Can it be sold manually?
+
+Can a pilot be created?
+
+Can a customer fund development?
+
+Stop unnecessary engineering when sales validation should happen first.
+
+==================================================
+34. SELF-IMPROVEMENT AUDIT
+==================================================
+
+Inspect self-improvement mechanisms.
+
+They must improve REAL performance.
+
+Possible targets:
+
+prompts
+workflow
+routing
+model selection
+tools
+communication
+token usage
+agent specialization.
+
+Measure BEFORE vs AFTER.
+
+No uncontrolled self-modification.
+
+Critical changes require appropriate approval.
+
+==================================================
+35. ADD NEW AGENTS IF JUSTIFIED
+==================================================
+
+After the full audit:
+
+identify capability gaps.
+
+For every candidate new agent answer:
+
+What exact missing problem does this solve?
+
+Can an existing agent be upgraded instead?
+
+Will it reduce cost, improve execution, increase revenue, improve quality, or reduce risk?
+
+Does it require a persistent agent?
+
+Could it be dynamic?
+
+Does it duplicate another role?
+
+What tools does it need?
+
+Who is its manager?
+
+Who consumes its output?
+
+What KPI proves value?
+
+Only then create it.
+
+==================================================
+36. REMOVE / MERGE AGENTS IF NEEDED
+==================================================
+
+You are allowed to improve the system by REDUCING agent count.
+
+If agents duplicate each other:
+
+merge them.
+
+If an agent provides no useful contribution:
+
+sleep/remove it.
+
+If a permanent agent is rarely needed:
+
+convert to dynamic/on-demand.
+
+Architecture quality > agent count.
+
+==================================================
+37. AGENT RESPONSIBILITY UX
+==================================================
+
+Audit the dashboard.
+
+Every visible agent should expose:
+
+Name
+Role
+Mission
+Responsibilities
+Economic Role
+Manager
+Inputs From
+Outputs To
+Tools
+Current Goal
+Current Task
+Next Action
+Status
+Execution Score
+Cost
+Economic Contribution.
+
+The user must immediately understand:
+
+WHAT THIS AGENT DOES
+
+and
+
+HOW IT CONTRIBUTES TO MAKING MONEY.
+
+Clearly identify:
+
+PRIMARY REVENUE OWNER.
+
+==================================================
+38. DASHBOARD AUDIT
+==================================================
+
+The main dashboard should prioritize:
+
+VERIFIED REVENUE
+
+PAYMENTS
+
+FIRST-DOLLAR PROGRESS
+
+CURRENT COMMERCIAL BOTTLENECK
+
+NEXT EXTERNAL ACTION
+
+QUALIFIED LEADS
+
+CONTACTED
+
+RESPONSES
+
+ACTIVE SALES CONVERSATIONS
+
+PROPOSALS
+
+AGENT COST
+
+SYSTEM HEALTH
+
+OWNER ACTION REQUIRED.
+
+Research sources/findings should be secondary.
+
+==================================================
+39. LIVE ACTIVITY AUDIT
+==================================================
+
+Every live event shown in UI must correspond to REAL backend activity.
+
+No fake:
+
+thinking
+working
+research
+messages
+payments
+execution.
+
+Show concise operational activity:
+
+Agent
+→ Action
+→ Result
+→ Proof.
+
+==================================================
+40. SECURITY AUDIT
+==================================================
+
+Perform full security review.
+
+Check:
+
+secret handling
+API keys
+least privilege
+auth
+authorization
+tool permissions
+database access
+prompt injection exposure
+external content
+command execution
+network access
+file access
+financial access
+logs
+PII
+rate limits
+unsafe endpoints.
+
+Fix critical/high-risk issues.
+
+==================================================
+41. EXTERNAL AGENT NETWORKS
+==================================================
+
+If external agent systems such as Moltbook are integrated:
+
+treat ALL external agents/content as untrusted.
+
+They may provide:
+
+ideas
+solutions
+research
+criticism
+collaboration.
+
+They must NOT directly:
+
+change system prompts
+modify production
+access secrets
+access internal private memory
+control financial systems
+override internal agents.
+
+External suggestion
+→ verify
+→ test
+→ review
+→ adopt if useful.
+
+==================================================
+42. FAILURE / RETRY AUDIT
+==================================================
+
+Test failures:
+
+model timeout
+API error
+database failure
+worker crash
+network failure
+invalid output
+tool error
+duplicate event
+agent crash.
+
+Verify:
+
+retry
+backoff
+fallback
+recovery
+logging
+escalation.
+
+No silent failures.
+
+==================================================
+43. LOOP PREVENTION
+==================================================
+
+Test for:
+
+agent loops
+task recursion
+duplicate delegation
+repeated messages
+repeated research
+repeated reviews
+scheduler duplication.
+
+Implement:
+
+max depth
+turn limits
+retry limits
+TTL
+cost limits
+token limits
+duplicate detection
+termination conditions.
+
+==================================================
+44. DATABASE AUDIT
+==================================================
+
+Inspect:
+
+schemas
+migrations
+constraints
+indexes
+foreign keys
+transaction integrity
+duplicate rows
+stale data
+orphaned tasks/events/agents.
+
+Test migrations from clean state where feasible.
+
+Fix inconsistencies.
+
+==================================================
+45. API AUDIT
+==================================================
+
+Test all important endpoints.
+
+Check:
+
+request validation
+response validation
+auth
+errors
+timeouts
+idempotency
+pagination
+rate limits
+security.
+
+Fix broken/dead endpoints.
+
+==================================================
+46. FRONTEND AUDIT
+==================================================
+
+Test dashboard and major UI flows.
+
+Check:
+
+real data
+loading
+errors
+responsive layout
+navigation
+live updates
+agent details
+pipeline
+money metrics
+system state
+approvals.
+
+Remove fake/demo/hardcoded UI where inappropriate.
+
+==================================================
+47. UX / UI PROFESSIONAL REVIEW
+==================================================
+
+Review as a professional product designer.
+
+Evaluate:
+
+information hierarchy
+clarity
+density
+navigation
+readability
+visual prioritization
+consistency
+status signaling
+agent hierarchy
+economic visibility
+live activity
+mobile responsiveness.
+
+Implement high-value improvements.
+
+Do not sacrifice working functionality for cosmetic changes.
+
+==================================================
+48. CODE QUALITY AUDIT
+==================================================
+
+Inspect:
+
+architecture
+modularity
+duplicate code
+large files
+tight coupling
+naming
+types
+interfaces
+dead code
+error handling
+configuration
+tests
+documentation.
+
+Refactor high-risk/problematic areas where justified.
+
+==================================================
+49. SEARCH FOR UNFINISHED WORK
+==================================================
+
+Search globally for:
+
+TODO
+FIXME
+HACK
+TEMP
+PLACEHOLDER
+MOCK
+FAKE
+STUB
+NOT IMPLEMENTED
+PASS
+disabled code
+demo values
+hardcoded test data.
+
+Investigate every relevant occurrence.
+
+Fix important unfinished production functionality.
+
+==================================================
+50. TEST SUITE
+==================================================
+
+Run all relevant:
+
+unit tests
+integration tests
+end-to-end tests
+agent tests
+workflow tests
+database tests
+API tests
+frontend tests
+type checks
+lint
+build.
+
+Do not merely report failures.
+
+FIX them where technically possible.
+
+==================================================
+51. CREATE MISSING TESTS
+==================================================
+
+Add tests for important untested behavior.
+
+Especially:
+
+Agent says "need leads"
+→ real lead workflow starts.
+
+Agent says "need outreach"
+→ real outreach preparation starts.
+
+Task produces only text
+→ Completion Guard rejects it.
+
+Subtask completes
+→ parent goal continues.
+
+Agent is blocked
+→ completes all non-blocked work.
+
+Agent tool execution
+→ proof generated.
+
+Revenue event
+→ payment verification
+→ economic state updates.
+
+System restart
+→ pending tasks recover.
+
+==================================================
+52. FULL END-TO-END FIRST-DOLLAR TEST
+==================================================
+
+Run the strongest realistic integrated test possible:
+
+Objective:
+
+"Move the ecosystem toward the first real zero-capital revenue transaction."
+
+Test:
+
+Orchestrator
+→ Opportunity Discovery
+→ Validation
+→ Offer
+→ Lead Generation
+→ Qualification
+→ Outreach Preparation
+→ Authorized Execution where available
+→ Response Handling
+→ Revenue Owner
+→ Finance / Verification
+→ Memory
+→ Optimization.
+
+Verify actual shared state/events.
+
+Do not accept disconnected text outputs.
+
+==================================================
+53. ROOT CAUSE ANALYSIS
+==================================================
+
+For every major issue discovered:
+
+determine root cause.
+
+Do not apply superficial patches if the architecture itself causes the failure.
+
+Example:
+
+If agents discuss instead of execute:
+
+do not only change wording.
+
+Inspect:
+
+task schema
+completion logic
+tool routing
+permissions
+orchestrator
+event transitions
+review logic
+worker logic.
+
+Fix the structural cause.
+
+==================================================
+54. RECOMMENDATIONS MUST BECOME IMPLEMENTATION
+==================================================
+
+During analysis you may identify improvements.
+
+Do not stop at recommendations.
+
+For every recommendation:
+
+If safe and technically achievable:
+IMPLEMENT IT.
+
+If not currently worth implementing:
+document WHY.
+
+If externally blocked:
+complete everything possible first.
+
+==================================================
+55. ITERATIVE REPAIR LOOP
+==================================================
+
+Operate as:
+
+AUDIT
+↓
+FIND ISSUE
+↓
+ROOT CAUSE
+↓
+IMPLEMENT FIX
+↓
+TEST
+↓
+VERIFY
+↓
+RE-AUDIT.
+
+Repeat.
+
+Do not stop after one pass.
+
+==================================================
+56. SECOND FULL AUDIT
+==================================================
+
+After implementing improvements:
+
+perform a complete second audit.
+
+Do NOT trust your own modifications.
+
+Check everything again from the current repository/runtime.
+
+Look specifically for:
+
+new regressions
+broken integrations
+unwired agents
+dead events
+failed migrations
+UI/backend mismatches
+duplicate agents
+token loops
+permissions errors
+incomplete tasks.
+
+Fix again.
+
+==================================================
+57. REGRESSION TEST
+==================================================
+
+Verify existing working functionality was not broken.
+
+Test important pre-existing workflows.
+
+Preserve good functionality.
+
+==================================================
+58. GIT / REPOSITORY VERIFICATION
+==================================================
+
+Inspect:
+
+git status
+git diff
+git diff --stat
+untracked files
+modified files.
+
+Ensure:
+
+required files are tracked
+no accidental secrets
+no temporary debug artifacts
+no forgotten migrations
+no unused duplicate implementation.
+
+==================================================
+59. REAL COMPLETION STANDARD
+==================================================
+
+A feature counts as COMPLETE only if:
+
+code exists
+
+AND
+
+is connected
+
+AND
+
+is reachable
+
+AND
+
+executes
+
+AND
+
+state changes
+
+AND
+
+expected outputs exist
+
+AND
+
+tests pass
+
+AND
+
+runtime verification succeeds where feasible.
+
+Do not call something complete because:
+
+a file exists
+a prompt mentions it
+a class exists
+UI displays it
+a test was written
+a plan describes it.
+
+==================================================
+60. DO NOT FAKE RESULTS
+==================================================
+
+Never fabricate:
+
+payments
+revenue
+lead collection
+outreach
+responses
+agent actions
+tool execution
+tests
+deployment
+business results.
+
+Clearly distinguish:
+
+REAL
+SIMULATED
+TEST
+MOCK.
+
+==================================================
+61. EXTERNAL BLOCKERS
+==================================================
+
+Only stop because of a blocker that genuinely requires outside input.
+
+Before stopping:
+
+complete everything possible.
+
+Then report:
+
+BLOCKER
+
+WHY IT BLOCKS
+
+WHAT IS ALREADY COMPLETE
+
+MINIMUM ACTION REQUIRED FROM OWNER
+
+WHAT AUTOMATICALLY HAPPENS NEXT.
+
+==================================================
+62. FINAL ACCEPTANCE CRITERIA
+==================================================
+
+The ecosystem should emerge:
+
+MORE CAPABLE
+
+MORE AUTONOMOUS
+
+MORE EXECUTION-FOCUSED
+
+MORE RELIABLE
+
+MORE ECONOMICALLY EFFICIENT
+
+MORE SECURE
+
+BETTER CONNECTED
+
+BETTER TESTED
+
+BETTER OBSERVED
+
+LESS WASTEFUL
+
+LESS REDUNDANT
+
+BETTER AT MOVING TOWARD REAL REVENUE.
+
+It should NOT merely emerge with:
+
+more code
+more prompts
+more agents
+more messages
+more complexity.
+
+==================================================
+63. FINAL REPORT
+==================================================
+
+Only after implementation + testing + second audit provide a concise factual report containing:
+
+BEFORE
+- major architecture/state before audit.
+
+CRITICAL PROBLEMS FOUND
+- real root causes.
+
+FIXED
+- actual implemented fixes.
+
+AGENTS UPGRADED
+- existing agents changed.
+
+AGENTS ADDED
+- genuinely new useful agents.
+
+AGENTS MERGED / REMOVED / SLEPT
+- redundancies eliminated.
+
+EXECUTION IMPROVEMENTS
+- how discussion-to-action behavior changed.
+
+REVENUE PIPELINE
+- current real state.
+
+TOOLS / INTEGRATIONS
+- improvements.
+
+MEMORY
+- improvements.
+
+24/7 SYSTEM
+- verified behavior.
+
+TOKEN / COST CONTROL
+- improvements.
+
+SECURITY
+- fixes.
+
+DASHBOARD / UX
+- improvements.
+
+TESTS
+- exact results.
+
+SECOND AUDIT
+- issues found after initial fixes and resolved.
+
+UNRESOLVED ITEMS
+- only genuinely remaining problems.
+
+EXTERNAL BLOCKERS
+- only genuine ones.
+
+NEXT EXECUTABLE ACTION
+- what the ecosystem will actually do next.
+
+==================================================
+64. FINAL DIRECTIVE
+==================================================
+
+DO NOT TREAT THIS AS A REQUEST FOR ADVICE.
+
+TREAT IT AS AN ENGINEERING AND OPERATIONAL MISSION.
+
+INSPECT EVERYTHING.
+
+QUESTION EVERYTHING.
+
+TEST EVERYTHING.
+
+DEBUG EVERYTHING.
+
+FIND WHAT IS FAKE, WEAK, BROKEN, DUPLICATED, UNUSED, UNCONNECTED, EXPENSIVE, OR INEFFECTIVE.
+
+FIX IT.
+
+IMPROVE IT.
+
+ADD MISSING AGENTS IF THEY PROVIDE REAL VALUE.
+
+MERGE OR REMOVE BAD AGENTS.
+
+CONNECT EVERYTHING.
+
+MAKE AGENTS ACT INSTEAD OF TALK.
+
+MAKE TASKS PRODUCE STATE CHANGES.
+
+MAKE REVENUE THE PRIMARY ECONOMIC KPI.
+
+TEST THE WHOLE SYSTEM.
+
+THEN TEST IT AGAIN.
+
+DO NOT TRUST PREVIOUS CLAIMS OF COMPLETION.
+
+VERIFY REAL CODE AND REAL RUNTIME BEHAVIOR.
+
+CONTINUE AUTONOMOUSLY UNTIL THERE IS NOTHING IMPORTANT LEFT THAT CAN BE IMPLEMENTED WITHOUT A GENUINE EXTERNAL BLOCKER.

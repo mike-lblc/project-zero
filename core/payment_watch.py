@@ -54,6 +54,15 @@ OFFICIAL_TOKENS = {
 }
 NATIVE = {"base": "ETH", "ethereum": "ETH", "arbitrum": "ETH", "polygon": "POL"}
 
+# СЕТИ БЕЗ EVM-ОБОЗРЕВАТЕЛЯ. Solana — публичный RPC без ключа; Stacks — Hiro API без
+# ключа. До 15.09 маршрут Solana стоял unverified «наблюдателя нет» — и деньги
+# туда могли прийти незамеченными.
+SOLANA_RPC = "https://api.mainnet-beta.solana.com"
+SOLANA_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+HIRO = "https://api.hiro.so/extended/v1"
+SBTC_SUFFIX = ".sbtc-token::sbtc-token"
+WATCHED_EXTRA = ("solana", "stacks")
+
 # Срок зачисления и правило, после которого поступление засчитывается.
 SETTLEMENT = {
     "base": "блок ~2 с; засчитывается после включения в блок",
@@ -128,6 +137,37 @@ def verify_routes():
             payment.mark("self-custody", network=net, currency=symbol, contract=contract)
         out.append({"сеть": net, "итог": "проверен",
                     "адрес": addr[:10] + "…" + addr[-6:]})
+    # Solana и Stacks: проверка живым запросом к RPC/Hiro по нашему адресу.
+    sol = payment.OWNER_DESTINATIONS["sol"]
+    r = _rpc("getSignaturesForAddress", [sol, {"limit": 1}])
+    if isinstance(r, dict) and r.get("__error__"):
+        payment.mark("self-custody", network="solana", status="unverified",
+                     failure_reason=f"RPC не ответил: {r['__error__']}")
+        out.append({"сеть": "solana", "итог": "не проверен", "почему": r["__error__"]})
+    else:
+        payment.mark("self-custody", network="solana", status="verified", account_ready=1,
+                     kyc_required=0, withdrawal_available=1, minimum_payout=0.0, failure_reason=None,
+                     estimated_fee="комиссию сети платит отправитель; приём бесплатный",
+                     country_eligibility="без ограничений: самостоятельное хранение",
+                     settlement_time="финальность ~13 с")
+        payment.mark("self-custody", network="solana", currency="USDC", contract=SOLANA_USDC)
+        out.append({"сеть": "solana", "итог": "проверен", "адрес": sol[:8] + "…" + sol[-6:]})
+    stx = payment.OWNER_DESTINATIONS.get("stx")
+    if stx:
+        d = _get(f"{HIRO}/address/{stx}/balances")
+        if d.get("__error__"):
+            payment.mark("self-custody", network="stacks", status="unverified",
+                         failure_reason=f"Hiro не ответил: {d['__error__']}")
+            out.append({"сеть": "stacks", "итог": "не проверен", "почему": d["__error__"]})
+        else:
+            payment.mark("self-custody", network="stacks", status="verified", account_ready=1,
+                         kyc_required=0, withdrawal_available=1, minimum_payout=0.0, failure_reason=None,
+                         estimated_fee="комиссию сети платит отправитель; приём бесплатный",
+                         country_eligibility="кошелёк агента; seed у владельца",
+                         settlement_time="блок ~5 мин; финальность по биткоину")
+            payment.mark("self-custody", network="stacks", currency="sBTC",
+                         contract="SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token")
+            out.append({"сеть": "stacks", "итог": "проверен", "адрес": stx[:8] + "…" + stx[-6:]})
     return out
 
 
@@ -220,6 +260,109 @@ def _incoming_evm(net, addr):
     return found + parse_native_txs(n.get("items"), net, addr), None, ignored
 
 
+def _address_of(net):
+    key = {"bitcoin": "btc", "solana": "sol", "stacks": "stx"}.get(net, "evm")
+    return payment.OWNER_DESTINATIONS[key]
+
+
+def _rpc(method, params, timeout=25):
+    """JSON-RPC к Solana; ошибка возвращается словарём, а не тишиной."""
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    req = urllib.request.Request(SOLANA_RPC, data=body, headers={**UA, "content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            d = json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception as e:
+        return {"__error__": f"{type(e).__name__}"}
+    if isinstance(d, dict) and d.get("error"):
+        return {"__error__": str(d["error"])[:120]}
+    return d.get("result") if isinstance(d, dict) else {"__error__": "bad json"}
+
+
+def parse_solana_tx(tx, sig, addr):
+    """Входящие по одной подтверждённой транзакции Solana: SOL и USDC (официальный mint).
+
+    Сумма — разница балансов нашего счёта до и после; отправитель — плательщик
+    комиссии (первый ключ). Сбойная транзакция (meta.err) денег не принесла.
+    """
+    out = []
+    if not isinstance(tx, dict) or (tx.get("meta") or {}).get("err") is not None:
+        return out
+    meta = tx.get("meta") or {}
+    msg = (tx.get("transaction") or {}).get("message") or {}
+    keys = [k.get("pubkey") if isinstance(k, dict) else k for k in (msg.get("accountKeys") or [])]
+    sender = keys[0] if keys else ""
+    if addr in keys:
+        i = keys.index(addr)
+        pre, post = meta.get("preBalances") or [], meta.get("postBalances") or []
+        if i < len(pre) and i < len(post) and post[i] > pre[i] and sender != addr:
+            out.append({"proof": sig, "amount": (post[i] - pre[i]) / 1e9, "currency": "SOL",
+                        "network": "solana", "from": sender})
+    def _tok(bal):
+        return {(b.get("owner"), b.get("mint")): float((b.get("uiTokenAmount") or {}).get("uiAmount") or 0)
+                for b in bal or [] if isinstance(b, dict)}
+    pre_t, post_t = _tok(meta.get("preTokenBalances")), _tok(meta.get("postTokenBalances"))
+    k = (addr, SOLANA_USDC)
+    delta = post_t.get(k, 0.0) - pre_t.get(k, 0.0)
+    if delta > 0 and sender != addr:
+        out.append({"proof": sig, "amount": round(delta, 6), "currency": "USDC",
+                    "network": "solana", "from": sender})
+    return out
+
+
+def _incoming_solana(addr, max_tx=8):
+    sigs = _rpc("getSignaturesForAddress", [addr, {"limit": 25}])
+    if isinstance(sigs, dict) and sigs.get("__error__"):
+        return None, sigs["__error__"]
+    found = []
+    c = payment._con()
+    known = {r[0] for r in c.execute("SELECT proof FROM payment_receipts")}
+    c.close()
+    for s in (sigs or [])[:25]:
+        sig = s.get("signature")
+        if not sig or sig in known or s.get("err") is not None:
+            continue
+        if s.get("confirmationStatus") not in (None, "finalized"):
+            continue                      # подтверждённое, но не финальное — ожидание
+        if max_tx <= 0:
+            break
+        max_tx -= 1
+        tx = _rpc("getTransaction", [sig, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}])
+        if isinstance(tx, dict) and tx.get("__error__"):
+            return None, tx["__error__"]
+        found.extend(parse_solana_tx(tx, sig, addr))
+    return found, None
+
+
+def parse_stacks_transfers(results, addr):
+    """Входящие по Stacks: STX и sBTC (по идентификатору актива), только успешные."""
+    found = []
+    for r in results or []:
+        tx = r.get("tx") or {}
+        if tx.get("tx_status") != "success" or not tx.get("tx_id"):
+            continue
+        sender = tx.get("sender_address") or ""
+        if sender == addr:
+            continue
+        for t in r.get("stx_transfers") or []:
+            if t.get("recipient") == addr and int(t.get("amount") or 0) > 0:
+                found.append({"proof": tx["tx_id"], "amount": int(t["amount"]) / 1e6, "currency": "STX",
+                              "network": "stacks", "from": t.get("sender") or sender})
+        for t in r.get("ft_transfers") or []:
+            if (t.get("recipient") == addr and str(t.get("asset_identifier", "")).endswith(SBTC_SUFFIX)
+                    and int(t.get("amount") or 0) > 0):
+                found.append({"proof": tx["tx_id"], "amount": int(t["amount"]) / 1e8, "currency": "sBTC",
+                              "network": "stacks", "from": t.get("sender") or sender})
+    return found
+
+
+def _incoming_stacks(addr):
+    d = _get(f"{HIRO}/address/{addr}/transactions_with_transfers?limit=50")
+    if isinstance(d, dict) and d.get("__error__"):
+        return None, d["__error__"]
+    return parse_stacks_transfers((d or {}).get("results"), addr), None
+
+
 def _incoming_btc(addr):
     d = _get(TRANSFERS["bitcoin"].format(addr=addr))
     if isinstance(d, dict) and d.get("__error__"):
@@ -243,12 +386,16 @@ def watch():
     route_of = {(r["currency"], r["network"]): r.get("id") for r in payment.routes()}
     # Одна сеть — один опрос: маршрутов в сети может быть несколько (USDC и
     # родная монета), а поступления в ней общие.
-    for net in sorted({r.get("network") for r in verified if r.get("network") in TRANSFERS}):
-        addr = (payment.OWNER_DESTINATIONS["btc"] if net == "bitcoin"
-                else payment.OWNER_DESTINATIONS["evm"])
+    watched = set(TRANSFERS) | set(WATCHED_EXTRA)
+    for net in sorted({r.get("network") for r in verified if r.get("network") in watched}):
+        addr = _address_of(net)
         if net == "bitcoin":
             items, err, pend = _incoming_btc(addr)
             pending += pend or 0
+        elif net == "solana":
+            items, err = _incoming_solana(addr)
+        elif net == "stacks":
+            items, err = _incoming_stacks(addr)
         else:
             items, err, ign = _incoming_evm(net, addr)
             for k, v in (ign or {}).items():
