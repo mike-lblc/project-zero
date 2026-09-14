@@ -110,6 +110,22 @@ class Pipeline(TempDB):
         self.assertNotIn(a, [s["id"] for s in self.ex.stalled(hours=6)],
                          "ожидание ответа объявлено зависанием — это породило бы второе письмо")
 
+    def test_umbrella_goal_is_not_stalled_while_deals_move(self):
+        goal = self.ex.create("Получить первый платёж от постороннего", "следить за сделками",
+                              "orchestrator", money_proximity=1)
+        self.ex.start(goal)
+        a = self.deal("CONTACTED")
+        c = self.db.connect()
+        c.execute("UPDATE tasks SET updated_at='2000-01-01T00:00:00' WHERE id=?", (goal,))
+        c.commit(); c.close()
+        self.assertNotIn(goal, [s["id"] for s in self.ex.stalled(hours=6)],
+                         "зонтичная цель объявлена зависшей при живых сделках — это девять копий подряд")
+        c = self.db.connect()
+        c.execute("UPDATE tasks SET updated_at='2000-01-01T00:00:00'")
+        c.commit(); c.close()
+        self.assertIn(goal, [s["id"] for s in self.ex.stalled(hours=6)],
+                      "без движения сделок цель обязана считаться зависшей")
+
     def test_internal_task_and_deal_with_same_objective_are_distinct(self):
         internal = self.ex.create("одна формулировка", "подготовить материал", "craftsman")
         deal = self.ex.open_deal("одна формулировка", "техническая услуга", "salesman",

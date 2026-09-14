@@ -31,6 +31,7 @@ UA = "Mozilla/5.0 (compatible; P0-worker/0.1)"
 ROOT = Path(__file__).resolve().parent.parent
 IDX = ROOT / "data" / "bazaar_index.json"
 SLIM = ROOT / "worker" / "catalog.slim.json"    # срез для лидов/обращений/воркера
+SNAP = ROOT / "worker" / "snapshot.json"        # паспорт среза: хэш, время, размер — для квитанции
 FULL_REFRESH_AFTER_H = 6                       # полная перекачка каталога не чаще раза в 6 ч
 _PAGE = 100
 BAZAAR = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
@@ -286,6 +287,69 @@ def _write_json(path, data):
     tmp.replace(path)
 
 
+def _write_snapshot():
+    """Паспорт среза для квитанции воркера: хэш, время записи, число строк.
+
+    Покупатель сверяет по нему, из какого именно среза построен рейтинг, —
+    без этого «свежие данные» остаются словами."""
+    import hashlib
+    from datetime import datetime, timezone
+    raw = SLIM.read_bytes()
+    meta = {"generatedAt": datetime.fromtimestamp(SLIM.stat().st_mtime, timezone.utc)
+                                   .isoformat(timespec="seconds"),
+            "sha256": hashlib.sha256(raw).hexdigest()[:16],
+            "size": len(json.loads(raw))}
+    _write_json(SNAP, meta)
+    return meta
+
+
+def _env_value(name):
+    """Одно значение из Brain/.env — в промпт не попадает, только в окружение процесса."""
+    env = ROOT / ".env"
+    if not env.exists():
+        return ""
+    for line in env.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
+        if line.startswith(name + "="):
+            return line.split("=", 1)[1].strip().strip('"')
+    return ""
+
+
+def deploy_worker():
+    """Выкладка воркера на Cloudflare после полной перекачки: живой каталог = локальному.
+
+    ЧЕСТНО О ПРОШЛОМ. Срез обновлялся на диске, а в облаке с 11.09 жил старый
+    каталог: покупатель получал за деньги данные четырёхдневной давности, и
+    детекторы этого не видели — они сравнивали два локальных файла. Токен —
+    только из .env; без него шаг пропускается и говорит об этом прямо.
+    """
+    import shutil
+    tok = _env_value("CLOUDFLARE_API_TOKEN")
+    if not tok:
+        return "deploy skipped: no CLOUDFLARE_API_TOKEN in .env"
+    npx = shutil.which("npx")
+    if not npx:
+        return "deploy skipped: npx not found"
+    meta = _write_snapshot()
+    env = dict(os.environ, CLOUDFLARE_API_TOKEN=tok)
+    try:
+        r = subprocess.run([npx, "--no-install", "wrangler", "deploy"], cwd=str(ROOT / "worker"),
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=420, env=env)
+    except subprocess.TimeoutExpired:
+        return "deploy failed: wrangler timeout"
+    if r.returncode != 0:
+        tail = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()[-3:]
+        return "deploy failed: " + " | ".join(t.strip()[:120] for t in tail)
+    # ПРОВЕРКА ЖИВЬЁМ, не по коду возврата: хэш среза в облаке должен совпасть с диском.
+    try:
+        live = json.loads(get("https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/health", 30))
+    except Exception as e:
+        return f"deployed, but /health unreadable ({type(e).__name__})"
+    ok = live.get("snapshotHash") == meta["sha256"]
+    return (f"deployed: live snapshot {live.get('snapshotHash')} "
+            f"{'==' if ok else '!='} local {meta['sha256']}, catalog {live.get('catalog')}")
+
+
 def refresh_market():
     """Keep the catalog fresh and detect what changed. Change IS the newsletter.
 
@@ -339,6 +403,7 @@ def refresh_market():
             seen.add(r); uniq.append(i)
     _write_json(IDX, uniq)
     _write_json(SLIM, [_slim_row(i) for i in uniq])
+    dep = deploy_worker()          # живой каталог обязан совпасть с только что записанным
     fresh = [i for i in uniq if i.get("resource") not in known]
     hot = sorted(uniq, key=lambda i: -((i.get("quality") or {}).get("l30DaysTotalCalls") or 0))[:3]
     top = ", ".join(f"{(i.get('serviceName') or i.get('resource',''))[:34]}"
@@ -347,7 +412,7 @@ def refresh_market():
                   f"Top by 30d calls: {top}", conf=0.85)
     say("scout", f"Рынок обновлён по-настоящему: скачано {len(uniq)} из {total}, новых для нас — "
                  f"{len(fresh)}. Лидеры по вызовам за 30 дней: {top}")
-    return f"market refreshed (fetched {len(uniq)} of {total}, {len(fresh)} new; files rewritten)"
+    return f"market refreshed (fetched {len(uniq)} of {total}, {len(fresh)} new; files rewritten; {dep})"
 
 
 # ---------------------------------------------------------------- 3. RELIABILITY

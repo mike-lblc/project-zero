@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import os
 import re
 import ssl
@@ -385,10 +386,20 @@ def _reserve(agent: str, action: str, target_id: str | None,
     c = _con()
     try:
         c.execute("BEGIN IMMEDIATE")
+        # FAILED исключён: проверка отклонена или истекла, на площадке ничего не
+        # опубликовано — повтор той же записи законен (14.09: ответ покупателю
+        # навсегда упирался в свой же истёкший черновик). AMBIGUOUS остаётся дублем:
+        # запись могла дойти.
         duplicate = c.execute(
             "SELECT id,state FROM moltbook_receipts WHERE request_hash=?",
             (request_hash,),
         ).fetchone()
+        if duplicate and duplicate[1] == "FAILED":
+            # хэш уникален в таблице: провалившаяся квитанция переименовывается,
+            # история остаётся, а повтор занимает исходный хэш
+            c.execute("UPDATE moltbook_receipts SET request_hash=request_hash||':failed#'||id WHERE id=?",
+                      (duplicate[0],))
+            duplicate = None
         if duplicate:
             raise DuplicateWrite(f"identical {action} already has receipt #{duplicate[0]} ({duplicate[1]})")
         day = datetime.now(timezone.utc).date().isoformat()
@@ -609,6 +620,13 @@ def _solve_and_verify(agent: str, rid: int, response: Response,
     answer = moltbook_challenge.solve(text)
     if answer is None:
         _record_check("verify_solve", False, f"решатель не уверен; challenge={text[:140]}")
+        # КОД ПРОВЕРКИ СОХРАНЯЕТСЯ: пока окно (5 минут) открыто, ответ можно дослать
+        # вручную через submit_verification — 14.09 код терялся, и запись истекала.
+        c = _con()
+        c.execute("UPDATE moltbook_receipts SET detail=?, checked_at=? WHERE id=?",
+                  (json.dumps({"unsure": True, "verification_code": code, "challenge": text[:400]},
+                              ensure_ascii=False), now(), rid))
+        c.commit(); c.close()
         _escalate_owner("Решатель проверки Moltbook не уверен — ответ НЕ отправлен (не жжём попытку догадкой)",
                         f"квитанция={rid}; challenge={text[:300]}")
         return {"solved": False, "reason": "solver unsure", "challenge": text[:200]}
@@ -707,7 +725,7 @@ def edit_post(agent: str, post_id: str, title: str, content: str,
         raise PermissionError("Moltbook editing is restricted to our own posts")
     title = " ".join(str(title or "").split())[:180]
     payload = {"title": title,
-               "content": _attributed(agent, _clean_content(content, 80, 5000), 5000)}
+               "content": _attributed(agent, _clean_content(content, 80, 5000, allow_own_links=True), 5000)}
     result = _write(agent, "edit", f"/posts/{post_id}", payload,
                     target_id=post_id, transport=transport)
     if result["state"] in {"FAILED", "UNSUPPORTED", "AMBIGUOUS"}:
@@ -715,6 +733,12 @@ def edit_post(agent: str, post_id: str, title: str, content: str,
     try:
         observed = get_post(agent, post_id, transport=transport)
         exact = observed.get("title") == title and observed.get("content") == payload["content"]
+        if not exact:
+            # 14.09: правка легла, а первое чтение вернуло старый текст — площадка
+            # отдаёт запись с задержкой; одна повторная сверка снимает ложный INCONSISTENT.
+            time.sleep(2)
+            observed = get_post(agent, post_id, transport=transport)
+            exact = observed.get("title") == title and observed.get("content") == payload["content"]
     except Exception as error:
         exact = False
         result["detail"] = f"readback failed: {type(error).__name__}"

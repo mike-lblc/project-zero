@@ -524,11 +524,22 @@ def stalled(hours=6):
     # СДЕЛКА НЕ «ЗАВИСАЕТ». Ожидание ответа — нормальное состояние, и объявить
     # его провалом значило бы породить новую попытку — то есть второе письмо
     # тому же адресату. Мы пишем один раз навсегда.
-    rows = c.execute("SELECT id,objective,state,attempts,updated_at FROM tasks "
+    rows = c.execute("SELECT id,objective,state,attempts,updated_at,owner_agent,money_proximity FROM tasks "
                      "WHERE kind='internal' AND state IN ('WORKING','FAILED','QUALIFIED') "
                      "AND updated_at < ?", (cutoff,)).fetchall()
+    # ЗОНТИЧНАЯ ЦЕЛЬ НЕ «ЗАВИСАЕТ», ПОКА ДВИГАЮТСЯ СДЕЛКИ. «Получить первый платёж»
+    # у оркестратора — это сама цель, а не шаг; её движение видно по сделкам.
+    # С 10.09 по 14.09 она была объявлена зависшей девять раз подряд, каждый раз
+    # порождая копию и эскалацию — очередь суждений засорялась одним и тем же.
+    deals_moving = c.execute("SELECT COUNT(*) FROM tasks WHERE kind='deal' AND updated_at >= ?",
+                             (cutoff,)).fetchone()[0] > 0
     c.close()
-    return [dict(zip(("id", "objective", "state", "attempts", "updated_at"), r)) for r in rows]
+    out = []
+    for r in rows:
+        if deals_moving and r[5] == "orchestrator" and int(r[6] or 3) == 1:
+            continue
+        out.append(dict(zip(("id", "objective", "state", "attempts", "updated_at"), r[:5])))
+    return out
 
 
 # ---------------------------------------------------------------- сделка

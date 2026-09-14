@@ -11,6 +11,14 @@
  * подтверждает и проводит платёж, средства у себя не держит.
  */
 import CATALOG from "../catalog.slim.json";
+import SNAPSHOT from "../snapshot.json";
+
+// РЕВИЗИЯ ПРАВИЛА ОЦЕНКИ. Меняется при любом изменении формулы или смысла полей.
+// 2026-09-14.2: плательщики продавца больше не суммируются по эндпоинтам
+// (мейнтейнер agent402.tools показал, что сумма считает один кошелёк десять раз);
+// рейтинг и лид-оценка идут по нижней границе.
+const SCORING_REVISION = "2026-09-14.2";
+const WORKER_VERSION = "0.2.0";
 
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 // ДВА ФАСИЛИТАТОРА, И ВЫБОР НЕ КОСМЕТИЧЕСКИЙ.
@@ -244,6 +252,32 @@ async function settle(paymentHeader, reqs, env) {
            via: useCdp ? "cdp" : "public" };
 }
 
+// ------------------------------------------------------------------ квитанция
+// К КАЖДОМУ ПЛАТНОМУ ОТВЕТУ. Покупатель в agentcommerce (14.09) спросил, чем
+// доказать, из какого среза и по какому правилу построен рейтинг, прежде чем
+// разрешать крупную покупку после запроса за цент. Ответ — поля, которые можно
+// сверить: хэш и время среза, окно, ревизия правила, смысл полей по плательщикам.
+// Чего в исходной ленте нет — названо отсутствующим, а не придумано.
+function receipt() {
+  return {
+    snapshotHash: SNAPSHOT.sha256,
+    snapshotGeneratedAt: SNAPSHOT.generatedAt,
+    catalogSize: CATALOG.length,
+    source: "Coinbase x402 Bazaar discovery feed, full re-fetch of every page",
+    window: "trailing 30 days as published per resource by the feed "
+          + "(l30DaysTotalCalls -> calls30d, l30DaysUniquePayers -> payers30d)",
+    scoringRevision: SCORING_REVISION,
+    scoring: "relevance(name > tag > text) * (1 + 2*log10(1+payers30d) + log10(1+calls30d))",
+    payerFields: "payers30d is the feed's per-resource distinct payer count; a seller-level "
+               + "distinct count is not derivable from per-resource sets, so none is printed "
+               + "(max across resources = lower bound, sum = upper bound)",
+    notCarried: ["refunds", "timeouts", "first-to-second-paid-use rate",
+                 "external vs self-funded calls"],
+    notCarriedNote: "the feed does not publish these; the fields are absent rather than estimated",
+    workerVersion: WORKER_VERSION,
+  };
+}
+
 // ------------------------------------------------------------------ поиск
 function rank(q, limit = 10, network = null) {
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -289,6 +323,7 @@ function payload(path, url) {
     const q = (url.searchParams.get("q") || "").trim();
     if (!q) return { error: "нужен параметр q" };
     return { query: q,
+             receipt: receipt(),
              results: rank(q, Math.min(+url.searchParams.get("limit") || 10, 50),
                            url.searchParams.get("network")) };
   }
@@ -300,7 +335,7 @@ function payload(path, url) {
       .sort((a, b) => b.payers30d - a.payers30d).slice(0, 40);
     const top = [...CATALOG].sort((a, b) => (b.c || 0) - (a.c || 0)).slice(0, 25)
       .map((s) => ({ resource: s.u, name: s.n, calls30d: s.c, payers30d: s.y, priceUsd: s.p }));
-    return { generatedAt: new Date().toISOString(), catalogSize: CATALOG.length,
+    return { generatedAt: new Date().toISOString(), receipt: receipt(), catalogSize: CATALOG.length,
              categories: cats, topServices: top };
   }
   if (path === "/alpha") {
@@ -310,11 +345,11 @@ function payload(path, url) {
                             demandPerProvider: +(d.payers / d.n).toFixed(2),
                             medianPriceUsd: median(d.prices) }))
       .sort((a, b) => b.demandPerProvider - a.demandPerProvider).slice(0, 30);
-    return { generatedAt: new Date().toISOString(),
+    return { generatedAt: new Date().toISOString(), receipt: receipt(),
              method: "unique payers per provider, 30d window; min 3 providers, 10 payers",
              opportunities: gaps };
   }
-  return { generatedAt: new Date().toISOString(), count: CATALOG.length, services: CATALOG };
+  return { generatedAt: new Date().toISOString(), receipt: receipt(), count: CATALOG.length, services: CATALOG };
 }
 
 const JOIN_HTML = `<!doctype html><html lang="ru"><head><meta charset="utf-8">
@@ -458,7 +493,7 @@ async function handleMcp(request) {
       return reply({
         protocolVersion: "2025-06-18",
         capabilities: { tools: {} },
-        serverInfo: { name: "x402-bazaar-rank", version: "0.1.0" },
+        serverInfo: { name: "x402-bazaar-rank", version: WORKER_VERSION },
         instructions: "Ranked discovery over the live x402 service market, scored by real "
                     + "30-day unique payers and call volume. A free weekly report on market "
                     + "changes is at " + JOIN_URL + ".",
@@ -513,6 +548,8 @@ export default {
                  + "unique payer count. The official index is unranked; this returns what "
                  + "agents actually pay for.",
       catalog_size: CATALOG.length,
+      snapshot: { hash: SNAPSHOT.sha256, generatedAt: SNAPSHOT.generatedAt },
+      scoring_revision: SCORING_REVISION,
       network: "eip155:8453 (Base)",
       asset: "USDC",
       pricing: Object.entries(TIERS).map(([e, t]) => ({ endpoint: e, usdc: t.usd, what: t.what })),
@@ -522,7 +559,9 @@ export default {
                         + "Confirmation required, one email a week.",
       payTo,
     });
-    if (path === "/health") return json({ ok: true, catalog: CATALOG.length, weekly_report: JOIN_URL });
+    if (path === "/health") return json({ ok: true, catalog: CATALOG.length, snapshotHash: SNAPSHOT.sha256,
+                    snapshotGeneratedAt: SNAPSHOT.generatedAt, scoringRevision: SCORING_REVISION,
+                    version: WORKER_VERSION, weekly_report: JOIN_URL });
 
     // ---- подписка: живёт здесь же, значит не зависит от машины владельца
     if (path === "/join")
@@ -559,6 +598,7 @@ export default {
     if (path === "/sample") return json({
       note: "free sample, 3 results",
       results: rank("search", 3),
+      receipt: receipt(),
       full_search: "/search ($0.01)",
       weekly_report: JOIN_URL,
       weekly_report_note: "Weekly changes in this market, free. Confirmation required."

@@ -148,7 +148,8 @@ def test_edit_requires_own_post_and_exact_readback():
 
     result = moltbook.edit_post("tester", POST_ID, "Revised title", revised, fake)
     assert result["state"] == "INCONSISTENT"
-    assert [c[0] for c in calls] == ["GET", "PATCH", "GET"]
+    # второе чтение — намеренная повторная сверка: площадка отдаёт правку с задержкой
+    assert [c[0] for c in calls] == ["GET", "PATCH", "GET", "GET"]
 
 
 def test_edit_rejects_foreign_post_before_patch():

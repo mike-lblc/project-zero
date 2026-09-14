@@ -58,6 +58,12 @@ _DIV = ("divided", "divide", "divides", "split", "splits", "shared", "shares",
         "half of", "halved", "quarter of", "ratio of")
 
 _OP_PHRASES = (("*", _MUL), ("/", _DIV), ("+", _ADD), ("-", _SUB))
+# СЛАБЫЕ ПРИЗНАКИ СЛОЖЕНИЯ. Живая задача 14.09: «one claw exerts twenty five
+# newtons and the other exerts thirty five newtons, how many total force?» —
+# глагола действия нет, есть только итоговое слово. Такое слово решает лишь
+# когда сильного действия не найдено вовсе: рядом с «slows by» оно ничего не
+# добавляет и неоднозначность остаётся неоднозначностью.
+_WEAK_ADD = ("total", "combined", "altogether", "in all", "together", "sum", "overall")
 # Словарь отдельных слов всех фраз — к нему нормализуются токены текста.
 _OP_VOCAB = sorted({w for _, phrases in _OP_PHRASES for p in phrases for w in p.split()})
 _VOCAB = sorted(set(_ALL_WORDS) | set(_OP_VOCAB))
@@ -233,6 +239,8 @@ def _operation(words):
                 break
     if len(ops) == 1:
         return ops.pop()
+    if not ops and any(re.search(r"\b" + re.escape(p) + r"\b", norm) for p in _WEAK_ADD):
+        return "+"
     # Ни одного или несколько РАЗНЫХ действий — неоднозначно, не гадаем и не жжём попытку.
     return None
 
@@ -275,6 +283,12 @@ if __name__ == "__main__":
         # НАСТОЯЩАЯ живая задача 14.09.2026: слова порваны пробелами, буквы удвоены в смешанном регистре
         ("A] lOoO bS t-EeRr S^wIiM s[ aT/ tW]eN tY fIiV e~ cEeMm- EeTtErS/ pEeR sE cOoN d| aNd- aN oThEr/ "
          "rIiV aL+ iInCrEeA sEs/ sEeV eN<, wHaT]s- tHe/ cOoMbIiNeD^ vEeLlOoCiT y?", "32.00"),
+        # НАСТОЯЩАЯ живая задача 14.09.2026 (вечер): без глагола действия, итог словом «total»
+        ("A] LooObBsStT eRr' S[ ClLaW^ ExXeRrTs- TwWeNtTyY ] FiIvEe- NeEwToOnSs ~ AnNd[ ThHeE OtThHeR^ "
+         "ExXeRrTs{ ThHiIrRtTyY ] FiIvEe- NeEwToOnSs, HoW< MaAnY> ToTaL/ FoOrCe?", "60.00"),
+        ("the lobsters carry twelve and nine shells, how many altogether", "21.00"),
+        # слабое слово рядом с сильным действием ничего не решает
+        ("a lobster at twenty slows by five, what is the total now", "15.00"),
         # неоднозначное — обязано молчать
         ("a lobster swims at twenty meters and slows by five then gains three", None),
     ]
