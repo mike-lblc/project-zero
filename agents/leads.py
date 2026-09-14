@@ -18,7 +18,7 @@
   best_niche()  — где спрос обгоняет предложение
   pitch()       — что именно им продавать и почему они купят
 """
-import sys, json, re, time, urllib.request, urllib.error
+import sys, json, re, time, sqlite3, urllib.request, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -302,17 +302,58 @@ def _brand(domain):
     return max(parts, key=len) if parts else domain.split(".")[0]
 
 
+# Слова, которые «брендом» быть не могут: по ним поиск GitHub отдаёт чужие
+# репозитории (x402.twit.sh → x402-foundation/x402 — репозиторий ФОНДА протокола,
+# а не продавца). Написать туда — значит спамить не тому.
+GENERIC_BRANDS = frozenset("""
+x402 agent agents crypto base chain token tokens wallet data cloud node market pay
+web3 defi bot bots tools labs protocol network finance exchange service services
+search index stable coin swap bridge oracle mcp llm gpt
+""".split())
+
+
+def _domain_root(domain):
+    """Регистрируемая часть: api.onesource.io -> onesource.io, x402.twit.sh -> twit.sh."""
+    parts = domain.lower().split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else domain.lower()
+
+
+def _accept_repo(domain, brand, full_name):
+    """Принадлежит ли репозиторий продавцу. Совпадения бренда в имени МАЛО —
+    нужен признак владения: домен в homepage/описании или бренд в логине владельца.
+    Плюс issues должны быть открыты (иначе писать некуда)."""
+    import subprocess
+    try:
+        v = subprocess.run(["gh", "repo", "view", full_name, "--json",
+                            "hasIssuesEnabled,homepageUrl,description,owner"],
+                           capture_output=True, text=True, timeout=30,
+                           encoding="utf-8", errors="ignore")
+        if v.returncode != 0:
+            return None            # НЕЗНАНИЕ, не отказ: сбой gh/лимит не должен отбирать канал
+        info = json.loads(v.stdout or "{}")
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return None
+    if not info.get("hasIssuesEnabled"):
+        return False
+    root = _domain_root(domain)
+    home = str(info.get("homepageUrl") or "").lower()
+    desc = str(info.get("description") or "").lower()
+    owner = str((info.get("owner") or {}).get("login") or "").lower()
+    return (root in home) or (root in desc) or (domain.lower() in desc) or (brand in owner)
+
+
 def _github_channel(domain):
     """Публичный репозиторий бренда через поиск GitHub — не только ссылка на главной.
 
     Каналы для agent402 и blockrun нашлись именно так: их github-репозиториев не
-    было на главной, но поиск по бренду их дал. Берём репозиторий, у которого имя
-    владельца ИЛИ репозитория содержит бренд, issues открыты, он не в архиве.
-    Совпадение по бренду обязательно — иначе легко приписать чужой репозиторий.
+    было на главной, но поиск по бренду их дал. Берём репозиторий, у которого
+    имя содержит бренд И есть признак владения (см. _accept_repo), issues
+    открыты, он не в архиве. Одного совпадения по бренду мало — по коротким и
+    общим словам поиск приписывал чужие репозитории.
     """
     import subprocess
     brand = _brand(domain)
-    if len(brand) < 4:
+    if len(brand) < 4 or brand in GENERIC_BRANDS:
         return None
     try:
         r = subprocess.run(
@@ -331,16 +372,55 @@ def _github_channel(domain):
             and brand in x["fullName"].lower()]
     cand.sort(key=lambda x: -(x.get("stargazersCount") or 0))
     for x in cand:
-        # issues открыты? проверяем по одному, самый заметный первым
-        try:
-            v = subprocess.run(["gh", "repo", "view", x["fullName"], "--json",
-                                "hasIssuesEnabled"], capture_output=True, text=True,
-                               timeout=30, encoding="utf-8", errors="ignore")
-            if v.returncode == 0 and json.loads(v.stdout or "{}").get("hasIssuesEnabled"):
-                return x["fullName"]
-        except (subprocess.SubprocessError, OSError, ValueError):
-            continue
+        if _accept_repo(domain, brand, x["fullName"]):
+            return x["fullName"]
     return None
+
+
+def revalidate_channels(limit=200):
+    """Перепроверка уже найденных каналов новым правилом владения: чужие — в reachable=0."""
+    guard.check_action("research", "GREEN")
+    con = _con()
+    # Каналы, куда уже писали, подтверждены делом (их находила ссылка с сайта
+    # продавца, а не поиск по бренду) — перепроверке по бренду не подлежат.
+    con.execute("CREATE TABLE IF NOT EXISTS outreach (id INTEGER PRIMARY KEY, domain TEXT NOT NULL "
+                "UNIQUE, channel TEXT, url TEXT, sent_at TEXT NOT NULL, note TEXT)")
+    rows = con.execute("SELECT domain, channel FROM leads WHERE reachable=1 AND channel IS NOT NULL "
+                       "AND domain NOT IN (SELECT domain FROM outreach) "
+                       "ORDER BY spend_signal DESC LIMIT ?", (limit,)).fetchall()
+    con.close()
+    # Сначала вердикты (сеть, без базы), потом ОДНА короткая запись: живой воркер
+    # держит базу занятой, и запись по одной строке ловит «database is locked».
+    # Незнание (сбой gh) — НЕ отказ: канал остаётся, иначе лимит GitHub отбирал
+    # бы настоящие каналы (так на минуту пропал blockrun.ai).
+    kept, dropped = 0, []
+    for domain, channel in rows:
+        brand = _brand(domain)
+        if len(brand) < 4 or brand in GENERIC_BRANDS or brand not in channel.lower():
+            dropped.append((domain, channel))
+            continue
+        verdict = _accept_repo(domain, brand, channel)
+        if verdict is False:
+            dropped.append((domain, channel))
+        else:
+            kept += 1
+    if dropped:
+        import time as _time
+        for attempt in range(6):
+            try:
+                con = _con()
+                con.executemany("UPDATE leads SET reachable=0, note=? WHERE domain=?",
+                                [(f"канал {ch} отклонён перепроверкой владения", d)
+                                 for d, ch in dropped])
+                con.commit(); con.close()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" not in str(e).lower() or attempt == 5:
+                    raise
+                _time.sleep(2 + attempt)
+    names = [f"{d}→{ch}" for d, ch in dropped]
+    return f"перепроверено {len(rows)}: оставлено {kept}, отклонено {len(dropped)}" + \
+           (f" ({', '.join(names[:8])}{'…' if len(names) > 8 else ''})" if names else "")
 
 
 def find_channel(limit=25):
@@ -459,7 +539,10 @@ def verify_service(limit=8):
 
 
 CYCLE = [("find_leads", lambda: f"лидов: {len(hot_leads())}"),
-         ("find_channel", lambda: find_channel(10)),
+         # 10 за редкий шаг = ~60 лидов в сутки при 886 в очереди: 825 стояли без
+         # проверки канала (находка сверки согласованности). 60 за шаг — это
+         # 1–2 минуты поиска GitHub, в пределах его лимита 30 запросов/мин.
+         ("find_channel", lambda: find_channel(60)),
          ("verify_service", lambda: verify_service(8))]
 
 
