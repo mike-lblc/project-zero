@@ -220,7 +220,7 @@ async function cmdRegister(description) {
     if (r.data.sponsorKeyInfo && r.data.sponsorKeyInfo.apiKey) r.data.sponsorKeyInfo.apiKey = "***";
   }
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
-  process.exit(r.status >= 200 && r.status < 300 ? 0 : 2);
+  process.exitCode = r.status >= 200 && r.status < 300 ? 0 : 2;
 }
 
 async function cmdSubmit(bountyId, message, contentUrl) {
@@ -233,7 +233,7 @@ async function cmdSubmit(bountyId, message, contentUrl) {
   const body = { submitterBtcAddress: b.address, message, contentUrl: url, signedAt, signature: bip322Sign(toSign, b.privateKey, b.script) };
   const r = await post(`/api/bounties/${encodeURIComponent(bountyId)}/submit`, body);
   process.stdout.write(JSON.stringify({ http: r.status, bountyId, btcAddress: b.address, response: r.data }, null, 2) + "\n");
-  process.exit(r.status >= 200 && r.status < 300 ? 0 : 2);
+  process.exitCode = r.status >= 200 && r.status < 300 ? 0 : 2;
 }
 
 const [cmd, ...args] = process.argv.slice(2);
