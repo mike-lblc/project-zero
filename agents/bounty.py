@@ -857,6 +857,27 @@ def search_offsite(per_site=8):
 AIBTC_API = "https://aibtc.com/api/bounties?status=open&limit=100"
 
 
+def _flag_once(source, key, question, context):
+    """Одна эскалация на (источник, ключ): повторные заходы молчат."""
+    try:
+        c = _con()
+        c.execute("CREATE TABLE IF NOT EXISTS bounty_flagged (source TEXT, key TEXT, at TEXT, "
+                  "PRIMARY KEY(source, key))")
+        if c.execute("SELECT 1 FROM bounty_flagged WHERE source=? AND key=?", (source, key)).fetchone():
+            c.close()
+            return False
+        c.execute("INSERT INTO bounty_flagged(source,key,at) VALUES (?,?,?)", (source, key, now()))
+        c.commit(); c.close()
+    except Exception:
+        return False
+    try:
+        from agents import council
+        council.escalate("bounty", question, json.dumps(context, ensure_ascii=False))
+    except Exception:
+        return False
+    return True
+
+
 def _btc_usd():
     """Курс для перевода сатов в доллары: публичный спот Coinbase, без ключа."""
     import urllib.request
@@ -902,6 +923,20 @@ def search_aibtc():
         if sats <= 0:
             continue
         usd = round(sats / 1e8 * price, 2) if price else round(sats / 1e8 * 60000, 2)
+        # НАШ КЛАСС НА AIBTC — census/docs/cross-post/pitches/verify (150–5000 сатов,
+        # в истории доски все они оплачены), а не аудиты Clarity. Такая задача
+        # уходит в очередь суждений один раз, чтобы её взяли, пока она открыта.
+        title_low = str(b.get("title") or "").lower()
+        ours = (any(k in title_low or k in low[:600] for k in
+                    ("census", "document", "docs", "cross-post", "pitch", "translate", "readme",
+                     "summar", "postmortem", "write-up", "scout", "catalog", "list "))
+                and not any(k in title_low for k in ("audit", "clarity", "exploit", "stress-test")))
+        if ours:
+            _flag_once("aibtc", str(b.get("id")),
+                       f"AIBTC: задача НАШЕГО класса — «{title_low[:70]}» за {sats} сатов "
+                       f"(сдач {b.get('submissionCount')}, до {str(b.get('expiresAt'))[:10]})",
+                       {"url": f"https://aibtc.com/bounties/{b.get('id')}", "sats": sats,
+                        "описание": desc[:1500]})
         rows.append({
             "url": f"https://aibtc.com/bounties/{b.get('id')}",
             "title": str(b.get("title") or "")[:180],

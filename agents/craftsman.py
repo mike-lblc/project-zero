@@ -938,6 +938,35 @@ def pursue(dry_run=True):
 
     doable = [r for r in rows if we_can_do(r[2])]
     if not doable:
+        # В НАШЕМ КЛАССЕ ПУСТО — НО ЭТО НЕ ПОВОД МОЛЧАТЬ. Настоящие проекты
+        # (звёзды, не форк) с наградой и малой толпой — работа для сильной
+        # модели: локальной её писать нельзя, а очередь суждений для того и есть.
+        # Каждая такая задача поднимается один раз.
+        from agents import bounty as _b
+        raised = 0
+        c3 = _con()
+        cand = c3.execute("""SELECT url, title, amount_usd, rivals, stars FROM bounties
+                             WHERE status='found' AND declared=1 AND rivals<=2 AND amount_usd>=20
+                             ORDER BY amount_usd DESC LIMIT 12""").fetchall()
+        c3.close()
+        for u, t, usd, riv, stars in cand:
+            m = re.search(r"github\.com/([^/]+/[^/]+)/issues/(\d+)", u or "")
+            if not m:
+                continue
+            info = _gh(["api", f"repos/{m.group(1)}", "--jq", "{s:.stargazers_count,f:.fork}"])
+            try:
+                d = json.loads(info or "{}")
+            except ValueError:
+                d = {}
+            if (d.get("s") or 0) < 200 or d.get("f"):
+                continue                                   # форк/пустой репозиторий — не проект
+            if _b._flag_once("frontier", u,
+                             f"Задача настоящего проекта вне нашего класса: {m.group(1)} — «{t[:70]}» "
+                             f"за ${usd or 0:.0f}, соперников {riv} — брать ли сильной моделью?",
+                             {"url": u, "title": t, "amount_usd": usd, "rivals": riv, "stars": d.get("s")}):
+                raised += 1
+            if raised >= 3:
+                break
         bus.broadcast("craftsman", f"Доступных задач {len(rows)}, но ни одна не относится "
                                    f"к классу, который мы можем закрыть доказуемо. "
                                    f"Браться за остальные — обещать то, что не проверить.")

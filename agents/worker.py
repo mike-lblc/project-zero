@@ -978,6 +978,17 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               # импортируется, способ оплаты есть в маршрутизаторе.
               ("services_catalog", _src("services_catalog"))]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
+# ДЕНЕЖНЫЕ ШАГИ — СВОЙ СЛОТ. Заявка, доставка, поиск наград, ответы лидам и сбор
+# выплат делили один редкий слот на полсотни шагов и получали ход раз в
+# полтора-два часа (pursue: 11:50 — и больше ни разу за день при 55 наградах в
+# очереди). Между редкими слотами теперь есть ещё один, только для них.
+MONEY_STEPS = ("pursue", "find_doc_work", "deliver_ready", "hunt_bounties", "fresh_bounties",
+               "check_replies", "reach_out", "watch_prs", "collect_payouts", "moltbook_demand")
+MONEY_CYCLE = []
+for _n, _f in SLOW_CYCLE:
+    if _n in MONEY_STEPS and all(_n != m for m, _ in MONEY_CYCLE):
+        MONEY_CYCLE.append((_n, _f))
+_money_at = [0]
 
 # ═══════════════════════════════════════ ЧТО МОЖЕТ РАБОТАТЬ В ОБЛАКЕ
 #
@@ -1246,6 +1257,9 @@ def run_forever(interval=90):
         if i and i % SLOW_EVERY == 0:
             name, fn = SLOW_CYCLE[slow_at % len(SLOW_CYCLE)]
             slow_at = _slow_cursor(slow_at + 1)
+        elif i and MONEY_CYCLE and i % SLOW_EVERY == SLOW_EVERY // 2:
+            name, fn = MONEY_CYCLE[_money_at[0] % len(MONEY_CYCLE)]    # денежный слот
+            _money_at[0] += 1
         else:
             name, fn = CYCLE[i % len(CYCLE)]
         # СРОЧНОЕ ИДЁТ ВНЕ ОЧЕРЕДИ. До этого цикл крутил тридцать девять шагов
