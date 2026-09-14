@@ -126,7 +126,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "package_docs":"executor", "supply_check":"supplier", "where_time_goes":"optimizer",
             "produce_work":"executor", "check_work":"executor", "guard_knowledge":"verifier",
             "improve_code":"improver", "reach_out":"salesman",
-            "dealer_cycle":"dealer", "dealer_state":"dealer",
+            "dealer_cycle":"dealer", "dealer_state":"dealer", "deliver_aibtc":"bounty",
             "moltbook_address_survey":"dealer"}
 
 
@@ -1048,6 +1048,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               # ДИЛЕР — сеть путей к платежу по MTBX: каналы, контрагенты, обращения,
               # сверка поступлений, обучение. Замер адресов — его же инструмент.
               ("dealer_cycle", _src("dealer_cycle")),
+              ("deliver_aibtc", _src("deliver_aibtc")),      # сдача готовых результатов на AIBTC
               ("moltbook_address_survey", _src("moltbook_address_survey"))]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 # ДЕНЕЖНЫЕ ШАГИ — СВОЙ СЛОТ. Заявка, доставка, поиск наград, ответы лидам и сбор
@@ -1056,7 +1057,7 @@ SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстр
 # очереди). Между редкими слотами теперь есть ещё один, только для них.
 MONEY_STEPS = ("pursue", "find_doc_work", "deliver_ready", "hunt_bounties", "fresh_bounties",
                "check_replies", "reach_out", "watch_prs", "collect_payouts", "moltbook_demand",
-               "dealer_cycle")
+               "dealer_cycle", "deliver_aibtc")
 MONEY_CYCLE = []
 for _n, _f in SLOW_CYCLE:
     if _n in MONEY_STEPS and all(_n != m for m, _ in MONEY_CYCLE):
@@ -1152,6 +1153,7 @@ CLOUD_CANNOT = {
     "deep_check": "тоже через локальную модель",
     "mechanic": "правит код и публикует — из облака это менять репозиторий на ходу",
     "mtbx_audit": "часть проверок обращается к локальному сервису",
+    "deliver_aibtc": "коммит результата и подпись кошельком агента — только с машины, где лежит seed",
     "dealer_cycle": "обращения к контрагентам из двух баз (облачной и локальной) продублировали "
                     "бы сообщение одному адресату; оборот дилера идёт только с одной машины",
 }

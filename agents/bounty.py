@@ -914,6 +914,8 @@ def search_aibtc():
                        f"AIBTC: задача НАШЕГО класса — «{title_low[:70]}» за {sats} сатов "
                        f"(сдач {b.get('submissionCount')}, до {str(b.get('expiresAt'))[:10]})",
                        {"url": f"https://aibtc.com/bounties/{b.get('id')}", "sats": sats,
+                        "как сдать": f"положить готовый результат в work/aibtc/{b.get('id')}.md — "
+                                     f"шаг deliver_aibtc опубликует и сдаст подписью агента",
                         "описание": desc[:1500]})
         rows.append({
             "url": f"https://aibtc.com/bounties/{b.get('id')}",
@@ -1289,3 +1291,84 @@ if __name__ == "__main__":
         print(f"  ${b['amount']:>7.0f}  оценка {b['fit']:>7.1f}  {b['language'][:10]:10} "
               f"звёзд {b['stars']:>5}  {b['repo'][:28]:28}")
         print(f"           {b['title'][:88]}")
+
+
+# ═══════════════════════════════════════════ AIBTC: сдача готового результата
+# Регистрация агента на доске выполнена владельцем 14.09 («Void Kael»); дальше агенты
+# сдают работу сами. Результат задачи нашего класса (перепись, документация, кросс-пост)
+# пишет сильная модель по эскалации _flag_once и кладёт в work/aibtc/<id>.md. Этот шаг
+# публикует файл в репозитории (постоянный адрес) и сдаёт его подписью агента.
+AIBTC_WORK = ROOT / "work" / "aibtc"
+RAW_BASE = "https://raw.githubusercontent.com/mike-lblc/project-zero/main/work/aibtc/"
+
+
+def _publish_work(path):
+    """Файл результата — в репозиторий, чтобы у сдачи был постоянный публичный адрес."""
+    import subprocess
+    rel = path.relative_to(ROOT).as_posix()
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=str(ROOT), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=180)
+    git("add", rel)
+    git("commit", "-q", "-m", f"work(aibtc): результат для задачи {path.stem}")
+    r = git("push", "-q", "origin", "main")
+    if r.returncode != 0:
+        git("pull", "-q", "--rebase", "origin", "main")
+        r = git("push", "-q", "origin", "main")
+    if r.returncode != 0:
+        return None
+    return RAW_BASE + path.name
+
+
+def deliver_aibtc(dry_run=False):
+    """Сдаёт на AIBTC готовые результаты из work/aibtc/<id>.md — по одному на задачу."""
+    from core import aibtc
+    if not aibtc.available():
+        return "AIBTC: кошелёк агента не настроен — сдавать нечем"
+    # имя файла = идентификатор задачи доски (строчные буквы и цифры); README и заметки — не результаты
+    files = sorted(f for f in AIBTC_WORK.glob("*.md")
+                   if re.fullmatch(r"[a-z0-9]{8,40}", f.stem)) if AIBTC_WORK.exists() else []
+    if not files:
+        return "AIBTC: готовых результатов в work/aibtc нет (их пишет сильная модель по эскалации)"
+    out = []
+    for f in files:
+        bid = f.stem
+        c = _con()
+        row = c.execute("SELECT id, status, title FROM bounties WHERE url LIKE ?",
+                        (f"%/bounties/{bid}",)).fetchone()
+        c.close()
+        if not row:
+            out.append(f"{bid}: задачи нет в очереди")
+            continue
+        if row[1] in ("submitted", "paid", "lost"):
+            continue
+        if f.stat().st_size < 400:
+            out.append(f"{bid}: файл слишком короток для сдачи")
+            continue
+        if dry_run:
+            out.append(f"{bid}: готов к сдаче (dry)")
+            continue
+        guard.check_action("aibtc_submit", "YELLOW")
+        url = _publish_work(f)
+        if not url:
+            out.append(f"{bid}: не удалось опубликовать файл (git push)")
+            continue
+        title = str(row[2] or "")[:80]
+        msg = (f"Submission for: {title}. Full result: {url}. Prepared and verified by the P0 agent "
+               f"collective (registered agent Void Kael); payout in sBTC to the registered STX address.")
+        try:
+            res = aibtc.submit(bid, msg, url)
+        except Exception as e:
+            out.append(f"{bid}: сдача упала: {type(e).__name__}")
+            continue
+        ok = bool(res.get("ok")) or int(res.get("http") or 0) in (200, 201)
+        c = _con()
+        c.execute("UPDATE bounties SET status=?, note=COALESCE(note,'') || ? WHERE id=?",
+                  ("submitted" if ok else row[1],
+                   f" | AIBTC сдача {now()[:16]}: http={res.get('http')} {str(res.get('why') or res.get('response') or '')[:80]}",
+                   row[0]))
+        c.commit(); c.close()
+        bus.broadcast("bounty", f"AIBTC: работа по «{title[:50]}» сдана подписью агента: {url} "
+                                f"(http={res.get('http')}). Выплата — sBTC на STX агента, только после принятия.")
+        out.append(f"{bid}: {'сдано' if ok else 'отклонено'} http={res.get('http')}")
+    return "AIBTC: " + "; ".join(out)

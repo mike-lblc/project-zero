@@ -709,7 +709,7 @@ register(Agent(
     role="Охотник за оплачиваемой работой",
     kpi="число ДОСТУПНЫХ задач, где выплата физически дойдёт до кошелька; "
         "найденная, но разобранная или уже выплаченная задача не засчитывается",
-    tools=("hunt_bounties", "fresh_bounties", "watch_payments",
+    tools=("hunt_bounties", "fresh_bounties", "watch_payments", "deliver_aibtc",
            "hunt_contests", "hunt_hn_jobs"),
     system=COMMON + """
 ТЫ — ОХОТНИК ЗА ОПЛАЧИВАЕМОЙ РАБОТОЙ.
@@ -977,6 +977,15 @@ register(Agent(
 данных» — это не находка, а вежливость. Находка — это конкретная строка,
 конкретное утверждение и конкретное основание считать его негодным.
 """))
+
+
+@tool("deliver_aibtc", "YELLOW",
+      "сдать на AIBTC готовые результаты из work/aibtc/<id>.md: файл в репозиторий → "
+      "постоянный адрес → подпись агента; выплата sBTC только после принятия",
+      needs=("сеть", "gh"))
+def _deliver_aibtc():
+    from agents import bounty
+    return bounty.deliver_aibtc()
 
 
 @tool("dealer_cycle", "YELLOW",
