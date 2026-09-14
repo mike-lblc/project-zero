@@ -133,7 +133,7 @@ def run(task_type, prompt, _retry=True):
     if t in JUDGMENT or t not in MECHANICAL:
         raise EscalationRequired(
             f"'{task_type}' is a JUDGMENT task. The local model is forbidden to decide. "
-            f"Escalate to a Claude Code subagent.")
+            f"Escalate to the frontier model in the owner's session.")
     place, m, why = where(t)
     if place == "облако":
         from core.cloud_model import generate

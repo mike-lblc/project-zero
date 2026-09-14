@@ -17,7 +17,7 @@ decision-maker. Therefore:
 | Work | Who does it |
 |---|---|
 | Parse, extract, tag, classify, format, dedupe | Local 8B (Ollama) |
-| Any judgment, choice, plan, or approval | Frontier model via Claude Code subagent (free on owner's subscription) |
+| Any judgment, choice, plan, or approval | Frontier model in the owner's interactive session (free on the owner's subscription) |
 
 The router must classify each task as MECHANICAL or JUDGMENT and refuse to let a
 JUDGMENT task be answered locally — including when the local model volunteers an

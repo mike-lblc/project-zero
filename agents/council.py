@@ -1,8 +1,8 @@
 """THE COUNCIL — 5 agents per DECISION_PROTOCOL.md.
 
 CRITICAL HONESTY: judgment roles (Proposer/Adversary/Judge) may NOT run on the
-local model. They enqueue escalations resolved by a frontier model when a Claude
-Code session runs. Only Verifier's fact-gathering and the Orchestrator's plumbing
+local model. They enqueue escalations resolved by a frontier model when the owner's
+interactive session runs. Only Verifier's fact-gathering and the Orchestrator's plumbing
 run continuously and locally.
 """
 import sys, json

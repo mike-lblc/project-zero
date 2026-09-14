@@ -88,8 +88,8 @@ their lists — a ban must cost us a pipe, never the asset.
     evals/           held-out set + baseline. Nothing promotes without beating it.
 
 **Model routing (zero budget):** local 8B via Ollama on the RTX 5070 does bulk
-extraction, classification and tagging. Judgment calls escalate to a Claude Code
-subagent — free on the owner's existing subscription, no API key, no bill.
+extraction, classification and tagging. Judgment calls escalate to the frontier
+model in the owner's session — free on the owner's existing subscription, no API key, no bill.
 Known risk from prior experience: small local models return empty responses under
 load. The router must detect empty/garbage output, retry, then escalate.
 
