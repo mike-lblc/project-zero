@@ -7,7 +7,7 @@ no assigned work, agents do self-directed work rather than sit still.
 All work here is GREEN (reversible, private, free). Judgment still escalates -
 this loop never decides anything, it gathers and measures.
 """
-import sys, re, json, time, sqlite3, subprocess, urllib.request, urllib.error
+import os, sys, re, json, time, sqlite3, subprocess, urllib.request, urllib.error
 from pathlib import Path
 from datetime import datetime, timezone
 
