@@ -159,6 +159,78 @@ def propose_patch(rule, why, code):
     return text.rstrip()
 
 
+def _module_names(tree):
+    """Имена, определённые на уровне модуля: присваивания, def, class, import."""
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for t in targets:
+                for n in ast.walk(t):
+                    if isinstance(n, ast.Name):
+                        names.add(n.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for a in node.names:
+                names.add((a.asname or a.name).split(".")[0])
+    return names
+
+
+def removed_names_still_used(original, new_text):
+    """Имена уровня модуля, которые правка удалила, но файл продолжает читать.
+
+    15.09: правка «убрать неиспользуемое» снесла _MONEY_RE и _TITLE_RE, а их
+    читали три строки ниже по файлу. ast.parse такое пропускает — имя
+    разрешается при вызове, и падение случилось бы только на живой площадке.
+    """
+    try:
+        before, after = ast.parse(original), ast.parse(new_text)
+    except SyntaxError:
+        return set()
+    gone = _module_names(before) - _module_names(after)
+    if not gone:
+        return set()
+    used = {n.id for n in ast.walk(after) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    return gone & used
+
+
+def _module_evals(rel):
+    """Проверки, отвечающие за файл: evals/test_<имя>*.py, если такие есть."""
+    stem = Path(rel).stem
+    found = {str(t) for t in (ROOT / "evals").glob(f"test_{stem}*.py")}
+    # проверки модуля часто живут в файлах с другим именем — ищем по импорту
+    mod = rel.replace("\\", "/").removesuffix(".py").replace("/", ".")
+    pkg, _, name = mod.rpartition(".")
+    needles = (f"import {mod}", f"from {pkg} import {name}" if pkg else f"import {name}",
+               f"from {mod} import")
+    for t in (ROOT / "evals").glob("test_*.py"):
+        try:
+            text = t.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if any(n in text for n in needles):
+            found.add(str(t))
+    return sorted(found)
+
+
+def _evals_pass(rel):
+    """Прогон evals модуля в отдельном процессе; None — проверок нет, иначе (ok, хвост)."""
+    tests = _module_evals(rel)
+    if not tests:
+        return None
+    import subprocess, sys
+    try:
+        r = subprocess.run([sys.executable, "-X", "utf8", "-m", "pytest", "-q", "-x",
+                            "--no-header", "-p", "no:cacheprovider", *tests],
+                           cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=300)
+    except subprocess.TimeoutExpired:
+        return (False, "evals timeout")
+    tail = (r.stdout or "").strip().splitlines()[-1:] or [""]
+    return (r.returncode == 0, tail[0][:160])
+
+
 def improve_one(finding):
     """Одна правка целиком: снять меру, починить, перепроверить, решить.
 
@@ -198,6 +270,10 @@ def improve_one(finding):
         ast.parse(new_text)
     except SyntaxError as e:
         return {"ok": False, "why": f"правка ломает разбор файла: {e}"}
+    orphaned = removed_names_still_used(original, new_text)
+    if orphaned:
+        return {"ok": False, "why": "правка удаляет имена, которые файл ещё использует: "
+                                    + ", ".join(sorted(orphaned))}
 
     BACKUP.mkdir(parents=True, exist_ok=True)
     backup = BACKUP / (path.name + ".before")
@@ -206,6 +282,12 @@ def improve_one(finding):
 
     after = _audit_score()
     worse = _worse(before, after)
+    # EVALS МОДУЛЯ — РЕШАЮЩИЙ СУДЬЯ. Аудит меряет систему в целом и мог не заметить
+    # сломанную функцию; проверки модуля написаны именно про неё.
+    if not worse:
+        ev = _evals_pass(rel)
+        if ev is not None and not ev[0]:
+            worse = f"evals модуля упали: {ev[1]}"
     diff = "\n".join(difflib.unified_diff(region.splitlines(),
                                           patched_region.splitlines(),
                                           lineterm="", n=1))[:800]
