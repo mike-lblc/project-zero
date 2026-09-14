@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.mike-lblc/x402-bazaar-rank",
   "title": "x402 Bazaar Rank",
-  "description": "Ranked discovery over the live x402 service market: 15k+ indexed x402 services scored by real 30-day calls, with paying-wallet counts reported as honest bounds. Free top-5 search and market stats; deeper results, market report and niche analysis are paid x402 endpoints on the same host.",
+  "description": "Ranked search over 15k+ live x402 services by real 30-day usage; free top-5, paid depth via x402.",
   "repository": {
     "url": "https://github.com/mike-lblc/project-zero",
     "source": "github"
