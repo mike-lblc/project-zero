@@ -38,7 +38,9 @@ def escalate(role, question, context=""):
                       (role, "ESCALATION", "judgment",
                        json.dumps({"role": role, "question": question, "context": context}),
                        now())); con.commit()
-    return cur.lastrowid
+    mid = cur.lastrowid
+    con.close()          # незакрытое соединение держало файл базы (Windows: тесты не могли убрать temp)
+    return mid
 
 def pending_escalations():
     con = connect()

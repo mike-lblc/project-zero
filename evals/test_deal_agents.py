@@ -155,7 +155,7 @@ class Closer(TempDB):
 
         def fake_gh(args, timeout=60):
             seen["jq"] = args[-1]
-            return "0"
+            return "[]"                                   # после нашего сообщения — тишина
         saved = closer._gh
         closer._gh = fake_gh
         try:
@@ -163,9 +163,22 @@ class Closer(TempDB):
             self.assertIn('created_at > "2026-09-13T06:55:00"', seen["jq"],
                           "ответом засчитываются комментарии, написанные до нашего сообщения")
             self.assertEqual(self.state(a), "CONTACTED")
-            closer._gh = lambda args, timeout=60: "1"
+            # Ответ другой стороны — ПОСЛЕДНЕЕ слово не наше: сделка REPLIED, и разговор
+            # с полным текстом встаёт в очередь на наш ответ (а не просто считается).
+            reply = ('[{"id": 501, "user": "maintainer", "at": "2026-09-13T18:14:41Z", '
+                     '"body": "One of the two numbers looks right and the other does not."}]')
+            closer._gh = lambda args, timeout=60: reply
             closer.check_replies()
             self.assertEqual(self.state(a), "REPLIED")
+            waiting = closer.unanswered_replies()
+            self.assertEqual([w["domain"] for w in waiting], ["o.example"])
+            self.assertIn("does not", waiting[0]["body"])
+            # Наш ответ следом — ход снова у них: очередь ожидания пуста.
+            ours = reply[:-1] + (', {"id": 502, "user": "mike-lblc", "at": "2026-09-14T12:00:00Z", '
+                                 '"body": "You are right; fixed."}]')
+            closer._gh = lambda args, timeout=60: ours
+            closer.check_replies()
+            self.assertEqual(closer.unanswered_replies(), [])
         finally:
             closer._gh = saved
 

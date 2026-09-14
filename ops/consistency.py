@@ -170,7 +170,42 @@ def unreachable_but_findable():
     return findings
 
 
-DETECTORS = [stale_sources, frozen_output, say_vs_data, unreachable_but_findable]
+def claimed_refresh_vs_files():
+    """Журнал говорит «обновлено», а файлы не менялись.
+
+    Класс бага: шаг рапортует об обновлении, ничего не записывая. refresh_market
+    четыре дня писал «market refreshed» каждые десять минут при файлах каталога
+    от 10.09 — детектор «устаревший источник» молчал, потому что сравнивал два
+    одинаково старых файла друг с другом, а не с тем, что утверждает журнал.
+    """
+    findings = []
+    c = connect()
+    try:
+        last = _n(c, "SELECT MAX(started_at) FROM runs WHERE notes LIKE "
+                     "'refresh_market: market refreshed%'", None)
+    finally:
+        c.close()
+    slim = ROOT / "worker" / "catalog.slim.json"
+    if not last or not slim.exists():
+        return findings
+    from datetime import datetime, timezone
+    try:
+        claimed = datetime.fromisoformat(str(last)).timestamp()
+    except ValueError:
+        return findings
+    written = slim.stat().st_mtime
+    if claimed - written > 24 * 3600:
+        findings.append({
+            "класс": "сказано против данных",
+            "что": f"журнал: «market refreshed» {str(last)[:16]}, а файл каталога записан "
+                   f"{datetime.fromtimestamp(written, timezone.utc):%Y-%m-%d %H:%M} UTC",
+            "почему плохо": "шаг рапортует об обновлении, не записывая его — все потребители "
+                            "каталога (лиды, обращения, разведка) читают старое, считая свежим"})
+    return findings
+
+
+DETECTORS = [stale_sources, frozen_output, say_vs_data, unreachable_but_findable,
+             claimed_refresh_vs_files]
 
 
 def scan():

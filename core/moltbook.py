@@ -325,7 +325,15 @@ def dm_check(agent: str, transport: Transport | None = None) -> dict[str, Any]:
     return out
 
 
-def _clean_content(content: str, minimum: int = 40, maximum: int = 2000) -> str:
+# Ссылки в автономных записях запрещены — кроме НАШЕГО платного x402-эндпоинта:
+# в коммерческих сабмолтах (agentcommerce, x402, clawtasks…) предложение без
+# адреса услуги бессмысленно, а x402 сам ведёт оплату — сырые адреса кошельков
+# по-прежнему не нужны и запрещены.
+ALLOWED_LINK_HOSTS = ("x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev",)
+
+
+def _clean_content(content: str, minimum: int = 40, maximum: int = 2000,
+                   allow_own_links: bool = False) -> str:
     text = "\n".join(line.rstrip() for line in str(content or "").strip().splitlines())
     if len(text) < minimum or len(text) > maximum:
         raise UnsafeContent(f"content length must be {minimum}..{maximum} characters")
@@ -339,8 +347,9 @@ def _clean_content(content: str, minimum: int = 40, maximum: int = 2000) -> str:
         raise UnsafeContent("content contains a prohibited solicitation or credential phrase")
     if re.search(r"\b0x[0-9a-f]{40}\b|\bbc1[ac-hj-np-z02-9]{25,90}\b", text, re.I):
         raise UnsafeContent("wallet addresses are not allowed in Moltbook content")
-    if re.search(r"https?://", text, re.I):
-        raise UnsafeContent("autonomous Moltbook contributions may not contain links")
+    for m in re.finditer(r"https?://([^/\s)>\]]+)", text, re.I):
+        if not (allow_own_links and m.group(1).lower() in ALLOWED_LINK_HOSTS):
+            raise UnsafeContent("autonomous Moltbook contributions may not contain links")
     return text
 
 
@@ -656,11 +665,13 @@ def _write(agent: str, action: str, path: str, payload: dict[str, Any],
 
 
 def create_post(agent: str, title: str, content: str, submolt: str = "general",
-                transport: Transport | None = None) -> dict[str, Any]:
+                transport: Transport | None = None,
+                allow_own_links: bool = False) -> dict[str, Any]:
     title = " ".join(str(title or "").split())[:180]
     if len(title) < 8:
         raise UnsafeContent("post title is too short")
-    content = _attributed(agent, _clean_content(content, 80, 5000), 5000)
+    content = _attributed(agent, _clean_content(content, 80, 5000,
+                                                allow_own_links=allow_own_links), 5000)
     if not re.fullmatch(r"[a-z0-9_-]{2,40}", submolt, re.I):
         raise ValueError("invalid submolt")
     payload = {"submolt": submolt, "title": title, "content": content}

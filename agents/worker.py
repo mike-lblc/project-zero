@@ -30,6 +30,9 @@ except Exception:
 UA = "Mozilla/5.0 (compatible; P0-worker/0.1)"
 ROOT = Path(__file__).resolve().parent.parent
 IDX = ROOT / "data" / "bazaar_index.json"
+SLIM = ROOT / "worker" / "catalog.slim.json"    # срез для лидов/обращений/воркера
+FULL_REFRESH_AFTER_H = 6                       # полная перекачка каталога не чаще раза в 6 ч
+_PAGE = 100
 BAZAAR = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources"
 SERVICE = "http://127.0.0.1:8402"
 
@@ -261,32 +264,90 @@ def watch_payments():
 
 
 # ---------------------------------------------------------------- 2. PRODUCT DATA
-def refresh_market():
-    """Keep the catalog fresh and detect what changed. Change IS the newsletter."""
-    say("scout", "Иду за свежим срезом рынка x402 — смотрю, кто появился и у кого растут вызовы.")
+def _slim_row(i):
+    """Строка среза для лидов/обращений/воркера: u/n/d/t/p/w/c/y (цена в USD, USDC = 6 знаков)."""
+    q = i.get("quality") or {}
+    acc = (i.get("accepts") or [{}])[0] or {}
     try:
-        d = json.loads(get(f"{BAZAAR}?limit=100&offset=0", 30))
-    except Exception as e:
-        say("scout", f"Рынок недоступен ({type(e).__name__}). Не выдумываю данные — просто пропускаю цикл.")
-        return f"bazaar unreachable ({type(e).__name__})"
-    items = d.get("items") or []
-    total = (d.get("pagination") or {}).get("total")
-    if not items:
-        return "bazaar returned nothing"
+        price = int(acc.get("maxAmountRequired") or acc.get("amount") or 0) / 1_000_000
+    except (TypeError, ValueError):
+        price = 0
+    ext = i.get("extensions") or {}
+    return {"u": i.get("resource") or "", "n": i.get("serviceName") or ext.get("name") or "",
+            "d": (i.get("description") or "")[:300], "t": i.get("tags") or ext.get("tags") or [],
+            "p": round(price, 6), "w": acc.get("network") or "",
+            "c": int(q.get("l30DaysTotalCalls") or 0), "y": int(q.get("l30DaysUniquePayers") or 0)}
+
+
+def _write_json(path, data):
+    """Атомарно: во временный файл, потом подмена — читатели не увидят полфайла."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    tmp.replace(path)
+
+
+def refresh_market():
+    """Keep the catalog fresh and detect what changed. Change IS the newsletter.
+
+    ЧЕСТНО О ПРОШЛОМ. До 14.09 этот шаг брал ОДНУ страницу из ста пятидесяти,
+    каждые десять минут писал в журнал «market refreshed» и НЕ ЗАПИСЫВАЛ НИЧЕГО:
+    файлы каталога простояли с 10.09, пока мейнтейнер agent402.tools не назвал
+    актуальное число строк (15 315 против наших 14 231). Класс «сказано против
+    данных» — и детектор «устаревший источник» молчал, сравнивая два одинаково
+    старых файла. Теперь: раз в FULL_REFRESH_AFTER_H часов — полная перекачка
+    всех страниц и атомарная запись обоих срезов; между ними — лёгкая проба
+    первой страницы, и в журнал пишется именно это, а не «обновлено».
+    """
+    say("scout", "Иду за свежим срезом рынка x402 — смотрю, кто появился и у кого растут вызовы.")
+    age_h = (time.time() - SLIM.stat().st_mtime) / 3600 if SLIM.exists() else 1e9
     try:
         old = json.loads(IDX.read_text(encoding="utf-8"))
     except Exception:
         old = []
     known = {i.get("resource") for i in old}
-    fresh = [i for i in items if i.get("resource") not in known]
-    hot = sorted(items, key=lambda i: -((i.get("quality") or {}).get("l30DaysTotalCalls") or 0))[:3]
+    try:
+        d = json.loads(get(f"{BAZAAR}?limit={_PAGE}&offset=0", 30))
+    except Exception as e:
+        say("scout", f"Рынок недоступен ({type(e).__name__}). Не выдумываю данные — просто пропускаю цикл.")
+        return f"bazaar unreachable ({type(e).__name__})"
+    items = d.get("items") or []
+    total = int((d.get("pagination") or {}).get("total") or 0)
+    if not items:
+        return "bazaar returned nothing"
+    if age_h < FULL_REFRESH_AFTER_H:
+        fresh = [i for i in items if i.get("resource") not in known]
+        return (f"catalog is {age_h:.1f}h old (<{FULL_REFRESH_AFTER_H}h): light probe only — "
+                f"total {total}, first page new-to-us {len(fresh)}; files NOT rewritten")
+    # ПОЛНАЯ ПЕРЕКАЧКА — все страницы, потом атомарная запись.
+    all_items = list(items)
+    offset = _PAGE
+    while offset < total and offset < 50_000:
+        try:
+            page = json.loads(get(f"{BAZAAR}?limit={_PAGE}&offset={offset}", 30)).get("items") or []
+        except Exception as e:
+            say("scout", f"Перекачка оборвалась на {offset} из {total} ({type(e).__name__}) — "
+                         f"старый срез оставлен нетронутым.")
+            return f"full refresh aborted at {offset}/{total} ({type(e).__name__}); files kept"
+        if not page:
+            break
+        all_items.extend(page)
+        offset += _PAGE
+    seen, uniq = set(), []
+    for i in all_items:
+        r = i.get("resource")
+        if r and r not in seen:
+            seen.add(r); uniq.append(i)
+    _write_json(IDX, uniq)
+    _write_json(SLIM, [_slim_row(i) for i in uniq])
+    fresh = [i for i in uniq if i.get("resource") not in known]
+    hot = sorted(uniq, key=lambda i: -((i.get("quality") or {}).get("l30DaysTotalCalls") or 0))[:3]
     top = ", ".join(f"{(i.get('serviceName') or i.get('resource',''))[:34]}"
                     f"({(i.get('quality') or {}).get('l30DaysTotalCalls',0)})" for i in hot)
-    note("scout", f"Market refresh: total={total}, page sampled={len(items)}, "
-                  f"new-to-us={len(fresh)}. Top by 30d calls: {top}", conf=0.85)
-    say("scout", f"Рынок обновлён: всего {total} сервисов, новых для нас — {len(fresh)}. "
-                 f"Лидеры по вызовам за 30 дней: {top}")
-    return f"market refreshed (total {total}, {len(fresh)} new)"
+    note("scout", f"Market refresh: total={total}, fetched={len(uniq)}, new-to-us={len(fresh)}. "
+                  f"Top by 30d calls: {top}", conf=0.85)
+    say("scout", f"Рынок обновлён по-настоящему: скачано {len(uniq)} из {total}, новых для нас — "
+                 f"{len(fresh)}. Лидеры по вызовам за 30 дней: {top}")
+    return f"market refreshed (fetched {len(uniq)} of {total}, {len(fresh)} new; files rewritten)"
 
 
 # ---------------------------------------------------------------- 3. RELIABILITY
@@ -406,6 +467,7 @@ EVENT_HANDLER = {
     "payout_announced": "collect_payouts",
     "payment_received": "collect_payments",
     "outreach_sent": "check_replies",
+    "lead_replied": "check_replies",       # ход наш: разговор уже в очереди суждений с текстом
     "evidence_recorded": "verify_evidence",
     "channel_unavailable": "channel_health",
     "fresh_bounty": "pursue",

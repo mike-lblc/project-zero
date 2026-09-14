@@ -64,7 +64,7 @@ def check_replies():
     if not rows:
         return "обращений не было — отвечать некому"
 
-    replied, silent, unreadable = [], [], []
+    replied, silent, unreadable, awaiting = [], [], [], []
     for domain, channel, url, sent_at, task_id in rows:
         # Номер обсуждения — до якоря комментария: .../pull/13455#issuecomment-…
         num = (url or "").split("#")[0].rstrip("/").split("/")[-1]
@@ -76,14 +76,24 @@ def check_replies():
         # объявил бы «ответили» ещё до того, как адресат увидел вопрос.
         since = (sent_at or "")[:19]
         raw = _gh(["api", f"repos/{channel}/issues/{num}/comments?per_page=100",
-                   "--jq", f'[.[] | select(.user.login != "mike-lblc") '
-                           f'| select(.created_at > "{since}")] | length'])
+                   "--jq", f'[.[] | select(.created_at > "{since}") '
+                           f'| {{id: .id, user: .user.login, at: .created_at, body: .body}}]'])
         if raw is None:
             unreadable.append(domain)      # молчание API — не молчание адресата
             continue
-        n = int((raw or "0").strip() or 0)
+        try:
+            comments = json.loads(raw or "[]")
+        except ValueError:
+            comments = None
+        if not isinstance(comments, list):
+            unreadable.append(domain)      # не список комментариев — это незнание, не молчание
+            continue
+        theirs = [x for x in comments if x.get("user") != OUR_LOGIN]
+        n = len(theirs)
         (replied if n > 0 else silent).append(f"{domain} ({n})")
-        if n > 0 and task_id:
+        if not theirs:
+            continue
+        if task_id:
             try:
                 from core import execution
                 execution.advance(task_id, "REPLIED",
@@ -91,17 +101,82 @@ def check_replies():
                                   f"(новых комментариев {n})")
             except Exception as e:
                 bus.broadcast("closer", f"Ответ есть, но сделка #{task_id} не продвинута: {e}")
+        # ЧЕЙ ХОД. Раньше закрывающий лишь СЧИТАЛ ответы: сделка вставала в REPLIED,
+        # шёл broadcast «веду дальше» — и никто не вёл: ответ мейнтейнера agent402
+        # пролежал 17 часов без реакции. Теперь, если последнее слово не наше,
+        # ПОЛНЫЙ текст разговора уходит в очередь суждений (ответ лиду — суждение,
+        # локальная модель его не пишет), один раз на каждый их комментарий.
+        last = comments[-1]
+        c = connect()
+        _replies_schema(c)
+        if last.get("user") == OUR_LOGIN:
+            c.execute("UPDATE outreach_replies SET answered_at=? WHERE url=? AND answered_at IS NULL",
+                      (now(), url))
+            c.commit(); c.close()
+            continue
+        known = c.execute("SELECT 1 FROM outreach_replies WHERE comment_id=?",
+                          (last["id"],)).fetchone()
+        if known:
+            c.close()
+            awaiting.append(domain)          # уже в очереди суждений, ждём ответа с нашей стороны
+            continue
+        c.execute("INSERT OR IGNORE INTO outreach_replies(comment_id,domain,url,author,created_at,"
+                  "body,escalated_at) VALUES (?,?,?,?,?,?,?)",
+                  (last["id"], domain, url, last.get("user") or "", last.get("at") or "",
+                   str(last.get("body") or "")[:8000], now()))
+        c.commit(); c.close()
+        ours = [str(x.get("body") or "")[:1500] for x in comments if x.get("user") == OUR_LOGIN][-2:]
+        try:
+            from agents import council
+            council.escalate("closer",
+                             f"Лид {domain} ответил в {url} — нужен ответ по существу сегодня "
+                             f"(сделка #{task_id})",
+                             json.dumps({"url": url, "task_id": task_id,
+                                         "их ответ": str(last.get("body") or "")[:4000],
+                                         "наши предыдущие": ours}, ensure_ascii=False))
+        except Exception as e:
+            bus.broadcast("closer", f"Ответ {domain} не удалось поставить в очередь суждений: {e}")
+        try:
+            from core import events
+            events.publish("lead_replied", {"кому": domain, "ссылка": url,
+                                            "comment_id": last["id"]}, source="closer")
+        except Exception:
+            pass
+        awaiting.append(domain)
 
     parts = [f"проверено обращений: {len(rows)}"]
     if replied:
         parts.append("ОТВЕТИЛИ: " + ", ".join(replied))
         bus.broadcast("closer", f"Есть ответ по обращениям: {', '.join(replied)}. "
-                                f"Это первый настоящий разговор — веду дальше.")
+                                f"Разговор передан в очередь суждений с полным текстом.")
     else:
         parts.append("ответов пока нет")
+    if awaiting:
+        parts.append(f"ЖДУТ НАШЕГО ОТВЕТА: {', '.join(awaiting)}")
     if unreadable:
         parts.append(f"НЕ ПРОЧИТАНО (это незнание, а не молчание): {len(unreadable)}")
     return "; ".join(parts)
+
+
+OUR_LOGIN = "mike-lblc"
+
+
+def _replies_schema(c):
+    c.execute("""CREATE TABLE IF NOT EXISTS outreach_replies (
+        comment_id INTEGER PRIMARY KEY, domain TEXT NOT NULL, url TEXT NOT NULL,
+        author TEXT NOT NULL, created_at TEXT NOT NULL, body TEXT NOT NULL,
+        escalated_at TEXT, answered_at TEXT)""")
+
+
+def unanswered_replies():
+    """Ответы лидов, на которые мы ещё не ответили, — для дашборда и аудита."""
+    c = connect()
+    _replies_schema(c)
+    rows = [dict(r) for r in c.execute(
+        "SELECT domain, url, author, created_at, substr(body,1,300) AS body, escalated_at "
+        "FROM outreach_replies WHERE answered_at IS NULL ORDER BY created_at")]
+    c.close()
+    return rows
 
 
 def open_deals():

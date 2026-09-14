@@ -147,8 +147,18 @@ def verify_rank(domain, claimed):
 
 
 def compose(lead, rank):
-    """Собирает сообщение из ЕГО чисел. Без чисел сообщения не бывает."""
-    domain, services, calls, payers, price = lead
+    """Собирает сообщение из ЕГО чисел. Без чисел сообщения не бывает.
+
+    Плательщики — ДИАПАЗОН, не число: из каталога выводятся только границы
+    (см. leads.operators). Первое письмо с «701 unique payers» мейнтейнер
+    agent402.tools разобрал по косточкам (реальных 158) — с тех пор врать
+    точностью, которой нет, нельзя.
+    """
+    domain, services, calls, payers, price, payers_min = lead
+    payers_line = (f"- paying wallets: **at least {payers_min:,}** (most seen on a single "
+                   f"endpoint), **at most {payers:,}** (sum across endpoints; a wallet that "
+                   f"calls several of your tools is counted once per tool)"
+                   if payers_min else f"- paying wallets (sum across endpoints): **{payers:,}**")
     lines = [
         f"Hi — I run an open index of x402 services and your endpoints came up "
         f"in the measurements. Sharing what I see, in case the comparison is "
@@ -157,7 +167,7 @@ def compose(lead, rank):
         f"**{domain}** over the last 30 days:",
         f"- services indexed: **{services}**",
         f"- calls: **{calls:,}**",
-        f"- unique payers: **{payers:,}**",
+        payers_line,
         f"- average price: **${price:.4f}**",
     ]
     if rank:
@@ -216,18 +226,19 @@ def reach_out(dry_run=True):
     c = connect()
     _schema(c)
     rows = c.execute(
-        """SELECT domain, services, calls_30d, payers_30d, avg_price, channel
+        """SELECT domain, services, calls_30d, payers_30d, avg_price, channel,
+                  COALESCE(payers_min_30d, 0)
            FROM leads
            WHERE channel IS NOT NULL AND channel <> ''
              AND calls_30d > 0 AND payers_30d > 0
              AND domain NOT IN (SELECT domain FROM outreach)
-           ORDER BY payers_30d DESC LIMIT 1""").fetchall()
+           ORDER BY COALESCE(payers_min_30d, 0) DESC, payers_30d DESC LIMIT 1""").fetchall()
     c.close()
     if not rows:
         return ("покупателей с публичным каналом и измеренными числами не осталось — "
                 "всем подходящим уже написано по разу")
 
-    domain, services, calls, payers, price, channel = rows[0]
+    domain, services, calls, payers, price, channel, payers_min = rows[0]
 
     # ЯВНЫЙ ЗАСЛОН ПОВЕРХ ЗАПРОСА. Условие «кому ещё не писали» стоит и в
     # выборке, но правило слишком дорогое, чтобы держаться на одном месте:
@@ -238,9 +249,9 @@ def reach_out(dry_run=True):
         return f"{domain} уже писали {when[:16]} — второй раз не пишем никогда"
 
     rank = rank_of(domain)
-    body = compose((domain, services, calls, payers, price), rank)
+    body = compose((domain, services, calls, payers, price, payers_min), rank)
     title = (f"Your x402 numbers for the last 30 days "
-             f"({calls:,} calls, {payers:,} payers)")
+             f"({calls:,} calls, {payers_min:,}-{payers:,} paying wallets)")
 
     if dry_run:
         return {"кому": domain, "канал": channel, "заголовок": title,
@@ -270,8 +281,10 @@ def reach_out(dry_run=True):
         from core import execution
         tid = execution.open_deal(
             f"Сделка: {domain} — место в каталоге x402", METHOD, "salesman",
-            "ждать ответа; второй раз не писать",
-            [("QUALIFIED", f"измерено: {calls:,} вызовов, {payers:,} плательщиков за 30 дней"),
+            "следить за ответом в обсуждении (closer.watch_replies); ответ пришёл — "
+            "отвечать по существу в тот же день; повторно первым не писать",
+            [("QUALIFIED", f"измерено: {calls:,} вызовов, плательщиков {payers_min:,}–{payers:,} "
+                           f"(нижняя–верхняя граница) за 30 дней"),
              ("CONTACT_READY", f"публичный канал: github.com/{channel}"),
              ("CONTACTED", url)])
         c = connect()
@@ -284,8 +297,8 @@ def reach_out(dry_run=True):
     events.publish("outreach_sent", {"кому": domain, "ссылка": url}, source="salesman")
     bus.broadcast("salesman", f"Покупателю написано: {domain} через {channel}. "
                               f"В сообщении его собственные цифры: {calls:,} вызовов, "
-                              f"{payers:,} плательщиков. Повтора не будет — одному "
-                              f"адресату пишем один раз навсегда.")
+                              f"плательщиков {payers_min:,}–{payers:,} (границы). Первым "
+                              f"повторно не пишем; за ответом следит closer.")
     return {"кому": domain, "канал": channel, "ссылка": url, "отправлено": True}
 
 

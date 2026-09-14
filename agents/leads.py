@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS leads (
   domain TEXT NOT NULL UNIQUE,
   services INTEGER NOT NULL,
   calls_30d INTEGER NOT NULL,
-  payers_30d INTEGER NOT NULL,
+  payers_30d INTEGER NOT NULL,     -- ВЕРХНЯЯ граница: сумма payer-set по ресурсам (кошелёк считается на каждом)
+  payers_min_30d INTEGER,          -- НИЖНЯЯ граница: максимум по одному ресурсу
   avg_price REAL,
   top_tags TEXT,
   spend_signal REAL,
@@ -71,6 +72,11 @@ def now():
 def _con():
     c = connect()
     ensure_schema(c, SCHEMA)
+    # Миграция для уже существующей базы: CREATE TABLE IF NOT EXISTS колонку не добавит.
+    cols = {r[1] for r in c.execute("PRAGMA table_info(leads)")}
+    if "payers_min_30d" not in cols:
+        c.execute("ALTER TABLE leads ADD COLUMN payers_min_30d INTEGER")
+        c.commit()
     return c
 
 
@@ -138,11 +144,18 @@ def operators():
         d = r["host"]
         if not d or any(x in d for x in SKIP):
             continue
-        o = ops.setdefault(d, {"services": 0, "calls": 0, "payers": 0,
+        o = ops.setdefault(d, {"services": 0, "calls": 0, "payers": 0, "payers_max": 0,
                                "prices": [], "tags": {}})
         o["services"] += 1
         o["calls"] += r["calls"]
+        # Вызовы аддитивны — сумма честна. Плательщики — НЕТ: один кошелёк,
+        # вызвавший десять инструментов оператора, входит в payer-set каждого и
+        # в сумме считается десять раз. Мейнтейнер agent402.tools поймал это
+        # на нашем письме (мы назвали 701 при его реальных 158 за месяц).
+        # Сумма — верхняя граница, максимум по одному ресурсу — нижняя; настоящее
+        # число из каталога не выводится (только по цепочке: distinct senders на payTo).
         o["payers"] += r["payers"]
+        o["payers_max"] = max(o["payers_max"], r["payers"])
         if r["price"] is not None:
             o["prices"].append(r["price"])
         for t in r["tags"]:
@@ -168,12 +181,19 @@ def hot_leads(limit=120):
     for d, o in ops.items():
         if o["payers"] < 5:            # без платящих это не бизнес, а эксперимент
             continue
-        signal = o["services"] * math.log10(1 + o["calls"]) * math.log10(1 + o["payers"])
+        # Сигнал считается по НИЖНЕЙ границе плательщиков: сумма растёт с шириной
+        # каталога (600 эндпоинтов — и один кошелёк считается 600 раз), и широкие
+        # операторы всплывали в топ мимо одноэндпоинтных с настоящими покупателями.
+        # Ширина каталога — тоже в логарифме: линейный множитель ставил оператора с
+        # 820 эндпоинтами и ДВУМЯ плательщиками выше оператора с 33 эндпоинтами и
+        # тысячей — ровно та инфляция «широких» продавцов, о которой писал agent402.
+        signal = (math.log10(1 + o["services"]) * math.log10(1 + o["calls"])
+                  * math.log10(1 + o["payers_max"]))
         avg = round(sum(o["prices"]) / len(o["prices"]), 4) if o["prices"] else None
         tags = ", ".join(t for t, _ in sorted(o["tags"].items(), key=lambda kv: -kv[1])[:3])
         rows.append({"domain": d, "services": o["services"], "calls_30d": o["calls"],
-                     "payers_30d": o["payers"], "avg_price": avg, "top_tags": tags,
-                     "spend_signal": round(signal, 1)})
+                     "payers_30d": o["payers"], "payers_min_30d": o["payers_max"],
+                     "avg_price": avg, "top_tags": tags, "spend_signal": round(signal, 1)})
     rows.sort(key=lambda r: -r["spend_signal"])
     top = rows[:limit]
     # СИЛЬНЫЕ ПЛАТЕЛЬЩИКИ, КОТОРЫХ ФОРМУЛА УПУСКАЕТ. spend_signal умножает на
@@ -189,14 +209,22 @@ def hot_leads(limit=120):
     top = top + extra
     c = _con()
     for r in top:
-        c.execute("""INSERT INTO leads(domain,services,calls_30d,payers_30d,avg_price,
-                     top_tags,spend_signal,found_at) VALUES (?,?,?,?,?,?,?,?)
+        c.execute("""INSERT INTO leads(domain,services,calls_30d,payers_30d,payers_min_30d,
+                     avg_price,top_tags,spend_signal,found_at) VALUES (?,?,?,?,?,?,?,?,?)
                      ON CONFLICT(domain) DO UPDATE SET services=?, calls_30d=?, payers_30d=?,
-                     avg_price=?, top_tags=?, spend_signal=?""",
-                  (r["domain"], r["services"], r["calls_30d"], r["payers_30d"], r["avg_price"],
-                   r["top_tags"], r["spend_signal"], now(),
-                   r["services"], r["calls_30d"], r["payers_30d"], r["avg_price"],
-                   r["top_tags"], r["spend_signal"]))
+                     payers_min_30d=?, avg_price=?, top_tags=?, spend_signal=?""",
+                  (r["domain"], r["services"], r["calls_30d"], r["payers_30d"],
+                   r["payers_min_30d"], r["avg_price"], r["top_tags"], r["spend_signal"], now(),
+                   r["services"], r["calls_30d"], r["payers_30d"], r["payers_min_30d"],
+                   r["avg_price"], r["top_tags"], r["spend_signal"]))
+    c.commit()
+    # Кого в свежем каталоге больше нет — тот не лид, а память о нём: сигнал в ноль,
+    # иначе старые строки со старой шкалой сигнала торчат в топе поверх живых.
+    c.execute("CREATE TEMP TABLE IF NOT EXISTS fresh_domains(domain TEXT PRIMARY KEY)")
+    c.execute("DELETE FROM fresh_domains")
+    c.executemany("INSERT OR IGNORE INTO fresh_domains(domain) VALUES (?)",
+                  [(r["domain"],) for r in top])
+    c.execute("UPDATE leads SET spend_signal=0 WHERE domain NOT IN (SELECT domain FROM fresh_domains)")
     c.commit()
     total = c.execute("SELECT COUNT(*) FROM leads").fetchone()[0]
     c.close()
