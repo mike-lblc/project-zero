@@ -8,7 +8,7 @@
     "source": "github"
   },
   "websiteUrl": "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/join",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "remotes": [
     {
       "type": "streamable-http",
