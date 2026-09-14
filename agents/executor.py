@@ -78,6 +78,13 @@ def survey(repo, subdir="", ref="main"):
     """
     raw = _gh(["api", f"repos/{repo}/git/trees/{ref}?recursive=1",
                "--jq", ".tree[] | select(.type==\"blob\") | .path"])
+    if raw is None and ref == "main":
+        # У репозитория может быть master или иная ветка: «main» наугад делал
+        # планировщик слепым на таких проектах. Спрашиваем ветку по умолчанию.
+        default = (_gh(["api", f"repos/{repo}", "--jq", ".default_branch"]) or "").strip()
+        if default and default != "main":
+            raw = _gh(["api", f"repos/{repo}/git/trees/{default}?recursive=1",
+                       "--jq", ".tree[] | select(.type==\"blob\") | .path"])
     if raw is None:
         return {"error": "дерево репозитория не прочиталось — это незнание, а не пустота"}
     paths = [p for p in raw.splitlines() if p.strip()]

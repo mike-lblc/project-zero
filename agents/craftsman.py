@@ -943,7 +943,6 @@ def pursue(dry_run=True):
                                    f"Браться за остальные — обещать то, что не проверить.")
         return f"из {len(rows)} задач по силам ни одной"
 
-    url, repo, title, usd = doable[0]
     # ПЛАН НАЗЫВАЕТ НАСТОЯЩИЕ ФАЙЛЫ, А НЕ ОБЕЩАЕТ ИХ НАЗВАТЬ. Здесь стояло
     # «файлы определяются перед отправкой» — и заслон качества справедливо
     # отвергал такую заявку как шум: обещание посмотреть не отличается от
@@ -952,13 +951,49 @@ def pursue(dry_run=True):
     # Смотреть репозиторий умеет исполнитель, и он уже в составе. Разница между
     # «мы посмотрим» и «мы посмотрели, вот файлы» — это вся разница между
     # заявкой и шумом.
-    plan = _plan_from_repo(repo)
-    if not plan:
-        return (f"по {repo} не удалось назвать конкретные файлы — заявку не подаю, "
-                f"обещание вместо плана это шум")
-    res = claim(url, plan, dry_run=dry_run)
-    if not res.get("ok"):
-        return f"заявка не подана: {res.get('why')}"
+    # РЕПОЗИТОРИЙ — ИЗ ССЫЛКИ, НЕ ИЗ КОЛОНКИ. У задач с площадок (opire.dev,
+    # dework.xyz, aibtc.com) в колонке repo стоит имя ИСТОЧНИКА, и план искался
+    # в «репозитории opire.dev» — файлов там нет, заявка не подавалась никогда
+    # (14.09: 55 наград Opire в очереди, заявок 0). Пробуем несколько задач,
+    # а не только первую: одна без плана не значит, что нет ни одной.
+    picked, tried = None, []
+    for url, repo, title, usd in doable[:8]:
+        gm = re.search(r"github\.com/([^/]+/[^/]+)/issues/\d+", url or "")
+        if gm:
+            repo = gm.group(1)
+        if not (_gh(["api", f"repos/{repo}", "--jq", ".id"]) or "").strip():   # пусто/None = репозитория нет
+            tried.append(f"{repo}: репозиторий не найден")
+            try:                                   # ссылка мёртвая — награда стухла
+                cc = _con()
+                cc.execute("UPDATE bounties SET status='lost', note=? WHERE url=?",
+                           (f"снята цепочкой: репозиторий {repo} не найден (404)", url))
+                cc.commit(); cc.close()
+            except Exception:
+                pass
+            continue
+        plan = _plan_from_repo(repo)
+        if not plan:
+            tried.append(f"{repo}: нет плана файлов")
+            continue
+        res = claim(url, plan, dry_run=dry_run)
+        if res.get("ok"):
+            picked = (url, repo, title, usd, plan, res)
+            break
+        why = str(res.get("why") or "")
+        tried.append(f"{repo}: {why[:60]}")
+        # Закрытая или уже оплаченная задача — не задача: снимаем с очереди,
+        # иначе цепочка будет упираться в неё каждый заход.
+        if "CLOSED" in why or "выплачена" in why:
+            try:
+                cc = _con()
+                cc.execute("UPDATE bounties SET status='lost', note=? WHERE url=?",
+                           (f"снята цепочкой: {why[:120]}", url))
+                cc.commit(); cc.close()
+            except Exception:
+                pass
+    if not picked:
+        return "заявка не подана: " + "; ".join(tried[:8])
+    url, repo, title, usd, plan, res = picked
 
     # ВХОЛОСТУЮ — НЕ ЗНАЧИТ МОЛЧА. Подача заявки в чужом репозитории необратима
     # и агенту не по уровню, поэтому цикл всегда зовёт эту цепочку вхолостую.
