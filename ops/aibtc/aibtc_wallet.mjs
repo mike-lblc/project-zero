@@ -133,9 +133,13 @@ function stxSign(message, privateKey) {
   const msgHash = hashMessage(message);
   let sig = signMessageHashRsv({ messageHash: msgHash, privateKey });
   if (typeof sig !== "string") sig = sig.data ?? String(sig);
-  if (!sig.startsWith("0x")) sig = "0x" + sig;
+  // ГОЛЫЙ HEX БЕЗ 0x. Документация AIBTC пишет «с префиксом 0x», но сервер сам
+  // приписывает 0x и на «0x0x…» отвечает INVALID_STX_SIGNATURE («Cannot convert
+  // 0x0x… to a BigInt») — поймано на живой регистрации 14.09.2026. Их же
+  // stacks_sign_message отдаёт 130 hex-символов без префикса.
+  sig = sig.startsWith("0x") ? sig.slice(2) : sig;
   // самопроверка: адрес, восстановленный из подписи, обязан совпасть
-  const pub = publicKeyFromSignatureRsv(msgHash, sig.slice(2));
+  const pub = publicKeyFromSignatureRsv(msgHash, sig);
   const recovered = getAddressFromPublicKey(pub, "mainnet");
   return { signature: sig, recovered };
 }
@@ -190,7 +194,7 @@ async function cmdSignStx(message) {
   const s = await stxAccount(requireMnemonic());
   const { signature, recovered } = stxSign(message, s.privateKey);
   if (recovered !== s.address) fail(`самопроверка STX не сошлась: ${recovered} != ${s.address}`);
-  process.stdout.write(JSON.stringify({ stxAddress: s.address, message, signature, format: "RSV 0x-hex" }, null, 2) + "\n");
+  process.stdout.write(JSON.stringify({ stxAddress: s.address, message, signature, format: "RSV hex, без 0x (так ждёт сервер AIBTC)" }, null, 2) + "\n");
 }
 
 async function cmdRegister(description) {
