@@ -1,0 +1,33 @@
+name: MCP Registry publish
+# Листинг нашего удалённого MCP-сервера (/mcp воркера) в официальном реестре
+# registry.modelcontextprotocol.io — бесплатный канал, где MCP-клиенты и агенты
+# ищут инструменты. Аутентификация — GitHub OIDC (без человека), пространство
+# имён io.github.mike-lblc/*. Запуск: вручную или при изменении mcp/server.json.
+on:
+  workflow_dispatch:
+  push:
+    paths: ["mcp/server.json"]
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher (official release)
+        run: |
+          set -e
+          TAG=$(curl -fsSL https://api.github.com/repos/modelcontextprotocol/registry/releases/latest | grep -oE '"tag_name": *"[^"]+"' | head -1 | cut -d'"' -f4)
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/${TAG}/mcp-publisher_linux_amd64.tar.gz" -o mp.tgz
+          tar -xzf mp.tgz && chmod +x mcp-publisher && ./mcp-publisher --help | head -3
+      - name: Validate server.json
+        run: ./mcp-publisher validate mcp/server.json
+      - name: Login (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+      - name: Publish
+        run: ./mcp-publisher publish mcp/server.json
+      - name: Verify listing
+        run: |
+          sleep 5
+          curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.mike-lblc/x402-bazaar-rank" | head -c 1500; echo

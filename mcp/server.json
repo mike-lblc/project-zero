@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mike-lblc/x402-bazaar-rank",
+  "title": "x402 Bazaar Rank",
+  "description": "Ranked discovery over the live x402 service market: 15k+ indexed x402 services scored by real 30-day calls, with paying-wallet counts reported as honest bounds. Free top-5 search and market stats; deeper results, market report and niche analysis are paid x402 endpoints on the same host.",
+  "repository": {
+    "url": "https://github.com/mike-lblc/project-zero",
+    "source": "github"
+  },
+  "websiteUrl": "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/join",
+  "version": "0.1.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/mcp"
+    }
+  ]
+}
