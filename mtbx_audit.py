@@ -404,8 +404,10 @@ def unfinished():
     # Пометка — это отдельное слово. "EXXX" (имя спецификации) и "TODO.md"
     # (имя файла проекта) не являются незавершённой работой, и детектор,
     # который их ловит, сам себе выдумывает находки.
-    marks = re.compile(r"(?m)#\s*(TODO|FIXME|XXX)"
-                       r"NotImplementedError)\b(?!\.md)")
+    # Пометка живёт в КОММЕНТАРИИ. Строковый литерал "TODO" — это статус задачи
+    # в API Dework (agents/bounty.py), а не незавершённая работа.
+    marks = re.compile(r"(?:#|//)\s*(TODO|FIXME|HACK|XXX|PLACEHOLDER|NOT IMPLEMENTED)\b(?!\.md)"
+                       r"|\b(NotImplementedError)\b")
     hits = []
     for p in py_files() + [ROOT / "service" / "server.js", ROOT / "worker" / "src" / "index.js"]:
         if not p.exists():
@@ -413,7 +415,7 @@ def unfinished():
         for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             m = marks.search(line)
             if m:
-                hits.append(f"{p.name}:{i} {m.group(1)}")
+                hits.append(f"{p.name}:{i} {m.group(1) or m.group(2)}")
     return (not hits), ("незавершённого не найдено" if not hits else f"{len(hits)}: {hits[:4]}")
 
 
