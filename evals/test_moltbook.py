@@ -282,54 +282,139 @@ def test_role_brief_uses_ephemeral_content_and_returns_derived_observation(monke
     assert "external_messages" not in tables
 
 
-def test_writes_are_blocked_while_platform_requires_unsolved_verification(monkeypatch, tmp_path):
-    """После непройденной проверки новая запись не уходит: десять подряд — блокировка аккаунта."""
-    monkeypatch.setattr(moltbook, "TRUST_MARKER", tmp_path / "MOLTBOOK_TRUSTED")
-    calls = []
+# Реальная задача из документации Moltbook (skill.md): 20 - 5 = 15.00.
+REAL_CHALLENGE = ("A] lO^bSt-Er S[wImS aT/ tW]eNn-Tyy mE^tE[rS aNd] SlO/wS bY^ fI[vE, "
+                  "wH-aTs] ThE/ nEw^ SpE[eD?")
+VERIFY_CODE = "moltbook_verify_abc123def456"
 
-    def pending(method, path, payload):
-        calls.append(path)
-        return response(201, {"success": True,
+
+def _messages_table():
+    """В изолированной базе тестов таблицы эскалаций нет — создаём в форме council."""
+    con = moltbook._con()
+    con.execute("CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, sender TEXT, "
+                "recipient TEXT, topic TEXT, body TEXT, created_at TEXT, consumed_at TEXT)")
+    con.commit(); con.close()
+
+
+def _challenged(calls, code=VERIFY_CODE, text=REAL_CHALLENGE, verify_ok=True):
+    """Транспорт: запись возвращает challenge в формате площадки, /verify — вердикт."""
+    def fake(method, path, payload):
+        calls.append((method, path, payload))
+        if path == moltbook.VERIFY_PATH:
+            if verify_ok:
+                return response(200, {"success": True, "content_type": "comment",
+                                      "content_id": COMMENT_ID,
+                                      "message": "Verification successful!"})
+            return response(400, {"success": False, "error": "Incorrect answer",
+                                  "content_type": "comment", "content_id": COMMENT_ID})
+        return response(201, {"success": True, "message": "Complete verification to publish.",
                               "comment": {"id": COMMENT_ID, "content": payload["content"],
                                           "verification_status": "pending",
-                                          "verification": {"challenge": "redacted"}}})
+                                          "verification_required": True,
+                                          "verification": {"verification_code": code,
+                                                           "challenge_text": text,
+                                                           "expires_at": "2099-01-01T00:00:00Z"}}})
+    return fake
 
-    first = "A concrete answer about durable queues and explicit acknowledgement states."
-    moltbook.add_comment("tester", POST_ID, first, transport=pending)
-    assert moltbook.writes_blocked()
+
+def test_challenge_is_solved_and_submitted_when_confident():
+    """Разрешение владельца: запись читает challenge, решает и шлёт ответ на /verify."""
+    calls = []
+    result = moltbook.add_comment(
+        "tester", POST_ID,
+        "A concrete answer about durable queues and explicit acknowledgement states.",
+        transport=_challenged(calls))
+    assert [c[1] for c in calls] == [f"/posts/{POST_ID}/comments", moltbook.VERIFY_PATH]
+    assert calls[1][2] == {"verification_code": VERIFY_CODE, "answer": "15.00"}
+    assert result["published"] is True and result["state"] == "CONFIRMED"
+    assert result["verification"]["answer"] == "15.00"
+    con = moltbook._con()
+    row = con.execute("SELECT state, verification_status FROM moltbook_receipts").fetchone()
+    con.close()
+    assert tuple(row) == ("CONFIRMED", "verified")
+    assert moltbook.recent_failure_streak() == 0
+    assert moltbook.writes_blocked() is None
+
+
+def test_unsure_challenge_is_not_guessed_and_escalates():
+    """Три числа — решатель не уверен: ответ НЕ уходит, владельцу — эскалация."""
+    _messages_table()
+    calls = []
+    ambiguous = "a lobster swims at twenty meters and slows by five then gains three"
+    result = moltbook.add_comment(
+        "tester", POST_ID,
+        "A concrete answer about durable queues and explicit acknowledgement states.",
+        transport=_challenged(calls, text=ambiguous))
+    assert [c[1] for c in calls] == [f"/posts/{POST_ID}/comments"], "догадка ушла на /verify"
+    assert result["published"] is False
+    assert result["verification"]["reason"] == "solver unsure"
+    assert result["state"] == "PENDING_VERIFICATION"
+    con = moltbook._con()
+    esc = con.execute("SELECT body FROM messages WHERE recipient='ESCALATION'").fetchall()
+    con.close()
+    assert len(esc) == 1 and "не уверен" in esc[0][0]
+
+
+def test_rejected_answer_is_recorded_as_failure_and_escalates():
+    _messages_table()
+    calls = []
+    result = moltbook.add_comment(
+        "tester", POST_ID,
+        "A concrete answer about durable queues and explicit acknowledgement states.",
+        transport=_challenged(calls, verify_ok=False))
+    assert result["published"] is False
+    con = moltbook._con()
+    row = con.execute("SELECT state, verification_status FROM moltbook_receipts").fetchone()
+    esc = con.execute("SELECT COUNT(*) FROM messages WHERE recipient='ESCALATION'").fetchone()[0]
+    con.close()
+    assert tuple(row) == ("FAILED", "failed")
+    assert esc == 1
+    assert moltbook.recent_failure_streak() == 1
+
+
+def _seed_failures(n, verified_after=0):
+    """n истёкших pending-записей (провалы), затем verified_after успешных — новее."""
+    con = moltbook._con()
+    for i in range(n):
+        con.execute("INSERT INTO moltbook_receipts(agent,action,request_hash,state,"
+                    "verification_status,created_at) VALUES ('tester','post',?,"
+                    "'PENDING_VERIFICATION','pending','2000-01-01T00:00:00+00:00')", (f"f{i}",))
+    for i in range(verified_after):
+        con.execute("INSERT INTO moltbook_receipts(agent,action,request_hash,state,"
+                    "verification_status,created_at) VALUES ('tester','post',?,"
+                    "'CONFIRMED','verified',?)", (f"v{i}", moltbook.now()))
+    con.commit(); con.close()
+
+
+def test_breaker_halts_writes_before_suspension():
+    """Предохранитель: SAFE_FAILURE_LIMIT провалов подряд — запись не уходит в сеть."""
+    _messages_table()
+    _seed_failures(moltbook.SAFE_FAILURE_LIMIT)
+    assert moltbook.recent_failure_streak() == moltbook.SAFE_FAILURE_LIMIT
+    assert moltbook.SAFE_FAILURE_LIMIT < moltbook.SUSPENSION_AFTER
+    reason = moltbook.writes_blocked()
+    assert reason and "предохранитель" in reason
+    calls = []
     with pytest.raises(moltbook.VerificationRequired):
         moltbook.add_comment("tester", POST_ID,
                              "A different substantive answer about retry budgets in agent queues.",
-                             transport=pending)
-    assert len(calls) == 1, "запрос ушёл, хотя запись должна была быть остановлена до сети"
+                             transport=_challenged(calls))
+    assert calls == [], "запрос ушёл, хотя предохранитель должен был остановить его до сети"
 
 
-def test_owner_trust_marker_allows_exactly_one_probe(monkeypatch, tmp_path):
-    marker = tmp_path / "MOLTBOOK_TRUSTED"
-    monkeypatch.setattr(moltbook, "TRUST_MARKER", marker)
+def test_one_success_resets_the_failure_streak():
+    """Правило площадки: серия рвётся одним успехом — старые провалы не считаются."""
+    _seed_failures(moltbook.SAFE_FAILURE_LIMIT + 2, verified_after=1)
+    assert moltbook.recent_failure_streak() == 0
+    assert moltbook.writes_blocked() is None
 
-    def pending(method, path, payload):
-        return response(201, {"success": True,
-                              "comment": {"id": COMMENT_ID, "content": payload["content"],
-                                          "verification_status": "pending",
-                                          "verification": {"challenge": "redacted"}}})
 
-    def published(method, path, payload):
-        return response(201, {"success": True,
-                              "comment": {"id": "33333333-3333-4333-8333-333333333333",
-                                          "content": payload["content"],
-                                          "verification_status": "verified"}})
-
-    moltbook.add_comment("tester", POST_ID,
-                         "A concrete answer about durable queues and explicit acknowledgement states.",
-                         transport=pending)
-    con = moltbook._con()                # частота комментариев — отдельный предел, не предмет теста
-    con.execute("UPDATE moltbook_receipts SET created_at='2000-01-01T00:00:00+00:00'")
+def test_fresh_pending_is_in_flight_not_a_failure():
+    """Ещё не истёкший pending — полёт, а не провал: серию не увеличивает."""
+    con = moltbook._con()
+    con.execute("INSERT INTO moltbook_receipts(agent,action,request_hash,state,"
+                "verification_status,created_at) VALUES ('tester','post','p0',"
+                "'PENDING_VERIFICATION','pending',?)", (moltbook.now(),))
     con.commit(); con.close()
-    marker.write_text("owner confirmed trusted status", encoding="utf-8")
-    moltbook.add_comment("tester", POST_ID,
-                         "A second substantive answer about idempotent retries and receipts.",
-                         transport=published)
-    assert not marker.exists(), "отметка владельца должна расходоваться пробой"
-    assert moltbook.writes_blocked() is None, "запись опубликована без проверки — запрет должен открыться"
+    assert moltbook.recent_failure_streak() == 0
 

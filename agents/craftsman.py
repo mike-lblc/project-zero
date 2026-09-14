@@ -397,6 +397,10 @@ def _queue_for_executor(repo):
 
 # ---------------------------------------------------------------- 4. ЗАЯВКА НА ЗАДАЧУ
 US = "mike-lblc"                      # наш аккаунт на GitHub, под ним всё и делается
+# Предохранитель от сбоя, НЕ потолок продуктивности: столько PR в сутки настоящая
+# работа не наберёт; ограничение ловит только лавину из-за бага, которая забанила
+# бы аккаунт навсегда. Настоящий предел — сколько готовой сверенной работы есть.
+DELIVER_SAFETY_CAP = 20
 CLAIMABLE = ("doc", "readme", "quickstart", "translat", "guide", "typo", "jsdoc",
              "comment", "docstring", "i18n", "locale")
 
@@ -682,9 +686,16 @@ def deliver_ready(dry_run=False):
     today = now()[:10]
     sent = c.execute("SELECT COUNT(*) FROM actions WHERE kind='pr_submit' AND dry_run=0 "
                      "AND created_at LIKE ?", (today + "%",)).fetchone()[0]
-    if sent >= 1 and not dry_run:
+    # Это НЕ потолок продуктивности, а предохранитель от сбоя. Настоящий предел —
+    # сколько готовой сверенной работы нашлось (её обычно единицы). Ограничение
+    # существует лишь на случай бага: если что-то начнёт слать PR лавиной в чужие
+    # репозитории, GitHub забанит аккаунт mike-lblc НАВСЕГДА — а это единственный
+    # канал ко всем лидам. Двадцать настоящих PR в сутки мы всё равно не наберём;
+    # потолок высокий именно поэтому — он ловит катастрофу, а не работу.
+    if sent >= DELIVER_SAFETY_CAP and not dry_run:
         c.close()
-        return "на сегодня предел доставок (1 PR) исчерпан — работаем качеством, не потоком"
+        return (f"сработал предохранитель: {sent} PR за сутки — это подозрительно много "
+                f"для настоящей работы, останавливаюсь, чтобы не потерять аккаунт")
     row = c.execute("SELECT id, body FROM messages WHERE recipient='craftsman' "
                     "AND topic='documentation_ready' AND consumed_at IS NULL "
                     "ORDER BY id LIMIT 1").fetchone()

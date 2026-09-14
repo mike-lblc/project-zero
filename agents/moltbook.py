@@ -124,7 +124,9 @@ def reply_to_relevant_question(agent: str, post_id: str, answer: str) -> dict:
     """One relevant response after verifying a real question and clean answer.
 
     This endpoint is intentionally narrow. It does not search for strangers to
-    pitch, infer consent, solve a challenge, or classify an HTTP 201 as published.
+    pitch, infer consent, or classify an HTTP 201 as published. The platform's
+    verification challenge is solved inside core.moltbook._write (owner-approved),
+    with a breaker that halts writes well before the ten-failure suspension.
     """
     post = moltbook.get_post(agent, post_id)
     title = str(post.get("title") or "")

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from core.db import connect, ensure_schema
+from core import moltbook_challenge
 
 
 BASE = "https://www.moltbook.com/api/v1"
@@ -449,24 +450,96 @@ def _finish(rid: int, response: Response, fallback_id: str | None = None) -> dic
             "verification_required": challenge, "detail": detail}
 
 
-# ЗАПРЕТ ЗАПИСИ, ПОКА ПЛАТФОРМА ТРЕБУЕТ ПРОВЕРОЧНУЮ ЗАДАЧУ.
+# РЕШЕНИЕ ПРОВЕРОЧНОЙ ЗАДАЧИ MOLTBOOK ВКЛЮЧЕНО (по прямому разрешению владельца).
 #
 # Moltbook показывает пост, комментарий и ответ только после решения
-# «AI verification challenge», а решать её агентам запрещено: так записано в
-# постоянном разрешении владельца и так устроено это соединение. Каждая запись
-# без решения повисает в pending и считается проваленной проверкой, а десять
-# проваленных подряд — автоматическая блокировка аккаунта (moltbook.com/skill.md).
-# На 13.09.2026 провалено три: пост, комментарий и ответ от 12.09.
+# «AI verification challenge» — обфусцированной арифметики (два числа, одно
+# действие). Это не капча против роботов: площадка САМА просит ИИ-агентов её
+# решить, чтобы доказать понимание языка (moltbook.com/skill.md). Владелец
+# распорядился прямо: агенты решают её сами, чтобы публиковаться и общаться.
 #
-# Поэтому новая запись не отправляется, пока последняя запись висит в pending.
-# Запрет открывается сам, если площадка пометит записи проверенными (reconcile
-# увидит verified). Владелец может открыть ОДНУ пробную запись файлом
-# data/MOLTBOOK_TRUSTED, если Moltbook подтвердил доверенный статус: доверенные
-# агенты проверку не проходят. Файл расходуется пробой; если проверка снова
-# потребуется, запрет закроется.
+# ГЛАВНАЯ ОПАСНОСТЬ. Считается проваленной попыткой И неверный ответ, И
+# ИСТЁКШИЙ БЕЗ ОТВЕТА challenge (5 минут). Если последние десять попыток подряд
+# — провалы, аккаунт блокируется автоматически. Один УСПЕШНЫЙ ответ обнуляет
+# серию. Значит «молча копить pending» — не безопасно, а опасно: истечение тоже
+# провал. Безопасно — решать, когда уверены, и держать предохранитель НИЖЕ
+# десяти.
+#
+# Как это работает здесь:
+#   * запись создаётся, площадка возвращает challenge_text + verification_code;
+#   * решатель moltbook_challenge.solve() читает задачу; уверен — отправляем
+#     ответ на POST /verify; НЕуверен (None) — НЕ гадаем (пустая догадка = тот
+#     же провал, что истечение), а поднимаем эскалацию владельцу;
+#   * предохранитель: если подряд накопилось SAFE_FAILURE_LIMIT провалов (порог
+#     заметно ниже десяти), запись останавливается и владельцу уходит эскалация
+#     — чтобы серия провалов никогда не дошла до автоблокировки.
+# Доверенные агенты/админы challenge не получают вовсе — тогда запись просто
+# публикуется, и весь этот путь не срабатывает.
 CHALLENGE_ACTIONS = ("post", "comment", "reply")
-TRUST_MARKER = ROOT / "data" / "MOLTBOOK_TRUSTED"
+TRUST_MARKER = ROOT / "data" / "MOLTBOOK_TRUSTED"  # исторический флаг; больше не гейтит запись
 SUSPENSION_AFTER = 10
+SAFE_FAILURE_LIMIT = 6          # останавливаемся на шести подряд — запас в четыре до блокировки
+CHALLENGE_EXPIRY = timedelta(minutes=5)
+VERIFY_PATH = "/verify"
+
+
+def _escalate_owner(question: str, context: str = "") -> None:
+    """Кладёт вопрос в общую очередь эскалаций (та же, что читает escalation_watch).
+
+    core не импортирует agents.council (иначе цикл), поэтому пишем в messages
+    напрямую тем же форматом. Любая ошибка глушится: эскалация не должна ронять
+    запись.
+    """
+    try:
+        c = connect()
+        c.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) VALUES (?,?,?,?,?)",
+                  ("moltbook", "ESCALATION", "judgment",
+                   json.dumps({"role": "moltbook", "question": question, "context": context},
+                              ensure_ascii=False), now()))
+        c.commit(); c.close()
+    except Exception:
+        pass
+
+
+def _receipt_is_failure(verif: str | None, state: str | None, created_at: str | None) -> bool:
+    """Провалена ли попытка проверки: verified — нет; failed — да; pending — да,
+    только если истёк пятиминутный срок (иначе ещё в полёте)."""
+    if verif == "verified":
+        return False
+    if verif == "failed" or state == "FAILED":
+        return True
+    if state == "PENDING_VERIFICATION" or verif == "pending":
+        try:
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(created_at)
+        except Exception:
+            return True
+        return age > CHALLENGE_EXPIRY
+    return False
+
+
+def recent_failure_streak() -> int:
+    """Сколько провалов проверки подряд (с конца), пока не встретится успех.
+
+    Отражает правило Moltbook: блокировка, когда последние десять попыток —
+    сплошь провалы; один успех серию рвёт. Ещё-не-истёкший pending считаем
+    полётом и на нём останавливаемся (он не провал… пока)."""
+    c = _con()
+    try:
+        rows = c.execute("SELECT verification_status, state, created_at FROM moltbook_receipts "
+                         "WHERE action IN (?,?,?) ORDER BY id DESC LIMIT ?",
+                         (*CHALLENGE_ACTIONS, SUSPENSION_AFTER)).fetchall()
+    finally:
+        c.close()
+    streak = 0
+    for verif, state, created in rows:
+        if verif == "verified":
+            break                                  # успех обнуляет серию
+        if _receipt_is_failure(verif, state, created):
+            streak += 1
+        # pending в полёте — ни успех, ни провал: пропускаем и считаем дальше.
+        # Если бы мы здесь останавливались, залп записей за пять минут читал бы
+        # серию как 0 и обходил предохранитель.
+    return streak
 
 
 def unsolved_challenges() -> int:
@@ -479,52 +552,89 @@ def unsolved_challenges() -> int:
 
 
 def writes_blocked() -> str | None:
-    """Причина, по которой запись сейчас запрещена. None — запись возможна."""
-    c = _con()
+    """Причина остановки записи, или None. Теперь блокирует ТОЛЬКО у порога
+    безопасности — решать проверку разрешено, копить провалы к блокировке нет."""
+    streak = recent_failure_streak()
+    if streak >= SAFE_FAILURE_LIMIT:
+        return (f"Moltbook: подряд {streak} проваленных проверок из {SUSPENSION_AFTER} до "
+                f"автоблокировки; сработал предохранитель на {SAFE_FAILURE_LIMIT}. Запись "
+                f"остановлена, пока проверка не пройдёт успешно либо владелец не подтвердит "
+                f"доверенный статус аккаунта.")
+    return None
+
+
+def submit_verification(verification_code: str, answer: str,
+                        transport: Transport | None = None) -> Response:
+    """POST /verify: отправляет решение проверочной задачи."""
+    code = str(verification_code or "").strip()
+    if not code:
+        raise ValueError("verification_code is required")
+    return _call("POST", VERIFY_PATH,
+                 {"verification_code": code, "answer": str(answer).strip()},
+                 transport=transport)
+
+
+def _extract_challenge(body: Any) -> tuple[str | None, str | None]:
+    """Достаёт (verification_code, challenge_text) из ответа записи, или (None,None)."""
+    for obj in _objects(body):
+        code = obj.get("verification_code")
+        text = obj.get("challenge_text")
+        if code and text:
+            return str(code), str(text)
+    return None, None
+
+
+def _solve_and_verify(agent: str, rid: int, response: Response,
+                      transport: Transport | None = None) -> dict[str, Any]:
+    """Читает challenge из ответа, решает и отправляет ответ. Обновляет чек и квитанцию.
+
+    Никогда не гадает: если решатель не уверен — ответ НЕ уходит (пустая догадка
+    = тот же провал, что истечение), но владельцу летит эскалация."""
+    code, text = _extract_challenge(response.body)
+    if not code or not text:
+        _record_check("verify_extract", False,
+                      "в ответе нет verification_code/challenge_text — формат изменился")
+        _escalate_owner("Moltbook вернул проверку без ожидаемых полей — нужен ручной разбор формата",
+                        f"квитанция={rid}; запись повиснет в pending и истечёт как один провал")
+        return {"solved": False, "reason": "challenge fields missing"}
+    answer = moltbook_challenge.solve(text)
+    if answer is None:
+        _record_check("verify_solve", False, f"решатель не уверен; challenge={text[:140]}")
+        _escalate_owner("Решатель проверки Moltbook не уверен — ответ НЕ отправлен (не жжём попытку догадкой)",
+                        f"квитанция={rid}; challenge={text[:300]}")
+        return {"solved": False, "reason": "solver unsure", "challenge": text[:200]}
     try:
-        last = c.execute("SELECT verification_status, state FROM moltbook_receipts "
-                         "WHERE action IN (?,?,?) ORDER BY id DESC LIMIT 1",
-                         CHALLENGE_ACTIONS).fetchone()
-    finally:
-        c.close()
-    if not last or last[0] != "pending":
-        return None
-    n = unsolved_challenges()
-    return (f"Moltbook требует проверочную задачу, решать её агентам нельзя; непройденных "
-            f"проверок {n} из {SUSPENSION_AFTER} до автоматической блокировки аккаунта. "
-            f"Новая запись повиснет в pending и приблизит блокировку.")
-
-
-def _verification_gate(action: str, request_hash: str) -> bool:
-    """True — запись идёт как проба по отметке владельца. Отказ — исключением."""
-    if action not in CHALLENGE_ACTIONS:
-        return False
+        vr = submit_verification(code, answer, transport=transport)
+    except Exception as error:
+        _record_check("verify_submit", False, f"{type(error).__name__}: {str(error)[:200]}")
+        return {"solved": False, "reason": f"submit error {type(error).__name__}", "answer": answer}
+    vbody = vr.body if isinstance(vr.body, dict) else {}
+    success = vr.status in {200, 201} and vbody.get("success") is True
+    detail = str(vbody.get("message") or vbody.get("error") or "")[:400]
     c = _con()
-    duplicate = c.execute("SELECT 1 FROM moltbook_receipts WHERE request_hash=?",
-                          (request_hash,)).fetchone()
-    c.close()
-    if duplicate:
-        return False                  # повтор отвергнет _reserve своей ошибкой
-    reason = writes_blocked()
-    if not reason:
-        return False
-    if TRUST_MARKER.exists():
-        return True                   # отметка расходуется, только когда запрос уходит
-    _record_check("verification_gate", False, reason)
-    raise VerificationRequired(reason)
+    c.execute("UPDATE moltbook_receipts SET verification_status=?, state=?, detail=?, checked_at=? WHERE id=?",
+              ("verified" if success else "failed", "CONFIRMED" if success else "FAILED",
+               detail, now(), rid))
+    c.commit(); c.close()
+    _record_check("verify_submit", success,
+                  f"answer={answer}; http={vr.status}; success={vbody.get('success')}")
+    if not success:
+        _escalate_owner("Ответ на проверку Moltbook отклонён — решатель ошибся на реальной задаче",
+                        f"квитанция={rid}; ответ={answer}; challenge={text[:300]}; отклик={detail[:200]}")
+    return {"solved": success, "answer": answer, "http": vr.status, "detail": detail}
 
 
 def _write(agent: str, action: str, path: str, payload: dict[str, Any],
            target_id: str | None = None, parent_id: str | None = None,
            transport: Transport | None = None) -> dict[str, Any]:
     _require_access(agent, action)
-    probe = _verification_gate(action, _hash(action, agent, target_id, parent_id, payload))
+    if action in CHALLENGE_ACTIONS:
+        blocked = writes_blocked()
+        if blocked:
+            _record_check("write_breaker", False, blocked)
+            _escalate_owner("Moltbook у порога автоблокировки — нужна пауза или доверенный статус", blocked)
+            raise VerificationRequired(blocked)
     rid, _ = _reserve(agent, action, target_id, parent_id, payload)
-    if probe:
-        # Отметка расходуется здесь, а не в проверке: отказ по частоте или
-        # повтору не должен сжигать единственную пробу владельца.
-        TRUST_MARKER.unlink(missing_ok=True)
-        _record_check("verification_gate", True, "пробная запись по отметке владельца")
     try:
         response = _call("POST" if action != "edit" else "PATCH", path,
                          payload, transport=transport)
@@ -535,6 +645,12 @@ def _write(agent: str, action: str, path: str, payload: dict[str, Any],
         c.commit(); c.close()
         raise
     result = _finish(rid, response, fallback_id=target_id if action == "edit" else None)
+    if action in CHALLENGE_ACTIONS and result.get("verification_required"):
+        verdict = _solve_and_verify(agent, rid, response, transport=transport)
+        result["verification"] = verdict
+        result["published"] = bool(verdict.get("solved"))
+        if verdict.get("solved"):
+            result["state"] = "CONFIRMED"
     _touch_access(agent, write=True)
     return result
 
