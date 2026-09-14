@@ -1,0 +1,17 @@
+{
+  "name": "p0-aibtc-wallet",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Минимальный кошелёк-подписант агента для доски AIBTC: seed → BTC bc1q + Stacks SP, BIP-322 и Stacks RSV подписи, регистрация и сдача работы. Ровно те примитивы, что в официальном @aibtc/mcp-server, без DeFi-зависимостей.",
+  "type": "module",
+  "dependencies": {
+    "@scure/base": "^2.0.0",
+    "@scure/bip32": "^1.4.0",
+    "@scure/bip39": "^2.0.1",
+    "@scure/btc-signer": "^2.0.1",
+    "@stacks/common": "^7.3.1",
+    "@stacks/encryption": "^7.3.1",
+    "@stacks/transactions": "^7.3.1",
+    "@stacks/wallet-sdk": "^7.2.0"
+  }
+}

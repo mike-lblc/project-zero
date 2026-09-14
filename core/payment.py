@@ -160,6 +160,13 @@ def _con():
 OWNER_DESTINATIONS = {
     "evm": "0xECa891e34b3E5873181Fb779672564E198C55354",
     "btc": "bc1qqwgyyqv6raq2jnghals2n2aujgwd4e9p64g4hr",
+    # Даны владельцем 14.09.2026 (Trust Wallet). Solana — вторая по размеру сеть
+    # x402 (≈5 000 сервисов принимают USDC EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v);
+    # маршрут заведён, но наблюдателя поступлений по Solana пока нет — статус
+    # остаётся unverified, пока он не появится. TRON ни один наш канал не платит —
+    # адрес записан на всякий случай, маршрута нет.
+    "sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
+    "tron": "TB9rHqT8yLxwdsWCb3zN2nvjc8wLhsUdaQ",
 }
 
 # Посев маршрутов. Ни один не объявляется рабочим заранее: статус
@@ -180,6 +187,8 @@ SEED_ROUTES = [
     ("self-custody", "crypto", "POL", "polygon", OWNER_DESTINATIONS["evm"]),
     ("self-custody", "crypto", "USDC.e", "polygon", OWNER_DESTINATIONS["evm"]),
     ("self-custody", "crypto", "USDC.e", "arbitrum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "USDC", "solana", OWNER_DESTINATIONS["sol"]),
+    ("self-custody", "crypto", "SOL", "solana", OWNER_DESTINATIONS["sol"]),
     ("algora", "bounty_platform", "USD", "", None),
     ("polar", "bounty_platform", "USD", "", None),
     ("gitcoin", "bounty_platform", "USD", "", None),
@@ -213,6 +222,8 @@ SEED_NETWORKS = [
     ("polygon", "eip155:137", "POL", 1, None),
     ("arbitrum", "eip155:42161", "ETH", 1, None),
     ("bitcoin", "bitcoin", "BTC", 1, "адрес bech32, сегвит"),
+    ("solana", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "SOL", 1,
+     "USDC mint EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v (по каталогу x402); наблюдателя поступлений нет"),
 ]
 
 SEED_CURRENCIES = [

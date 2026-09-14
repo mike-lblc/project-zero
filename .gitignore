@@ -45,3 +45,6 @@ data/deliveries/
 
 # решение владельца об одной пробной записи в Moltbook — локальное
 data/MOLTBOOK_TRUSTED
+
+# AIBTC-подписант: зависимости не в репозиторий
+ops/aibtc/node_modules/
