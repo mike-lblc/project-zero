@@ -553,12 +553,60 @@ export default {
       network: "eip155:8453 (Base)",
       asset: "USDC",
       pricing: Object.entries(TIERS).map(([e, t]) => ({ endpoint: e, usdc: t.usd, what: t.what })),
-      free_endpoints: ["/", "/health", "/sample", "/join"],
+      free_endpoints: ["/", "/health", "/sample", "/join", "/openapi.json", "/.well-known/x402"],
       weekly_report: JOIN_URL,
       weekly_report_note: "Free weekly market changes: new services, ones going quiet, price moves. "
                         + "Confirmation required, one email a week.",
       payTo,
     });
+    // ---- обнаружение для индексаторов (x402scan и совместимые). До 15.09 нас не было ни в
+    // одном индексе: Bazaar заносит только после оплаченного вызова через CDP, а x402scan
+    // читает /.well-known/x402 или /openapi.json и регистрирует адреса сам. Второй путь
+    // не требует ни платежа, ни аккаунта — только эти два документа.
+    if (path === "/.well-known/x402") return json({
+      version: 1,
+      resources: Object.keys(TIERS).map((e) => SELF + e),
+      instructions: "Ranked x402 market data. Every paid route returns an x402 v2 402 with the "
+                  + "receiving address; /sample and /health are free and carry the same receipt.",
+    });
+    if (path === "/openapi.json") {
+      const paths = {};
+      for (const [e, t] of Object.entries(TIERS)) {
+        const q = (INPUTS[e] || {}).queryParams || {};
+        paths[e] = { get: {
+          summary: t.what,
+          operationId: e.slice(1),
+          parameters: Object.entries(q).map(([name, example]) => ({
+            name, in: "query", required: name === "q", schema: { type: typeof example === "number" ? "integer" : "string" },
+            example })),
+          "x-payment-info": { protocols: ["x402"], network: "eip155:8453", asset: "USDC",
+                              price: { mode: "fixed", currency: "USD", amount: String(t.usd) } },
+          responses: {
+            "200": { description: "ranked results with a receipt (snapshot hash, window, scoring revision)" },
+            "402": { description: "x402 v2 payment required; accepts[] carries payTo and amount in atomic USDC units" },
+          },
+        } };
+      }
+      for (const e of ["/sample", "/health", "/"]) {
+        paths[e] = { get: { summary: e === "/sample" ? "three ranked results, free, with receipt"
+                                    : e === "/health" ? "liveness, catalog size, snapshot hash" : "service description and pricing",
+                            operationId: e === "/" ? "root" : e.slice(1),
+                            responses: { "200": { description: "ok" } } } };
+      }
+      return json({
+        openapi: "3.1.0",
+        info: { title: "x402 Bazaar Rank", version: WORKER_VERSION,
+                description: "Ranked discovery over the live x402 service market: every indexed service "
+                           + "scored by real 30-day calls and paying-wallet bounds, with a receipt naming "
+                           + "the snapshot hash and scoring revision." },
+        servers: [{ url: SELF }],
+        paths,
+        components: { securitySchemes: { x402: { type: "apiKey", in: "header", name: "PAYMENT-SIGNATURE",
+                                                  description: "x402 v2 payment signature; the 402 response tells how" } } },
+        security: [{ x402: [] }],
+        "x-discovery": { protocols: ["x402"], network: "eip155:8453", payTo },
+      });
+    }
     if (path === "/health") return json({ ok: true, catalog: CATALOG.length, snapshotHash: SNAPSHOT.sha256,
                     snapshotGeneratedAt: SNAPSHOT.generatedAt, scoringRevision: SCORING_REVISION,
                     version: WORKER_VERSION, weekly_report: JOIN_URL });
@@ -663,7 +711,7 @@ export default {
       return json(payload(path, url), 200, confirm);
     }
 
-    return json({ error: "not found", try: ["/", "/health", "/sample", "/join", ...Object.keys(TIERS)],
+    return json({ error: "not found", try: ["/", "/health", "/sample", "/join", "/openapi.json", "/.well-known/x402", ...Object.keys(TIERS)],
                   weekly_report: JOIN_URL }, 404);
   },
 };
