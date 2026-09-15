@@ -127,7 +127,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             # улучшатель и снабженец выглядели молчащими при настоящей работе,
             # и сторож называл их в списке молчащих. Хозяин шага — владелец
             # инструмента, которым шаг исполняется.
-            "advance_tasks":"orchestrator", "hunt_contests":"bounty", "hunt_hn_jobs":"bounty", "taskmarket_sync":"bounty",
+            "advance_tasks":"orchestrator", "hunt_contests":"bounty", "hunt_hn_jobs":"bounty", "taskmarket_sync":"bounty", "taskmarket_work":"craftsman",
             "market_demand":"explorer", "chain_economics":"collector", "rich_targets":"leads",
             "package_docs":"executor", "supply_check":"supplier", "where_time_goes":"optimizer",
             "produce_work":"executor", "check_work":"executor", "guard_knowledge":"verifier",
@@ -583,6 +583,7 @@ EVENT_HANDLER = {
     "evidence_recorded": "verify_evidence",
     "channel_unavailable": "channel_health",
     "fresh_bounty": "pursue",
+    "taskmarket_candidate": "taskmarket_work",
     "invariant_broken": "mechanic",
     "worker_down": "watchdog",
     "new_open_path": "probe_paths",
@@ -1088,6 +1089,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("hunt_hn_jobs", _src("hunt_hn_jobs")),      # вакансии без ключа
               ("hunt_offsite", _offsite_step),              # площадки вне GitHub — браузерный разведчик
               ("taskmarket_sync", _src("taskmarket_sync")),  # наши подачи и выплаты на Taskmarket
+              ("taskmarket_work", _src("taskmarket_work")),  # сделать и подать работу — без ожидания сеанса
               ("market_demand", _src("market_demand")),    # спрос, измеренный чужими руками
               ("chain_economics", _src("chain_economics")),  # выручка в долларах, не в токенах
               ("rich_targets", _src("rich_targets")),      # у кого есть деньги
@@ -1149,7 +1151,7 @@ THINK_AT = 15
 # очереди). Между редкими слотами теперь есть ещё один, только для них.
 MONEY_STEPS = ("pursue", "find_doc_work", "deliver_ready", "hunt_bounties", "fresh_bounties",
                "check_replies", "reach_out", "watch_prs", "collect_payouts", "moltbook_demand",
-               "dealer_cycle", "deliver_aibtc", "strategist_think")
+               "dealer_cycle", "deliver_aibtc", "strategist_think", "taskmarket_work")
 MONEY_CYCLE = []
 for _n, _f in SLOW_CYCLE:
     if _n in MONEY_STEPS and all(_n != m for m, _ in MONEY_CYCLE):
@@ -1242,6 +1244,7 @@ CLOUD_CANNOT = {
     "mail_advance": "тот же ключ",
     "reason_and_act": "рассуждение агентов идёт через локальную модель",
     "taskmarket_sync": "ключ кошелька Taskmarket лежит только на этой машине (~/.taskmarket)",
+    "taskmarket_work": "ключ кошелька и локальная модель — только на этой машине",
     "health_check": "проверяет локальный сервис на 127.0.0.1",
     "scout_research": "идёт через локальную языковую модель",
     "deep_check": "тоже через локальную модель",
@@ -1306,6 +1309,7 @@ PAUSE_CAP_MIN = {
     "hunt_offsite": 360,
     "health_check": 30,       # здоровье сервиса — коммерческий показатель, не молчать по 160 минут
     "taskmarket_sync": 60,
+    "taskmarket_work": 30,
     "explore_alternatives": 180,
     "scout_registrations": 720,
 }

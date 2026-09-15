@@ -996,6 +996,17 @@ def taskmarket_sync():
                         "подача бесплатна, выплата идёт на кошелёк владельца; текст работы — суждение, его пишет сильная модель")
         if found:
             lines.append(f"новых задач класса {len(found)}")
+            # НЕ ЖДАТЬ. Событие поднимает мастерового вне очереди; первую задачу делаем сразу.
+            try:
+                from core import events as _ev
+                _ev.publish("taskmarket_candidate", {"tasks": [str(t.get("id")) for t in found]}, source="bounty")
+            except Exception:
+                pass
+            try:
+                from agents import taskmarket_work as _tw
+                lines.append("работа: " + _tw.work(limit=1))
+            except Exception as e:
+                lines.append(f"работа не начата: {type(e).__name__}")
     except Exception as e:
         lines.append(f"список задач не прочитан: {type(e).__name__}")
     if c is not None:

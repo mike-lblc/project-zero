@@ -59,6 +59,7 @@ SUBSCRIPTIONS = {
     # оплаты и переводит сделку в PAID. Раньше будили оркестратора, который
     # поступление видел, но со сделкой не связывал.
     "payment_received": ("collector", 1),       # деньги на кошельке
+    "taskmarket_candidate": ("craftsman", 2),   # открыта задача нашего класса — делать сейчас
     "fresh_bounty": ("bounty", 2),              # свежая премия, толпы ещё нет
     "invariant_broken": ("adversary", 2),       # проверка, выведенная из поломки
     "worker_down": ("watchdog", 2),

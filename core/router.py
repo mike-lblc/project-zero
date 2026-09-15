@@ -36,6 +36,7 @@ LOCAL_MODEL = MODELS["standard"]          # значение по умолчан
 # Лёгкая остаётся только там, где вызовы редки и качество не решает.
 WEIGHT = {
     "classify": "heavy",      # рассуждение агента — самый частый вызов
+    "draft": "heavy",         # черновик работы по брифу
     "extract": "heavy",
     "parse": "heavy",
     "summarize": "heavy",
@@ -101,7 +102,9 @@ def model_for(task_type):
     """Какая модель возьмёт эту задачу. Выбор объясним и проверяем."""
     return where(task_type)[1]
 
-MECHANICAL = {"extract","classify","tag","format","parse","dedupe","summarize","translate"}
+# «draft» — производство результата по брифу заказчика (владелец 15.09: «it shouldn't be delayed»).
+# Годность решают механические ворота из брифа, а не слова модели; принятие остаётся за заказчиком.
+MECHANICAL = {"extract","classify","tag","format","parse","dedupe","summarize","translate","draft"}
 JUDGMENT   = {"decide","choose","plan","approve","rule","propose","evaluate","prioritize","pivot"}
 
 class EscalationRequired(Exception):

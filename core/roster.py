@@ -350,6 +350,14 @@ def _contests():
             f"${top['prize_usd']:,}; ВНИМАНИЕ: платят одному победителю")
 
 
+@tool("taskmarket_work", "YELLOW",
+      "сделать и подать работу по открытой задаче Taskmarket: черновик локальной моделью, ворота из брифа, подача",
+      needs=("сеть", "node", "модель"))
+def _tm_work():
+    from agents import taskmarket_work
+    return taskmarket_work.work(limit=1)
+
+
 @tool("taskmarket_sync", "GREEN",
       "наши подачи на Taskmarket: статусы, выплата на кошелёк владельца, новые задачи класса",
       needs=("сеть", "node"))
@@ -785,7 +793,7 @@ register(Agent(
     kpi="доля утверждений в отправленной работе, подтверждённых исходным кодом, "
         "и число PR, доведённых до ответа мейнтейнера",
     tools=("watch_prs", "collect_payouts", "watch_payments", "check_indexing",
-           "package_docs"),
+           "package_docs", "taskmarket_work"),
     system=COMMON + """
 ТЫ — МАСТЕРОВОЙ.
 
