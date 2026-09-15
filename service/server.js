@@ -305,8 +305,13 @@ function agentState() {
     distributor: 'видимость в каталогах', scribe: 'летопись изменений',
     mechanic: 'механическая правка кода с откатом',
   };
+  // Процесс, не оставлявший следов неделю, — не живой процесс, а призрак в журнале
+  // (так висел «стратег», влитый в оркестратор 15.09): карточку получают только те,
+  // у кого есть прогоны за последние семь дней.
+  const week = new Date(Date.now() - 7 * 864e5).toISOString();
   for (const id of Object.keys(runStats).sort()) {
     if (inRoster.has(id)) continue;
+    if (!runStats[id].last || runStats[id].last < week) continue;
     agents.push(card(id, PROCESS_ROLE[id] || 'служебный процесс', 'без языковой модели', 'process'));
   }
   const day = new Date(Date.now() - 864e5).toISOString();
