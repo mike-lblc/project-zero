@@ -374,12 +374,46 @@ def _remember_fix(rel, kind, problem):
         pass
 
 
+FIXABLE = ("unused_import", "bare_except")     # виды, для которых у apply_fix есть правка
+
+
+def _tried_recently(c, rel, detail, days=7):
+    return c.execute("SELECT 1 FROM code_fixes WHERE file=? AND problem=? AND at > "
+                     "strftime('%Y-%m-%dT%H:%M:%S','now',?) LIMIT 1",
+                     (rel, detail, f"-{days} days")).fetchone() is not None
+
+
 def repair_round(limit=3):
-    """Один заход: находит проблемы, чинит самые серьёзные и публикует их."""
-    probs = sorted(find_problems(), key=lambda p: -p["severity"])
-    if not probs:
+    """Один заход: чинит то, что умеет, остальное называет один раз.
+
+    Сто двенадцать заходов подряд давали «найдено 21, починено 0»: заход брал три
+    самых серьёзных дефекта, а это были «параметр не используется» — правки для
+    них нет, и до семи убираемых импортов очередь не доходила никогда.
+    """
+    found = find_problems()
+    if not found:
         bus.broadcast("mechanic", "Прошёл по коду: определимых дефектов нет.")
         return "дефектов нет"
+    c = _con()
+    probs = [p for p in sorted(found, key=lambda p: -p["severity"])
+             if p["kind"] in FIXABLE and p["file"] not in UNTOUCHABLE
+             and not _tried_recently(c, p["file"], p["detail"])]
+    c.close()
+    unfixable = [p for p in found if p["kind"] not in FIXABLE]
+    if unfixable:
+        # На доску один раз, пока список не изменится — не каждый заход.
+        try:
+            from core import memory as _mem
+            text = f"дефектов без безопасной правки {len(unfixable)}: " + "; ".join(
+                f"{p['file']}: {p['detail'][:80]}" for p in unfixable[:4])
+            fresh, _ = _mem.changed("mechanic", "unfixable", text)
+            if fresh:
+                bus.broadcast("mechanic", f"Вижу, но не чиню (нет безопасной правки) — {text}")
+        except Exception:
+            pass
+    if not probs:
+        return (f"найдено {len(found)}, чинить нечего: {len(unfixable)} без безопасной правки, "
+                f"остальные пробованы на неделе")
     applied = rolled = skipped = 0
     fixed_files = []
     for p in probs[:limit]:
@@ -392,7 +426,7 @@ def repair_round(limit=3):
         else:
             skipped += 1
     tail = f"; {publish(fixed_files)}" if applied else ""
-    return (f"найдено {len(probs)}, починено {applied}, откачено {rolled}, "
+    return (f"найдено {len(found)}, к правке {len(probs)}, починено {applied}, откачено {rolled}, "
             f"пропущено {skipped}{tail}")
 
 

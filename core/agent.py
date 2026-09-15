@@ -195,7 +195,14 @@ class Agent:
         except Exception:
             cap = {}
 
-        return {"последние прогоны": recent, "что уже срабатывало": tried,
+        # ОБЩАЯ ДОСКА: находки и слова других, вопросы ко мне, общий план, деньги.
+        try:
+            from core.board import view as _board
+            board = _board(self.name)
+        except Exception:
+            board = {}
+        return {"общая доска": board,
+                "последние прогоны": recent, "что уже срабатывало": tried,
                 "что не сработало": failed, "мои задачи": tasks,
                 "входящие": inbox, "наблюдения инструментов": observations,
                 "что мы уже выясняли": lessons,

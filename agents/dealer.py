@@ -1061,3 +1061,42 @@ def report():
 if __name__ == "__main__":
     print(cycle(dry_run="--dry" in sys.argv))
     print(json.dumps(last_state(), ensure_ascii=False, indent=1)[:3000])
+
+
+# ═══════════════════════════════════════════ browser_scout: способы входа в индексы
+_REG_HINTS = (
+    (re.compile(r"registerFromOrigin|/api/trpc/public\.resources", re.I), "api: tRPC registerFromOrigin (как x402scan)", 0),
+    (re.compile(r"\.well-known/x402|openapi\.json|discovery document", re.I), "автообнаружение по /openapi.json или /.well-known/x402", 0),
+    (re.compile(r"add your (api|server|service|resource)|register your|submit (a|your) (api|service|resource)|list your", re.I), "форма добавления на сайте", None),
+    (re.compile(r"sign ?in|log ?in|connect wallet|create account", re.I), "требует входа", 1),
+)
+
+
+def scout_registrations(limit=4):
+    """Читает страницы индексов-кандидатов браузером (страницы рисуются скриптом) и записывает
+    способ входа: API, автообнаружение, форма или вход по аккаунту. Регистрирует только там,
+    где найден API без аккаунта; форма — задача владельцу/механику, браузер ничего не нажимает."""
+    from core import browser
+    c = _con()
+    rows = c.execute("SELECT key, url FROM channels WHERE kind IN ('index_candidate','index') AND alive=1 "
+                     "AND (how IS NULL OR how LIKE 'найден поиском%') ORDER BY id LIMIT ?", (limit,)).fetchall()
+    c.close()
+    out = []
+    for key, url in rows:
+        try:
+            page = str(browser.read(url))[:60000]
+        except Exception as e:
+            out.append(f"{key}: браузер: {type(e).__name__}")
+            c = _con(); c.execute("UPDATE channels SET checked_at=?, evidence=? WHERE key=?",
+                                  (now(), f"браузер: {type(e).__name__}: {str(e)[:80]}", key)); c.commit(); c.close()
+            continue
+        found = [(how, acc) for rx, how, acc in _REG_HINTS if rx.search(page)]
+        how = "; ".join(h for h, _ in found) or "способ входа не виден на странице"
+        acc = next((a for _, a in found if a is not None), None)
+        c = _con()
+        c.execute("UPDATE channels SET how=?, needs_account=COALESCE(?, needs_account), checked_at=?, "
+                  "evidence=COALESCE(evidence,'') || ? WHERE key=?",
+                  (how, acc, now(), f" | браузер {now()[:10]}: {how}", key))
+        c.commit(); c.close()
+        out.append(f"{key}: {how}")
+    return "способы входа: " + ("; ".join(out) if out else "кандидатов без разбора нет")

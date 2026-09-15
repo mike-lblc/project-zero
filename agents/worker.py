@@ -54,6 +54,12 @@ def say(agent, text, topic="chat"):
     Владелец поймал: 89% реплик были дословными дублями. Теперь дубль молча
     пропускается, а редкое подтверждение жизни идёт раз в 20 циклов.
     """
+    if topic == "chat" and "молчат дольше" in text:
+        # СПИСОК МОЛЧАЩИХ — только когда он изменился: половина состава молчит по
+        # расписанию, и ежеминутный повтор прятал настоящие поломки в шуме.
+        fresh, _ = memory.changed("watchdog", "say:silent", text)
+        if not fresh:
+            return
     if topic == "chat":
         con = init_db()
         # БЕЗ ОКНА ПО ВРЕМЕНИ. Раньше дубль пропускался только в пределах шести
@@ -103,11 +109,11 @@ def note(agent, claim, source_id=None, conf=None):
     con.close()
 
 
-AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"watchdog","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","deliver_ready":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"channel_manager","mail_advance":"channel_manager","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"distributor","scribe":"scribe",
+AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craftsman","deep_check":"prospector","escalation_watch":"orchestrator","housekeeping":"watchdog","pursue":"craftsman","mtbx_audit":"adversary","prospect":"prospector","probe_paths":"prospector","path_report":"prospector","find_channel":"leads","verify_service":"leads","collect_payouts":"craftsman","fresh_bounties":"bounty","watch_prs":"craftsman","find_doc_work":"craftsman","deliver_ready":"craftsman","hunt_bounties":"bounty","mechanic":"mechanic","find_leads":"leads","diagnose_leads":"salesman","mail_sync":"channel_manager","mail_advance":"channel_manager","economics":"optimizer","briefing":"orchestrator","merchant":"merchant","distributor":"channel_manager","scribe":"scribe",
             "moltbook_heartbeat":"channel_manager","moltbook_replies":"channel_manager","moltbook_demand":"channel_manager",
             "watchdog":"watchdog","explorer_replies":"explorer",
             "watch_payments":"collector","refresh_market":"scout","scout_research":"scout",
-            "health_check":"judge","explore":"explorer","study_market":"salesman",
+            "health_check":"watchdog","explore":"explorer","study_market":"salesman",
             "critique":"critic","audit":"adversary","optimize":"optimizer",
             "explore_alternatives":"explorer",
             # РОЛИ ИЗ ДИРЕКТИВЫ. Без этих строк их шаги писались в журнал как
@@ -128,7 +134,8 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "improve_code":"improver", "reach_out":"salesman",
             "dealer_cycle":"dealer", "dealer_state":"dealer", "deliver_aibtc":"bounty",
             "revalidate_channels":"leads",
-            "strategist_think":"strategist", "strategist_report":"strategist",
+            "strategist_think":"orchestrator", "strategist_report":"orchestrator",
+            "scout_registrations":"browser_scout",
             "moltbook_address_survey":"dealer"}
 
 
@@ -588,6 +595,9 @@ _PENDING_EVENT = [None]
 _SKIP_EVENT_ONCE = [False]
 
 
+REASONERS_PER_TURN = 2
+
+
 def reason_and_act():
     """Оборот РАССУЖДАЮЩЕГО агента: он сам выбирает, что делать дальше.
 
@@ -607,12 +617,17 @@ def reason_and_act():
     names = sorted(agent.REGISTRY)
     if not names:
         return "рассуждающих агентов нет"
-    name = next_reasoner(names)
-    a = agent.get(name)
-    r = a.act()
-    if r.get("ok"):
-        say(name, f"Решил сам: беру «{r['chose']}». Почему: {r.get('why','')[:160]}")
-    return f"{name} -> {r.get('chose')}: {str(r.get('detail'))[:80]}"
+    # ДВОЕ ЗА ОБОРОТ. Один рассуждающий в редком слоте давал каждому слово раз в
+    # шесть часов; общая доска и разговор между агентами требуют чаще.
+    outs = []
+    for _ in range(REASONERS_PER_TURN):
+        name = next_reasoner(names)
+        a = agent.get(name)
+        r = a.act()
+        if r.get("ok"):
+            say(name, f"Решил сам: беру «{r['chose']}». Почему: {r.get('why','')[:160]}")
+        outs.append(f"{name} -> {r.get('chose')}: {str(r.get('detail'))[:60]}")
+    return " | ".join(outs)
 
 
 def housekeeping():
@@ -970,6 +985,22 @@ CYCLE = [("watch_payments", watch_payments),        # миссия: первый
          ("watchdog", _team("watchdog"))]           # живость агентов
 
 # РЕДКИЕ — полезны, но не ежеминутно.
+def _merchant_gated():
+    """Торговец считает цены по продажам; при нуле продаж считать нечего — ждёт первого поступления."""
+    from core.db import connect as _c
+    con = _c()
+    try:
+        n = con.execute("SELECT COUNT(*) FROM payment_receipts").fetchone()[0]
+    except Exception:
+        n = 0
+    finally:
+        con.close()
+    if not n:
+        return "продаж нет — тарифы не пересчитываются; торговец проснётся с первым поступлением"
+    from agents import team
+    return dict(team.CYCLE)["merchant"]()
+
+
 SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("moltbook_heartbeat", lambda: __import__("agents.moltbook", fromlist=["heartbeat"]).heartbeat()),
               ("moltbook_replies", lambda: __import__("agents.moltbook", fromlist=["watch_replies"]).watch_replies()),
@@ -982,7 +1013,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("mail_advance", _postman("mail_advance")),
               ("explore", _growth("explore")),
               ("explore_alternatives", _growth("explore_alternatives")),
-              ("merchant", _team("merchant")),
+              ("merchant", _merchant_gated),           # тарифы пересчитываются, когда есть продажи
               ("study_market", study_market),
               ("optimize", _growth("optimize")),
               ("economics", economic_review),
@@ -1055,8 +1086,14 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               # СТРАТЕГ — оборот мышления: гипотезы из живых компонентов, эксперименты, отбор.
               ("strategist_think", _src("strategist_think")),
               ("strategist_report", _src("strategist_report")),
+              ("scout_registrations", _src("scout_registrations")),  # способы входа в индексы — браузером
               ("moltbook_address_survey", _src("moltbook_address_survey"))]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
+# СЛОТ МЫШЛЕНИЯ. Рассуждение агентов шло одним из одиннадцати денежных шагов и
+# давало каждому агенту слово раз в шесть часов — при таком ритме вопрос к соседу
+# ждал ответа полдня, и общая доска была доской объявлений, а не разговором.
+# Теперь у рассуждения свой оборот: 15-й из каждых 20, двое агентов за раз.
+THINK_AT = 15
 # ДЕНЕЖНЫЕ ШАГИ — СВОЙ СЛОТ. Заявка, доставка, поиск наград, ответы лидам и сбор
 # выплат делили один редкий слот на полсотни шагов и получали ход раз в
 # полтора-два часа (pursue: 11:50 — и больше ни разу за день при 55 наградах в
@@ -1163,6 +1200,7 @@ CLOUD_CANNOT = {
     "revalidate_channels": "правит таблицу лидов; из облачной реплики правки не доходят до машины владельца",
     "strategist_think": "эксперименты пишут наружу (обращения, посты) и в локальную базу; с одной машины",
     "strategist_report": "читает локальную базу стратега",
+    "scout_registrations": "браузер живёт на машине владельца",
     "dealer_cycle": "обращения к контрагентам из двух баз (облачной и локальной) продублировали "
                     "бы сообщение одному адресату; оборот дилера идёт только с одной машины",
 }
@@ -1213,6 +1251,9 @@ PAUSE_CAP_MIN = {
     "revalidate_channels": 720,
     "strategist_think": 30,
     "strategist_report": 60,
+    "reason_and_act": 10,
+    "explore_alternatives": 180,
+    "scout_registrations": 720,
 }
 # На сколько оборотов он после этого уходит на паузу. Растёт с каждым повтором,
 # но не бесконечно: раз в сутки проверить состояние обязан любой шаг.
@@ -1317,17 +1358,27 @@ def _slow_cursor(value=None):
     Это ровно та же болезнь, что была у пауз: состояние, не пережившее
     перезапуск, создаёт видимость работы механизма, которого нет.
     """
-    con = connect()
-    con.execute("CREATE TABLE IF NOT EXISTS cursors ("
-                "name TEXT PRIMARY KEY, value INTEGER NOT NULL, at TEXT)")
-    if value is None:
-        row = con.execute("SELECT value FROM cursors WHERE name='slow'").fetchone()
-        con.close()
-        return row[0] if row else 0
-    con.execute("INSERT INTO cursors(name,value,at) VALUES ('slow',?,?) "
-                "ON CONFLICT(name) DO UPDATE SET value=excluded.value, at=excluded.at",
-                (int(value), now()))
-    con.commit(); con.close()
+    # ЗАПИСЬ КУРСОРА НЕ ИМЕЕТ ПРАВА РОНЯТЬ ВОРКЕР. 15.09 в 13:18 именно она получила
+    # «database is locked» вне защищённого оборота — и процесс умер целиком на
+    # пятьдесят минут. Пишем с ожиданием и повторами; не вышло — курсор живёт в
+    # памяти до следующего оборота, очередь не теряется.
+    from core import db as _db
+    try:
+        con = connect()
+        con.execute("CREATE TABLE IF NOT EXISTS cursors ("
+                    "name TEXT PRIMARY KEY, value INTEGER NOT NULL, at TEXT)")
+        if value is None:
+            row = con.execute("SELECT value FROM cursors WHERE name='slow'").fetchone()
+            con.close()
+            return row[0] if row else 0
+        _db.write(con, "INSERT INTO cursors(name,value,at) VALUES ('slow',?,?) "
+                       "ON CONFLICT(name) DO UPDATE SET value=excluded.value, at=excluded.at",
+                  (int(value), now()))
+        con.commit(); con.close()
+    except Exception as e:
+        print(f"[worker] курсор редких шагов не записан ({type(e).__name__}) — продолжаю из памяти", flush=True)
+        if value is None:
+            return 0
     return value
 
 
@@ -1363,6 +1414,8 @@ def run_forever(interval=90):
         elif i and MONEY_CYCLE and i % SLOW_EVERY == SLOW_EVERY // 2:
             name, fn = MONEY_CYCLE[_money_at[0] % len(MONEY_CYCLE)]    # денежный слот
             _money_at[0] += 1
+        elif i and i % SLOW_EVERY == THINK_AT:
+            name, fn = "reason_and_act", reason_and_act               # слот мышления
         else:
             name, fn = CYCLE[i % len(CYCLE)]
         # СРОЧНОЕ ИДЁТ ВНЕ ОЧЕРЕДИ. До этого цикл крутил тридцать девять шагов

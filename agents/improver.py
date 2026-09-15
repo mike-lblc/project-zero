@@ -33,6 +33,7 @@
 файл возвращается в прежний вид.
 """
 import ast
+import re
 import difflib
 import shutil
 import subprocess
@@ -119,7 +120,8 @@ PROMPT = """Ты правишь один кусок кода на Python. Нич
 Верни ТОЛЬКО исправленный код этого куска, без пояснений, без markdown-ограды,
 с теми же отступами. Правь минимально: меняй лишь то, из-за чего срабатывает
 проверка. Не переименовывай, не переставляй функции, не добавляй новых
-зависимостей. Если исправить нельзя без знания остального файла — верни кусок
+зависимостей. НЕ удаляй переменные и функции — их могут читать ниже по файлу.
+НЕ снимай пределы чтения (.read(N)), таймауты и обработку отказов. Если исправить нельзя без знания остального файла — верни кусок
 без изменений.
 
 КУСОК:
@@ -157,6 +159,90 @@ def propose_patch(rule, why, code):
         if text.rstrip().endswith("```"):
             text = text.rstrip()[:-3]
     return text.rstrip()
+
+
+# ══════════════════════════════════════ предохранители v2 (15.09)
+# Список ухудшений: правка, которая делает любое из этого, отвергается ДО записи. Каждый
+# пункт — из реального случая: улучшатель снимал предел чтения страницы (безразмерное
+# чтение), удалял регулярки, которые читались ниже, и однажды превратил except-pass в raise.
+DEGRADATIONS = (
+    (r"\.read\(\s*[\w_]+\s*\)", r"\.read\(\s*\)", "снят предел чтения ответа"),
+    (r"timeout\s*=", None, "убран таймаут сетевого вызова"),
+    (r"except[^\n]*:\n\s*(raise|return|continue|log)", r"except[^\n]*:\n\s*pass", "обработка отказа заменена на pass"),
+    (r"ОБЪЯВЛЕН|НЕ_АВТО|объявлена", None, "удалено объявленное решение"),
+)
+
+
+def degrades(region, patched):
+    """Что именно ухудшилось между куском до и после; пусто — ничего из списка."""
+    import re as _re
+    found = []
+    for before_rx, after_rx, what in DEGRADATIONS:
+        had = len(_re.findall(before_rx, region))
+        has = len(_re.findall(before_rx, patched))
+        if after_rx is None:
+            if had and has < had:
+                found.append(what)
+        else:
+            if had and len(_re.findall(after_rx, patched)) > len(_re.findall(after_rx, region)):
+                found.append(what)
+    if region.count("\n") >= 10 and patched.count("\n") < region.count("\n") * 0.6:
+        found.append("удалено больше 40 % строк куска")
+    return found
+
+
+def static_problems(text):
+    """pyflakes по временному файлу: неопределённые имена, неиспользуемые импорты. Нет pyflakes — пусто."""
+    import subprocess, sys as _sys, tempfile, os
+    try:
+        fd, path = tempfile.mkstemp(suffix=".py"); os.close(fd)
+        Path(path).write_text(text, encoding="utf-8")
+        r = subprocess.run([_sys.executable, "-m", "pyflakes", path], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=60)
+        os.unlink(path)
+    except Exception:
+        return set()
+    out = set()
+    for line in (r.stdout or "").splitlines():
+        m = re.search(r":\d+:\d+:?\s*(.*)$", line)
+        if m and ("undefined name" in m.group(1) or "imported but unused" in m.group(1) or "redefinition" in m.group(1)):
+            out.add(m.group(1).strip())
+    return out
+
+
+def new_static_problems(original, new_text):
+    """Только НОВЫЕ находки pyflakes: старые долги файла не должны блокировать правку в другом месте."""
+    return static_problems(new_text) - static_problems(original)
+
+
+def scoreboard(days=7):
+    """Принято и откачено за период — из журнала правок и сообщений об откате."""
+    from core.db import connect as _connect
+    c = _connect()
+    try:
+        accepted = c.execute("SELECT COUNT(*) FROM code_fixes WHERE at > strftime('%Y-%m-%dT%H:%M:%S','now',?)",
+                             (f"-{days} days",)).fetchone()[0]
+    except Exception:
+        accepted = 0
+    try:
+        reverted = c.execute("SELECT COUNT(*) FROM messages WHERE sender='improver' AND body LIKE '%ОТКАТИЛ%' "
+                             "AND created_at > strftime('%Y-%m-%dT%H:%M:%S','now',?)", (f"-{days} days",)).fetchone()[0]
+        last2 = [r[0] for r in c.execute("SELECT body LIKE '%ОТКАТИЛ%' FROM messages WHERE sender='improver' "
+                                          "AND (body LIKE '%ОТКАТИЛ%' OR body LIKE 'Правка принята%') ORDER BY id DESC LIMIT 2")]
+    except Exception:
+        reverted, last2 = 0, []
+    c.close()
+    return {"accepted": accepted, "reverted": reverted, "last_two_reverted": len(last2) == 2 and all(last2)}
+
+
+def throttled():
+    """Улучшатель молчит сутки, если ломает чаще, чем чинит. Самопредохранитель, не надзор."""
+    sb = scoreboard()
+    if sb["last_two_reverted"] or (sb["reverted"] >= 2 and sb["reverted"] >= sb["accepted"]):
+        from core import memory as _mem
+        _mem.pause("improver", "improve_code", 24 * 60)
+        return f"откатов {sb['reverted']} против принятых {sb['accepted']} за неделю — улучшатель молчит сутки"
+    return None
 
 
 def _module_names(tree):
@@ -274,6 +360,12 @@ def improve_one(finding):
     if orphaned:
         return {"ok": False, "why": "правка удаляет имена, которые файл ещё использует: "
                                     + ", ".join(sorted(orphaned))}
+    bad = degrades(region, patched_region)
+    if bad:
+        return {"ok": False, "why": "правка ухудшает код: " + "; ".join(bad)}
+    fresh = new_static_problems(original, new_text)
+    if fresh:
+        return {"ok": False, "why": "статический разбор нашёл новое: " + "; ".join(sorted(fresh))[:200]}
 
     BACKUP.mkdir(parents=True, exist_ok=True)
     backup = BACKUP / (path.name + ".before")
@@ -300,6 +392,12 @@ def improve_one(finding):
     _record(rel, finding, diff, before, after)
     bus.broadcast("improver", f"Правка принята: {rel}:{line_s} — {finding.get('образец')}. "
                               f"Аудит не ухудшился ни по одной мере.")
+    # НА ОБЩУЮ ДОСКУ — чтобы адверсарий и критик видели diff, а не только факт правки.
+    try:
+        from agents import worker as _w
+        _w.note("improver", f"code fix {rel}:{line_s} ({finding.get('образец')}): {diff[:220]}", conf=0.8)
+    except Exception:
+        pass
     return {"ok": True, "файл": rel, "строка": line_s, "diff": diff}
 
 
@@ -320,6 +418,9 @@ def _record(rel, finding, diff, before, after):
 
 
 def improve(limit=2):
+    _t = throttled()
+    if _t:
+        return _t
     """Берёт находки детектора и чинит их по одной, пока не кончится запас.
 
     Предел намеренно мал. Пачка правок за один заход непроверяема: если после

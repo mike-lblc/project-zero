@@ -215,7 +215,7 @@ def test_every_model_agent_has_all_moltbook_capabilities():
     required = {"moltbook_feed", "moltbook_status", "moltbook_discussion", "moltbook_publish",
                 "moltbook_comment", "moltbook_reply", "moltbook_edit"}
     registered = roster.wire()
-    assert len(registered) == 20          # 15.09: дилер (сеть путей к платежу) и стратег (гипотезы)
+    assert len(registered) == 19          # 15.09: дилер; оборот мышления — у оркестратора, не отдельный агент
     assert all(required.issubset(set(member.tools)) for member in registered.values())
     assert agent.TOOLS["moltbook_feed"].actor_context is True
     assert agent.TOOLS["moltbook_status"].actor_context is True
