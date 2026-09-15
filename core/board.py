@@ -98,10 +98,70 @@ def view(role: str, limit: int = 8) -> dict:
             money["лучшие цели дилера"] = [f"{h}@{p} ({pr})" for h, p, pr in rows]
         if "channels" in have:
             money["каналов живых"] = c.execute("SELECT COUNT(*) FROM channels WHERE alive=1").fetchone()[0]
+        try:
+            from core import payment as _pay
+            money["принимаем"] = _pay.accepted_line(short=True) + " — любой из этих активов, не только USDC"
+        except Exception:
+            pass
         board["деньги"] = money
     finally:
         c.close()
     return board
+
+
+def snapshot(limit_msgs: int = 120, limit_dec: int = 40, limit_find: int = 30) -> dict:
+    """Снимок общей доски для живого чата: то, что видят все агенты, — одним JSON.
+
+    Сообщения — чат, вопросы, ответы, передачи (без очереди суждений и без входящих
+    снаружи); решения рассуждающих — «думает вслух»; находки — без служебного шума;
+    открытые вопросы — кому и сколько; кто чем занят — последний оборот каждого.
+    """
+    c = connect()
+    have = _tables(c)
+    out = {"generated_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+           "messages": [], "decisions": [], "findings": [], "pending": [], "agents": []}
+    try:
+        if "messages" in have:
+            rows = c.execute(
+                "SELECT id, sender, recipient, topic, substr(body,1,600), created_at FROM messages "
+                "WHERE topic IN ('chat','ask','answer','handoff') AND COALESCE(recipient,'')<>'ESCALATION' "
+                "ORDER BY id DESC LIMIT ?", (limit_msgs * 2,)).fetchall()
+            msgs = []
+            for i, snd, rcp, topic, body, at in rows:
+                text = body or ""
+                if topic in ("ask", "answer", "handoff"):
+                    try:
+                        j = json.loads(body)
+                        text = j.get("q") or j.get("a") or (f"{j.get('task')} — {j.get('why')}" if j.get("task") else body)
+                    except Exception:
+                        pass
+                if topic == "chat" and NOISE.search(text):
+                    continue
+                msgs.append({"id": i, "from": snd, "to": rcp, "kind": topic, "text": str(text)[:500], "at": at})
+                if len(msgs) >= limit_msgs:
+                    break
+            out["messages"] = msgs[::-1]
+        if "agent_decisions" in have:
+            out["decisions"] = [
+                {"id": i, "agent": a, "tool": t, "why": (w or "")[:300], "ok": bool(ok), "outcome": (o or "")[:200], "at": at}
+                for i, a, t, w, ok, o, at in c.execute(
+                    "SELECT id, agent, chose, why, ok, outcome, decided_at FROM agent_decisions "
+                    "ORDER BY id DESC LIMIT ?", (limit_dec,)).fetchall()][::-1]
+        if "evidence" in have:
+            rows = c.execute("SELECT id, agent, substr(claim,1,300), created_at FROM evidence "
+                             "WHERE agent IS NOT NULL ORDER BY id DESC LIMIT ?", (limit_find * 3,)).fetchall()
+            out["findings"] = [{"id": i, "agent": a, "text": cl, "at": at}
+                               for i, a, cl, at in rows if not NOISE.search(cl or "")][:limit_find][::-1]
+        if "messages" in have:
+            out["pending"] = [{"to": r, "n": n} for r, n in c.execute(
+                "SELECT recipient, COUNT(*) FROM messages WHERE topic IN ('ask','handoff') AND consumed_at IS NULL "
+                "AND recipient IS NOT NULL AND recipient<>'ESCALATION' GROUP BY recipient ORDER BY 2 DESC").fetchall()]
+        if "runs" in have:
+            out["agents"] = [{"agent": a, "last": at, "step": (n or "")[:120]} for a, at, n in c.execute(
+                "SELECT agent, MAX(started_at), notes FROM runs GROUP BY agent ORDER BY 2 DESC").fetchall()]
+    finally:
+        c.close()
+    return out
 
 
 def brief(role: str) -> str:

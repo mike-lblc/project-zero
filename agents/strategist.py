@@ -333,11 +333,11 @@ def _run_experiment(h):
             body = (f"What you get: a ranked read of the live x402 market for any capability, from a {snap.get('size', '15k+')}-service "
                     f"index refreshed from the Coinbase discovery feed and scored by real 30-day calls. Every answer carries a "
                     f"receipt: snapshot hash {snap.get('sha256', '')}, generated {str(snap.get('generatedAt', ''))[:16]}, window, "
-                    f"scoring revision.\n\nWhat we ask: $0.01 USDC on Base for one /search query; reports $0.10 and $0.50; "
+                    f"scoring revision.\n\nWhat we ask: $0.01 for one /search query (USDC on Base via x402, or the same value in ETH, USDT, BTC, SOL or TRX); reports $0.10 and $0.50; "
                     f"full export $1.25. Nothing to sign up for: call {dealer.SERVICE_URL}/search?q=<capability> and the 402 "
                     f"response settles it.\n\nVerify first, free: {dealer.SERVICE_URL}/sample returns three ranked results with the "
                     f"same receipt; {dealer.SERVICE_URL}/health shows the live snapshot hash.\n\nPay to "
-                    f"{__import__('core.payment', fromlist=['OWNER_DESTINATIONS']).OWNER_DESTINATIONS['evm']} (USDC, Base) if you "
+                    f"{__import__('core.payment', fromlist=['OWNER_DESTINATIONS']).OWNER_DESTINATIONS['evm']} (USDC, USDT, DAI or ETH on Base/Ethereum; BTC, SOL and TRX addresses on request) if you "
                     f"prefer a plain transfer; reply here with the capability you need and we answer within a day.")
             res = moltbook.create_post("strategist", title, body, submolt=sub, allow_own_links=True)
             ok = bool(res.get("published")) or res.get("state") == "CONFIRMED"

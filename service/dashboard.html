@@ -92,6 +92,23 @@ h3:first-child{margin-top:2px}
 .msg .x{color:var(--dim)}
 /* Адресованное сообщение отличается от объявления всем: у переписки есть
    второй участник, и это единственное, что отличает разговор от монолога. */
+.lc-bar{display:flex;gap:8px;align-items:center;margin:0 0 8px;flex-wrap:wrap}
+.lc-bar select{background:transparent;color:var(--ink);border:1px solid rgba(96,132,196,.3);border-radius:4px;font-size:11px;padding:3px 6px}
+.lc-live{display:inline-flex;align-items:center;gap:5px;font-size:10px;letter-spacing:.5px;color:var(--faint);text-transform:uppercase}
+.lc-live b{width:7px;height:7px;border-radius:50%;background:#35d6a4;box-shadow:0 0 8px #35d6a4;animation:lcp 1.6s infinite}
+@keyframes lcp{0%,100%{opacity:1}50%{opacity:.35}}
+.lc-log{max-height:calc(100vh - 230px);overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+.lc{padding:6px 0 6px 10px;border-left:2px solid var(--c,#7a8aa6);margin:0 0 6px;font-size:12px;line-height:1.45}
+.lc .h{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.lc .a{font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--c,#7a8aa6);font-weight:600}
+.lc .k{font-size:10px;color:var(--faint);letter-spacing:.4px;text-transform:uppercase}
+.lc .to{font-size:10.5px;color:var(--dim)}
+.lc .t{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--faint);margin-left:auto}
+.lc .x{color:var(--dim);overflow-wrap:anywhere}
+.lc.think .x{color:var(--faint);font-style:italic}
+.lc.find .x{color:var(--ink)}
+.lc.ask,.lc.answer,.lc.handoff{background:rgba(96,132,196,.06)}
+.lc-pend{font-size:11px;color:var(--faint);margin:0 0 8px}
 .msg.direct{border-left:2px solid var(--acc);padding-left:8px;
   background:linear-gradient(90deg,rgba(77,159,255,.06),transparent 60%)}
 
@@ -140,7 +157,7 @@ h3:first-child{margin-top:2px}
     <div class="tab" data-t="chain">Цепочка</div>
     <div class="tab" data-t="agents">Агенты</div>
     <div class="tab" data-t="queue">Очередь<i id="b-q" hidden>0</i></div>
-    <div class="tab" data-t="chat">Чат</div>
+    <div class="tab" data-t="chat">Живой чат<i id="b-c" hidden>0</i></div>
   </div>
   <div class="body">
     <div id="v-money"></div>
@@ -168,6 +185,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 
 /* ═══════════════════════════════════════════ АГЕНТЫ СЦЕНЫ
    Список совпадает с реестром на сервере — расхождение ловится аудитом. */
+const BOARD_URL = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev";
 const AGENTS = [
   {id:"orchestrator", label:"ОРКЕСТРАТОР",      color:0x4d9fff, form:"core"},
   {id:"scout",        label:"РАЗВЕДЧИК",        color:0x35d6a4, form:"probe"},
@@ -448,10 +466,13 @@ const esc = s => String(s ?? "").replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;",
 const num = n => (n ?? 0).toLocaleString("ru-RU");
 const state = {};
 
+let activeTab = "money";
 document.querySelectorAll(".tab").forEach(tb => tb.onclick = () => {
   document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === tb));
   ["money","chain","agents","queue","chat"].forEach(k =>
     $("v-"+k).hidden = (k !== tb.dataset.t));
+  activeTab = tb.dataset.t;
+  if (activeTab === "chat") renderChat();      // открыли чат — счётчик новых обнуляется
 });
 document.querySelectorAll(".kpi").forEach(k => k.onclick = () => {
   const tb = document.querySelector(`.tab[data-t="${k.dataset.t}"]`);
@@ -508,6 +529,15 @@ async function tick(){
       return;
     }
   } else values = await Promise.all([get("/api/status"),get("/api/execution"),get("/api/queue"),get("/api/chat"),get("/api/pulse")]);
+  /* Публичная копия (GitHub Pages) обновляется коммитами раз в несколько часов, а чат
+     должен быть живым: лента берётся с воркера, куда локальный сторож кладёт снимок
+     доски каждые несколько минут. Не ответил — остаётся снимок из api/chat.json. */
+  if (dataSource !== 'live') {
+    try {
+      const r = await fetch(BOARD_URL + '/board.json', {cache:'no-store', signal:AbortSignal.timeout(6000)});
+      if (r.ok) { const b = await r.json(); if ((b.messages||[]).length) values[3] = b; }
+    } catch {}
+  }
   const [st, ex, q, chat, pulse] = values;
   if (!st) { liveLabel = "данных нет: ни живого сервера, ни снимка"; return; }
   Object.assign(state, {st, ex, q, chat, pulse});
@@ -750,36 +780,59 @@ function renderQueue(){
    «handoff» — это передача работы другому агенту. */
 const TOPIC = { ask: "вопрос", answer: "ответ", handoff: "передал работу", chat: "" };
 
+/* ЖИВОЙ ЧАТ ОБЩЕЙ ДОСКИ (15.09). Одна лента из того, что видит каждый агент перед
+   решением: слова, вопросы и ответы, передачи работы, решения рассуждающих («думает
+   вслух») и находки. Цвет — агента; стрелка — адресат; новое подсвечивается; фильтр
+   по агенту; лента прокручивается к свежему, если её не листали вручную. */
+const KIND = { chat: "говорит", ask: "спрашивает", answer: "отвечает", handoff: "передаёт работу", think: "думает", find: "нашёл" };
+let lcSeenMax = 0, lcFilter = "", lcPinned = true;
+function colorOf(id){ const a = AGENTS.find(x => x.id === id); return "#" + ((a && a.color) || 0x7a8aa6).toString(16).padStart(6,"0"); }
+function lcTime(at){ return String(at||"").slice(11,19) || "—"; }
+function lcItems(ch){
+  const items = [];
+  (ch.messages||[]).forEach(m => { let body = m.body;
+    try { const j = JSON.parse(m.body); body = j.q || j.a || j.text || j.question || j.task || m.body; } catch {}
+    items.push({ key: "m"+m.id, kind: m.topic, from: m.sender, to: m.recipient, text: String(body), at: m.created_at }); });
+  (ch.decisions||[]).forEach(d => items.push({ key: "d"+d.id, kind: "think", from: d.agent, to: null,
+    text: (d.why ? d.why + " " : "") + "→ " + (d.tool||"?") + (d.ok ? "" : " (не вышло)"), at: d.at }));
+  (ch.findings||[]).forEach(f => items.push({ key: "f"+f.id, kind: "find", from: f.agent, to: null, text: f.text, at: f.at }));
+  items.sort((x, y) => String(x.at).localeCompare(String(y.at)));
+  return items;
+}
 function renderChat(){
   if(state.chat?.restricted){ $("v-chat").innerHTML = `<div class="empty">Тексты переписки не публикуются в открытом доступе.</div>`; return; }
-  const ms = ((state.chat||{}).messages) || [];
-  if (!ms.length){ $("v-chat").innerHTML = `<div class="empty">агенты молчат</div>`; return; }
-  const talk = ms.filter(m => m.recipient && m.recipient !== "ESCALATION").length;
-  const t = (state.chat || {}).totals || {};
-  const hist = [
-    t.ask ? `вопросов ${t.ask}` : null,
-    t.answer ? `ответов ${t.answer}` : null,
-    t.handoff ? `передач работы ${t.handoff}` : null,
-    t.chat ? `объявлений ${t.chat}` : null,
-  ].filter(Boolean).join(" · ");
-  let h = `<h3>Что говорят агенты</h3>`
-        + `<div class="s" style="margin:-4px 0 4px">в этом окне ${ms.length} сообщений, `
-        + `адресованных конкретному агенту — ${talk}</div>`
-        + (hist ? `<div class="s" style="margin:0 0 10px;opacity:.8">за всё время: ${hist}</div>` : "");
-  ms.slice(-45).reverse().forEach(m => {
-    let body = m.body;
-    try { const j = JSON.parse(m.body); body = j.text || j.question || j.task || j.body || m.body; } catch {}
-    const kind = TOPIC[m.topic] ?? m.topic;
-    /* Стрелка к адресату — это и есть ответ на вопрос «кто с кем работает».
-       Раньше здесь стоял один отправитель, и переписка выглядела монологами. */
-    const to = m.recipient && m.recipient !== "ESCALATION"
-      ? `<span class="x" style="opacity:.75"> → ${esc(m.recipient)}</span>` : "";
-    const tag = kind ? `<span class="s" style="margin-left:6px">${esc(kind)}</span>` : "";
-    h += `<div class="msg ${m.recipient ? "direct" : ""}">`
-       + `<span class="w">${esc(m.sender)}</span>${to}${tag}`
-       + `<span class="x">${esc(String(body).slice(0,300))}</span></div>`;
+  const ch = state.chat || {};
+  const items = lcItems(ch);
+  if (!items.length){ $("v-chat").innerHTML = `<div class="empty">агенты молчат</div>`; return; }
+  const agents = [...new Set(items.map(i => i.from))].sort();
+  const shown = items.filter(i => !lcFilter || i.from === lcFilter || i.to === lcFilter).slice(-160);
+  const t = ch.totals || {};
+  const hist = [t.ask ? `вопросов ${t.ask}` : null, t.answer ? `ответов ${t.answer}` : null,
+                t.handoff ? `передач ${t.handoff}` : null, t.chat ? `объявлений ${t.chat}` : null].filter(Boolean).join(" · ");
+  const pend = (ch.pending||[]).map(p => `${esc(p.to)} ${p.n}`).join(", ");
+  const prevScroll = $("lc-log");
+  const wasPinned = !prevScroll || (prevScroll.scrollHeight - prevScroll.scrollTop - prevScroll.clientHeight < 40);
+  let h = `<div class="lc-bar"><span class="lc-live"><b></b>live · ${esc(lcTime(ch.generated_at))}</span>`
+        + `<select id="lc-filter"><option value="">все агенты</option>${agents.map(a => `<option value="${esc(a)}" ${a===lcFilter?"selected":""}>${esc(a)}</option>`).join("")}</select>`
+        + `<span class="s" style="margin-left:auto">${hist}</span></div>`
+        + (pend ? `<div class="lc-pend">ждут ответа: ${pend}</div>` : "")
+        + `<div class="lc-log" id="lc-log">`;
+  shown.forEach(i => {
+    const col = colorOf(i.from);
+    const to = i.to ? `<span class="to">→ ${esc(i.to)}</span>` : "";
+    h += `<div class="lc ${esc(i.kind)}" style="--c:${col}"><div class="h"><span class="a">${esc(i.from)}</span>`
+       + `<span class="k">${esc(KIND[i.kind]||i.kind)}</span>${to}<span class="t">${esc(lcTime(i.at))}</span></div>`
+       + `<div class="x">${esc(String(i.text).slice(0,420))}</div></div>`;
   });
+  h += `</div>`;
   $("v-chat").innerHTML = h;
+  $("lc-filter").onchange = e => { lcFilter = e.target.value; renderChat(); };
+  const log = $("lc-log");
+  if (wasPinned) log.scrollTop = log.scrollHeight;
+  const maxId = Math.max(0, ...items.map(i => parseInt(i.key.slice(1)) || 0));
+  const fresh = items.filter(i => (parseInt(i.key.slice(1))||0) > lcSeenMax).length;
+  const badge = $("b-c");
+  if (badge){ if (activeTab === "chat"){ lcSeenMax = maxId; badge.hidden = true; } else if (fresh){ badge.textContent = fresh; badge.hidden = false; } }
 
   const feed = ((state.pulse||{}).runs||[]).slice(0,6).map(r =>
     `<div class="l"><b>${esc((r.started_at||"").slice(11,19))}</b> ${esc(r.agent)} · ${esc((r.notes||"").slice(0,70))}</div>`

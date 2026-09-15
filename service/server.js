@@ -684,116 +684,37 @@ app.get('/metrics', (_req, res) => {
 });
 
 app.get('/api/chat', (_req, res) => {
+  // ЖИВАЯ ДОСКА (15.09). Вкладка «Живой чат» показывает то же, что видит каждый агент
+  // перед решением: слова и вопросы других, ответы, передачи, решения рассуждающих
+  // («думает вслух») и находки. Адресат обязателен в выдаче: без него вопрос, ответ и
+  // передача выглядят как объявление в пустоту, а общение, из которого убрали второго
+  // участника, перестаёт быть общением.
   const db = new DatabaseSync(DB, { readOnly: true });
-  let rows = [];
+  const NOISE = /молчат дольше|ухожу с ним на паузу|то же самое|один и тот же результат|WATCHDOG:|PENDING JUDGMENT|Проверяю поступления|Иду за свежим срезом|light probe only/i;
+  let messages = [], totals = {}, decisions = [], findings = [], pending = [];
   try {
-    // АДРЕСАТ ОБЯЗАТЕЛЕН В ВЫДАЧЕ. Без него вопрос, ответ и передача работы
-    // выглядят на дашборде так же, как объявление в пустоту: 275 передач и 72
-    // пары «вопрос-ответ» были неотличимы от болтовни. Общение, из которого
-    // убрали второго участника, перестаёт быть общением.
-    rows = db.prepare(`SELECT id,sender,recipient,topic,body,created_at FROM messages
-                       WHERE topic IN ('chat','ask','answer','handoff') ORDER BY id DESC LIMIT 60`).all();
-  } catch {}
-  // ИТОГИ ЗА ВСЁ ВРЕМЯ, А НЕ ТОЛЬКО ЗА ОКНО. В последние шестьдесят строк
-  // попадают почти одни объявления, и по ним кажется, будто агенты друг с
-  // другом не разговаривают вовсе. Между тем пар «вопрос-ответ» набралось
-  // семьдесят две — просто они старше окна. Показывать надо оба числа:
-  // одно окно без истории вводит в заблуждение ровно так же, как одна
-  // история без окна.
-  let totals = {};
-  try {
-    for (const r of db.prepare(
-        "SELECT topic, COUNT(*) c FROM messages GROUP BY topic").all()) {
-      totals[r.topic] = r.c;
+    const rows = db.prepare(`SELECT id,sender,recipient,topic,body,created_at FROM messages
+                             WHERE topic IN ('chat','ask','answer','handoff') AND COALESCE(recipient,'')<>'ESCALATION'
+                             ORDER BY id DESC LIMIT 240`).all();
+    for (const m of rows) {
+      let text = m.body || "";
+      if (m.topic !== 'chat') { try { const j = JSON.parse(m.body); text = j.q || j.a || (j.task ? `${j.task} — ${j.why || ''}` : m.body); } catch {} }
+      if (m.topic === 'chat' && NOISE.test(text)) continue;
+      messages.push({ id: m.id, sender: m.sender, recipient: m.recipient, topic: m.topic, body: String(text).slice(0, 500), created_at: m.created_at });
+      if (messages.length >= 120) break;
     }
-  } catch { /* таблицы может не быть в свежей облачной базе */ }
-  db.close();
-  res.json({ messages: rows.reverse(), totals });
+    messages.reverse();
+    for (const r of db.prepare(`SELECT topic, COUNT(*) n FROM messages WHERE topic IN ('chat','ask','answer','handoff') GROUP BY topic`).all()) totals[r.topic] = r.n;
+    decisions = db.prepare(`SELECT id, agent, chose AS tool, why, ok, outcome, decided_at AS at FROM agent_decisions ORDER BY id DESC LIMIT 40`).all().reverse();
+    findings = db.prepare(`SELECT id, agent, substr(claim,1,300) AS text, created_at AS at FROM evidence WHERE agent IS NOT NULL ORDER BY id DESC LIMIT 90`).all()
+                 .filter(f => !NOISE.test(f.text || "")).slice(0, 30).reverse();
+    pending = db.prepare(`SELECT recipient AS "to", COUNT(*) n FROM messages WHERE topic IN ('ask','handoff') AND consumed_at IS NULL
+                          AND recipient IS NOT NULL AND recipient<>'ESCALATION' GROUP BY recipient ORDER BY 2 DESC`).all();
+  } catch {}
+  db.close?.();
+  res.json({ generated_at: new Date().toISOString(), messages, totals, decisions, findings, pending });
 });
 
-// ---- ACTIONS the owner can take from the dashboard ----
-// ОТВЕТ НА ЭСКАЛАЦИЮ. Суждения уходили в таблицу, и разрешить их было нечем:
-// resolve_escalation() существовал без единого вызывающего. Теперь у очереди
-// суждений есть выход, иначе она копится молча и выглядит как «решать нечего».
-app.post('/api/resolve', (req, res) => {
-  const { escalation_id, answer } = req.body || {};
-  if (!escalation_id || !answer || !String(answer).trim())
-    return res.status(400).json({ ok:false, error:'нужны escalation_id и непустой answer' });
-  const db = new DatabaseSync(DB);
-  try {
-    const row = db.prepare(`SELECT id FROM messages WHERE id=? AND recipient='ESCALATION'
-                            AND consumed_at IS NULL`).get(escalation_id);
-    if (!row) { db.close(); return res.status(404).json({ ok:false, error:'нет такой открытой эскалации' }); }
-    const t = new Date().toISOString();
-    db.prepare(`UPDATE messages SET consumed_at=? WHERE id=?`).run(t, escalation_id);
-    db.prepare(`INSERT INTO messages(sender,recipient,topic,body,created_at)
-                VALUES (?,?,?,?,?)`).run('owner', 'orchestrator', 'resolution', String(answer), t);
-    db.close();
-    res.json({ ok:true, escalation_id });
-  } catch (e) { db.close(); res.status(500).json({ ok:false, error:String(e).slice(0,200) }); }
-});
-
-app.post('/api/decide', (req, res) => {
-  const { proposal_id, decision, note } = req.body || {};
-  if (!['approve','reject','defer'].includes(decision))
-    return res.status(400).json({ ok:false, error:'decision must be approve|reject|defer' });
-  const db = new DatabaseSync(DB);
-  const now = new Date().toISOString();
-  db.prepare(`INSERT INTO rulings(proposal_id,decision,reasoning,model_used,created_at)
-              VALUES (?,?,?,?,?)`)
-    .run(Number(proposal_id), decision, note || 'owner decision via dashboard', 'owner', now);
-  db.prepare(`UPDATE proposals SET status=? WHERE id=?`)
-    .run(decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : 'proposed',
-         Number(proposal_id));
-  db.prepare(`INSERT INTO human_interventions(what,why,category,agent_could_have,occurred_at)
-              VALUES (?,?,?,?,?)`)
-    .run(`Ruled ${decision} on proposal #${proposal_id}`, note || 'dashboard', 'approval', 0, now);
-  db.close(); res.json({ ok:true, proposal_id, decision });
-});
-
-app.post('/api/objection/:id/resolve', (req, res) => {
-  const db = new DatabaseSync(DB);
-  db.prepare(`UPDATE objections SET severity='concern' WHERE id=?`).run(Number(req.params.id));
-  db.prepare(`INSERT INTO human_interventions(what,why,category,agent_could_have,occurred_at)
-              VALUES (?,?,?,?,?)`)
-    .run(`Downgraded blocking objection #${req.params.id}`,
-         String((req.body||{}).note || 'owner override'), 'approval', 0, new Date().toISOString());
-  db.close(); res.json({ ok:true });
-});
-
-// ---- MAKE AGENTS WORK: trigger a real job ----
-import { spawn } from 'node:child_process';
-const JOBS = {};
-app.post('/api/run/:agent', (req, res) => {
-  const agent = req.params.agent;
-  const q = String((req.body||{}).query || 'x402 paid api pricing');
-  const scripts = {
-    scout: ['-3.13','-X','utf8','-c',
-      `import sys,json; sys.path.insert(0,r'${ROOT}')
-from agents import scout
-` +
-      `r=scout.research_index(${JSON.stringify(q)})
-` +
-      `print('matches:',r.get('matches'))
-` +
-      `[print(' ',h['payers30d'],'payers',h['calls30d'],'calls',h['name'][:44]) for h in (r.get('top') or [])]`],
-    crawl: ['-3.13','-X','utf8','-c',
-      `import sys; sys.path.insert(0,r'${ROOT}')
-import urllib.request,json
-` +
-      `r=urllib.request.urlopen(urllib.request.Request('https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources?limit=100',headers={'User-Agent':'P0','Accept':'application/json'}),timeout=30)
-` +
-      `d=json.loads(r.read().decode());print('refreshed',len(d.get('items',[])))`]
-  };
-  if (!scripts[agent]) return res.status(400).json({ ok:false, error:'unknown agent job' });
-  const id = Date.now().toString(36);
-  const pr = spawn('py', scripts[agent], { cwd: ROOT });
-  JOBS[id] = { agent, out:'', done:false };
-  pr.stdout.on('data', d => JOBS[id].out += d);
-  pr.stderr.on('data', d => JOBS[id].out += d);
-  pr.on('close', c => { JOBS[id].done = true; JOBS[id].code = c; });
-  res.json({ ok:true, job:id, agent });
-});
 app.get('/api/job/:id', (req,res) => res.json(JOBS[req.params.id] || { error:'no such job' }));
 app.get('/dashboard', (_req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
 

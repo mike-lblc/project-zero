@@ -55,7 +55,11 @@ class Compose(unittest.TestCase):
         text, ask = dealer.compose(cp, {"key": "moltbook:usdc", "allows_wallet_address": 1}, "abc123")
         self.assertIn("What you get", text)                       # 2 ценность
         self.assertIn("What we ask", text)                        # 3 просьба
-        self.assertIn("Pay to 0xECa891e34b3E5873181Fb779672564E198C55354", text)  # 4 адрес разрешён
+        self.assertIn("0xECa891e34b3E5873181Fb779672564E198C55354", text)  # 4 адрес разрешён
+        # владелец 15.09: платёж — в любом активе, на который есть адрес, не только USDC
+        for alt in ("BTC", "SOL", "TRX", "USDT"):
+            self.assertIn(alt, text, alt)
+        self.assertIn("any asset we accept", text)
         self.assertIn(f"{dealer.RESPONSE_WINDOW_H} hours", text)  # 5 срок
         self.assertIn("/health", text)                            # 6 проверка нашей части
         self.assertIn("abc123", text)

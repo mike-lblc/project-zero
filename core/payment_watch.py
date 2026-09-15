@@ -45,12 +45,29 @@ UA = {"User-Agent": "P0-payment-watch/1.0 (read-only)", "Accept": "application/j
 # Адреса проверены живым запросом к обозревателю каждой сети 2026-09-13:
 # символ USDC/USDC.E, миллионы держателей.
 OFFICIAL_TOKENS = {
-    "base": {"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": ("USDC", 6)},
-    "ethereum": {"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": ("USDC", 6)},
+    # Адреса контрактов проверены живым запросом к Blockscout каждой сети 15.09.2026
+    # (символ и число знаков совпали, держателей — сотни тысяч и миллионы).
+    "base": {"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": ("USDC", 6),
+             "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": ("USDT", 6),
+             "0x50c5725949a6f0c72e6c4a641f24049a917db0cb": ("DAI", 18),
+             "0x4200000000000000000000000000000000000006": ("WETH", 18),
+             "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf": ("cbBTC", 8)},
+    "ethereum": {"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": ("USDC", 6),
+                 "0xdac17f958d2ee523a2206206994597c13d831ec7": ("USDT", 6),
+                 "0x6b175474e89094c44da98b954eedeac495271d0f": ("DAI", 18),
+                 "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": ("WETH", 18),
+                 "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": ("WBTC", 8)},
     "polygon": {"0x3c499c542cef5e3811e1192ce70d8cc03d5c3359": ("USDC", 6),
-                "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": ("USDC.e", 6)},
+                "0x2791bca1f2de4661ed88a30c99a7a9449aa84174": ("USDC.e", 6),
+                "0xc2132d05d31c914a87c6611c10748aeb04b58e8f": ("USDT", 6),
+                "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063": ("DAI", 18),
+                "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619": ("WETH", 18)},
     "arbitrum": {"0xaf88d065e77c8cc2239327c5edb3a432268e5831": ("USDC", 6),
-                 "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8": ("USDC.e", 6)},
+                 "0xff970a61a04b1ca14834a43f5de4533ebddb5cc8": ("USDC.e", 6),
+                 "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9": ("USDT", 6),
+                 "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1": ("DAI", 18),
+                 "0x82af49447d8a07e3bd95bd0d56f35241523fbab1": ("WETH", 18),
+                 "0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f": ("WBTC", 8)},
 }
 NATIVE = {"base": "ETH", "ethereum": "ETH", "arbitrum": "ETH", "polygon": "POL"}
 
@@ -59,9 +76,14 @@ NATIVE = {"base": "ETH", "ethereum": "ETH", "arbitrum": "ETH", "polygon": "POL"}
 # туда могли прийти незамеченными.
 SOLANA_RPC = "https://api.mainnet-beta.solana.com"
 SOLANA_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+# Официальные mint на Solana: USDC (Circle) и USDT (Tether). Остальные SPL-токены не признаются.
+SOLANA_MINTS = {SOLANA_USDC: "USDC", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCdmyDKh4eS": "USDT"}
+# TRON: Tronscan отвечает без ключа. TRX — родная монета (contractType 1), USDT — TRC20.
+TRON_API = "https://apilist.tronscanapi.com/api"
+TRON_USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
 HIRO = "https://api.hiro.so/extended/v1"
 SBTC_SUFFIX = ".sbtc-token::sbtc-token"
-WATCHED_EXTRA = ("solana", "stacks")
+WATCHED_EXTRA = ("solana", "stacks", "tron")
 
 # Срок зачисления и правило, после которого поступление засчитывается.
 SETTLEMENT = {
@@ -96,6 +118,24 @@ TRANSFERS = {
     "arbitrum": "https://arbitrum.blockscout.com/api/v2/addresses/{addr}/token-transfers?type=ERC-20",
     "bitcoin": "https://blockstream.info/api/address/{addr}/txs",
 }
+
+
+def _fresh(ts):
+    """Метка времени перевода не раньше начала миссии. Нет метки — считаем свежим:
+    отбрасывать можно только то, о чём известно, что оно старое."""
+    if ts in (None, "", 0):
+        return True
+    try:
+        if isinstance(ts, (int, float)) or str(ts).isdigit():
+            v = float(ts)
+            v = v / 1000 if v > 1e12 else v            # миллисекунды (TRON) → секунды
+            from datetime import datetime, timezone
+            iso = datetime.fromtimestamp(v, tz=timezone.utc).isoformat()
+        else:
+            iso = str(ts).replace("Z", "+00:00")
+        return iso >= payment.MISSION_START
+    except Exception:
+        return True
 
 
 def _get(url, timeout=25):
@@ -168,6 +208,21 @@ def verify_routes():
             payment.mark("self-custody", network="stacks", currency="sBTC",
                          contract="SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token")
             out.append({"сеть": "stacks", "итог": "проверен", "адрес": stx[:8] + "…" + stx[-6:]})
+    trx = payment.OWNER_DESTINATIONS.get("tron")
+    if trx:
+        d = _get(f"{TRON_API}/transaction?address={trx}&limit=1")
+        if d.get("__error__"):
+            payment.mark("self-custody", network="tron", status="unverified",
+                         failure_reason=f"Tronscan не ответил: {d['__error__']}")
+            out.append({"сеть": "tron", "итог": "не проверен", "почему": d["__error__"]})
+        else:
+            payment.mark("self-custody", network="tron", status="verified", account_ready=1,
+                         kyc_required=0, withdrawal_available=1, minimum_payout=0.0, failure_reason=None,
+                         estimated_fee="комиссию сети платит отправитель; приём бесплатный",
+                         country_eligibility="без ограничений: самостоятельное хранение",
+                         settlement_time="блок ~3 с, подтверждение ~1 мин")
+            payment.mark("self-custody", network="tron", currency="USDT", contract=TRON_USDT)
+            out.append({"сеть": "tron", "итог": "проверен", "адрес": trx[:8] + "…" + trx[-6:]})
     return out
 
 
@@ -184,7 +239,7 @@ def parse_token_transfers(items, net, addr):
         if to != addr.lower():
             continue          # исходящий перевод доходом не является
         h = t.get("transaction_hash") or t.get("tx_hash") or ""
-        if not h:
+        if not h or not _fresh(t.get("timestamp")):
             continue
         tok = t.get("token") or {}
         contract = (tok.get("address_hash") or tok.get("address") or "").lower()
@@ -213,6 +268,8 @@ def parse_native_txs(items, net, addr):
             continue
         if t.get("status") != "ok" or t.get("result") not in (None, "success"):
             continue          # упавшая транзакция денег не принесла
+        if not _fresh(t.get("timestamp")):
+            continue          # история адреса до начала миссии — не наш доход
         try:
             amount = int(t.get("value") or 0) / 1e18
         except (TypeError, ValueError):
@@ -261,6 +318,8 @@ def _incoming_evm(net, addr):
 
 
 def _address_of(net):
+    if net == "tron":
+        return payment.OWNER_DESTINATIONS["tron"]
     key = {"bitcoin": "btc", "solana": "sol", "stacks": "stx"}.get(net, "evm")
     return payment.OWNER_DESTINATIONS[key]
 
@@ -302,11 +361,12 @@ def parse_solana_tx(tx, sig, addr):
         return {(b.get("owner"), b.get("mint")): float((b.get("uiTokenAmount") or {}).get("uiAmount") or 0)
                 for b in bal or [] if isinstance(b, dict)}
     pre_t, post_t = _tok(meta.get("preTokenBalances")), _tok(meta.get("postTokenBalances"))
-    k = (addr, SOLANA_USDC)
-    delta = post_t.get(k, 0.0) - pre_t.get(k, 0.0)
-    if delta > 0 and sender != addr:
-        out.append({"proof": sig, "amount": round(delta, 6), "currency": "USDC",
-                    "network": "solana", "from": sender})
+    for mint, symbol in SOLANA_MINTS.items():
+        k = (addr, mint)
+        delta = post_t.get(k, 0.0) - pre_t.get(k, 0.0)
+        if delta > 0 and sender != addr:
+            out.append({"proof": sig, "amount": round(delta, 6), "currency": symbol,
+                        "network": "solana", "from": sender})
     return out
 
 
@@ -324,6 +384,8 @@ def _incoming_solana(addr, max_tx=8):
             continue
         if s.get("confirmationStatus") not in (None, "finalized"):
             continue                      # подтверждённое, но не финальное — ожидание
+        if not _fresh(s.get("blockTime")):
+            continue
         if max_tx <= 0:
             break
         max_tx -= 1
@@ -371,6 +433,63 @@ def _incoming_btc(addr):
     return found, None, pending
 
 
+# ═══════════════════════════════════════════ TRON (Tronscan, без ключа)
+def parse_tron_txs(data, addr):
+    """Входящие TRX: только перевод родной монеты (contractType 1), подтверждённый и удачный.
+    TRC10-«подарки» (contractType 2, GasFree и подобные) — спам, а не деньги."""
+    found = []
+    for t in data or []:
+        if t.get("contractType") != 1 or (t.get("toAddress") or "") != addr:
+            continue
+        if not t.get("confirmed") or (t.get("contractRet") or "SUCCESS") != "SUCCESS":
+            continue
+        if (t.get("tokenInfo") or {}).get("tokenAbbr", "trx").lower() != "trx":
+            continue
+        if not _fresh(t.get("timestamp")):
+            continue
+        try:
+            amount = int(t.get("amount") or 0) / 1e6
+        except (TypeError, ValueError):
+            continue
+        if amount <= 0 or not t.get("hash"):
+            continue
+        found.append({"proof": t["hash"], "amount": amount, "currency": "TRX", "network": "tron",
+                      "from": t.get("ownerAddress") or ""})
+    return found
+
+
+def parse_trc20(items, addr):
+    """Входящие USDT (TRC20, официальный контракт Tether). Прочие TRC20 не признаются."""
+    found = []
+    for t in items or []:
+        if (t.get("to_address") or "") != addr or (t.get("contract_address") or "") != TRON_USDT:
+            continue
+        if not t.get("confirmed") or (t.get("contractRet") or "SUCCESS") != "SUCCESS":
+            continue
+        if not _fresh(t.get("block_ts")):
+            continue
+        dec = int((t.get("tokenInfo") or {}).get("tokenDecimal") or 6)
+        try:
+            amount = int(t.get("quant") or 0) / (10 ** dec)
+        except (TypeError, ValueError):
+            continue
+        if amount <= 0 or not t.get("transaction_id"):
+            continue
+        found.append({"proof": t["transaction_id"], "amount": amount, "currency": "USDT", "network": "tron",
+                      "from": t.get("from_address") or ""})
+    return found
+
+
+def _incoming_tron(addr):
+    d = _get(f"{TRON_API}/transaction?address={addr}&limit=25&sort=-timestamp")
+    if d.get("__error__"):
+        return None, d["__error__"]
+    t = _get(f"{TRON_API}/token_trc20/transfers?relatedAddress={addr}&limit=25")
+    if t.get("__error__"):
+        return None, t["__error__"]
+    return parse_tron_txs(d.get("data"), addr) + parse_trc20(t.get("token_transfers"), addr), None
+
+
 def watch():
     """Обходит все ПРОВЕРЕННЫЕ маршруты и записывает новые поступления.
 
@@ -396,6 +515,8 @@ def watch():
             items, err = _incoming_solana(addr)
         elif net == "stacks":
             items, err = _incoming_stacks(addr)
+        elif net == "tron":
+            items, err = _incoming_tron(addr)
         else:
             items, err, ign = _incoming_evm(net, addr)
             for k, v in (ign or {}).items():

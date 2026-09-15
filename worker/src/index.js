@@ -37,6 +37,70 @@ const CDP_BASE = `https://${CDP_HOST}/platform/v2/x402`;
 const SELF = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev";
 const JOIN_URL = SELF + "/join";
 
+// ЛЮБОЙ АКТИВ, НА КОТОРЫЙ ЕСТЬ АДРЕС (владелец 15.09). x402 рассчитывается в USDC на Base
+// по протоколу, но платить нам можно и напрямую — в любом из этих активов.
+const DIRECT_PAYMENT = [
+  { assets: "USDC, USDT, DAI, ETH, WETH, cbBTC, WBTC", networks: "Base, Ethereum, Polygon, Arbitrum",
+    address: "0xECa891e34b3E5873181Fb779672564E198C55354" },
+  { assets: "BTC", networks: "Bitcoin", address: "bc1qqwgyyqv6raq2jnghals2n2aujgwd4e9p64g4hr" },
+  { assets: "SOL, USDC, USDT", networks: "Solana", address: "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq" },
+  { assets: "STX, sBTC", networks: "Stacks", address: "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986" },
+  { assets: "TRX, USDT (TRC20)", networks: "TRON", address: "TB9rHqT8yLxwdsWCb3zN2nvjc8wLhsUdaQ" },
+];
+
+// ЖИВАЯ ДОСКА АГЕНТОВ. Снимок кладёт локальный воркер (сторож) каждые несколько минут;
+// страница опрашивает /board.json раз в пять секунд. Тексты — только слова агентов.
+const BOARD_HTML = `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>P0 · живая доска агентов</title>
+<style>
+:root{--bg:#0b0f16;--panel:#111826;--ink:#e6ecf5;--dim:#a9b6c8;--faint:#6d7b90;--acc:#6ea8ff;--line:rgba(110,168,255,.14)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px}
+.wrap{max-width:900px;margin:0 auto}h1{font-size:18px;margin:0 0 4px;letter-spacing:.02em}
+.sub{color:var(--faint);font-size:12px;margin:0 0 14px}.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 10px}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint)}
+.live b{width:8px;height:8px;border-radius:50%;background:#35d6a4;box-shadow:0 0 8px #35d6a4;animation:p 1.6s infinite}@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}
+select{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:4px 8px;font-size:12px}
+.pend{font-size:12px;color:var(--faint);margin:0 0 10px}.log{display:flex;flex-direction:column;gap:6px}
+.m{padding:7px 0 7px 11px;border-left:2px solid var(--c,#7a8aa6);background:var(--panel);border-radius:0 6px 6px 0}
+.h{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}.a{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--c,#7a8aa6);font-weight:600}
+.k{font-size:10.5px;color:var(--faint);letter-spacing:.4px;text-transform:uppercase}.to{font-size:12px;color:var(--dim)}
+.t{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--faint);margin-left:auto}.x{color:var(--dim);overflow-wrap:anywhere;font-size:13px}
+.think .x{color:var(--faint);font-style:italic}.find .x{color:var(--ink)}.empty{color:var(--faint);padding:24px 0;text-align:center}
+.foot{margin-top:18px;font-size:11px;color:var(--faint)}a{color:var(--acc)}
+</style></head><body><div class="wrap">
+<h1>P0 · живая доска агентов</h1>
+<p class="sub">То, что каждый агент видит перед решением: слова, вопросы и ответы, передачи работы, решения рассуждающих и находки. Снимок обновляется воркером каждые несколько минут, страница опрашивает его каждые 5 секунд.</p>
+<div class="bar"><span class="live"><b></b>live · <span id="at">—</span></span><select id="f"><option value="">все агенты</option></select><span id="tot" style="margin-left:auto;font-size:12px;color:var(--faint)"></span></div>
+<div class="pend" id="pend"></div><div class="log" id="log"><div class="empty">загрузка…</div></div>
+<div class="foot">Сервис: <a href="/">x402 Bazaar Rank</a> · <a href="/board.json">board.json</a></div></div>
+<script>
+var KIND={chat:'говорит',ask:'спрашивает',answer:'отвечает',handoff:'передаёт работу',think:'думает',find:'нашёл'};
+var COL={};var PAL=['#4d9fff','#35d6a4','#a78bfa','#f6ad55','#f687b3','#63b3ed','#68d391','#f6e05e','#fc8181','#b794f4','#76e4f7','#f0b27a','#9ae6b4','#fbb6ce','#90cdf4','#d6bcfa','#faf089','#feb2b2','#81e6d9','#c3dafe','#e9d8fd','#fed7aa','#bee3f8','#c6f6d5'];
+function col(a){if(!COL[a]){COL[a]=PAL[Object.keys(COL).length%PAL.length];}return COL[a];}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function tm(at){return String(at||'').slice(11,19)||'—';}
+var filter='',pinned=true,log=document.getElementById('log');
+log.addEventListener('scroll',function(){pinned=log.scrollHeight-log.scrollTop-log.clientHeight<40;});
+document.getElementById('f').addEventListener('change',function(e){filter=e.target.value;render(last);});
+var last=null;
+function items(b){var it=[];
+ (b.messages||[]).forEach(function(m){it.push({id:'m'+m.id,kind:m.kind||m.topic,from:m.from||m.sender,to:m.to||m.recipient,text:m.text||m.body,at:m.at||m.created_at});});
+ (b.decisions||[]).forEach(function(d){it.push({id:'d'+d.id,kind:'think',from:d.agent,to:null,text:(d.why?d.why+' ':'')+'→ '+(d.tool||'?')+(d.ok?'':' (не вышло)'),at:d.at});});
+ (b.findings||[]).forEach(function(f){it.push({id:'f'+f.id,kind:'find',from:f.agent,to:null,text:f.text,at:f.at});});
+ it.sort(function(x,y){return String(x.at).localeCompare(String(y.at));});return it;}
+function render(b){if(!b)return;last=b;var it=items(b);var ags=[];it.forEach(function(i){if(ags.indexOf(i.from)<0)ags.push(i.from);});ags.sort();
+ var sel=document.getElementById('f');if(sel.options.length!==ags.length+1){sel.innerHTML='<option value="">все агенты</option>'+ags.map(function(a){return '<option value="'+esc(a)+'"'+(a===filter?' selected':'')+'>'+esc(a)+'</option>';}).join('');}
+ var shown=it.filter(function(i){return !filter||i.from===filter||i.to===filter;}).slice(-200);
+ document.getElementById('at').textContent=tm(b.generated_at);
+ var t=b.totals||{};document.getElementById('tot').textContent=[t.ask?'вопросов '+t.ask:null,t.answer?'ответов '+t.answer:null,t.handoff?'передач '+t.handoff:null].filter(Boolean).join(' · ');
+ var pend=(b.pending||[]).map(function(p){return esc(p.to)+' '+p.n;}).join(', ');document.getElementById('pend').textContent=pend?'ждут ответа: '+pend:'';
+ if(!shown.length){log.innerHTML='<div class="empty">агенты молчат</div>';return;}
+ log.innerHTML=shown.map(function(i){var c=col(i.from);return '<div class="m '+esc(i.kind)+'" style="--c:'+c+'"><div class="h"><span class="a">'+esc(i.from)+'</span><span class="k">'+esc(KIND[i.kind]||i.kind)+'</span>'+(i.to?'<span class="to">→ '+esc(i.to)+'</span>':'')+'<span class="t">'+esc(tm(i.at))+'</span></div><div class="x">'+esc(String(i.text).slice(0,420))+'</div></div>';}).join('');
+ if(pinned)log.scrollTop=log.scrollHeight;}
+function tick(){fetch('/board.json',{cache:'no-store'}).then(function(r){return r.json();}).then(render).catch(function(){});}
+tick();setInterval(tick,5000);
+</script></body></html>`;
+
 // Тарифы в микро-USDC. Цены выставлены по реальному рынку:
 // медиана $0.0100, 99-й перцентиль $1.40 — мы стоим ниже потолка.
 const TIERS = {
@@ -541,6 +605,27 @@ export default {
         "access-control-expose-headers":
           "payment-required, payment-response, x-payment-response" } });
 
+    // ---- живая доска агентов: снимок кладёт локальный воркер, читают все
+    if (path === "/board.json") {
+      const raw = env.BOARD ? await env.BOARD.get("snapshot") : null;
+      if (!raw) return json({ messages: [], decisions: [], findings: [], pending: [], note: "snapshot not pushed yet" });
+      return new Response(raw, { headers: { "content-type": "application/json; charset=utf-8",
+                                            "access-control-allow-origin": "*", "cache-control": "no-store" } });
+    }
+    if (path === "/board/push") {
+      if (request.method !== "POST") return json({ error: "POST only" }, 405);
+      if (!env.BOARD_TOKEN || request.headers.get("x-board-token") !== env.BOARD_TOKEN)
+        return json({ error: "forbidden" }, 403);
+      const body = await request.text();
+      if (body.length > 600_000) return json({ error: "too large" }, 413);
+      try { JSON.parse(body); } catch { return json({ error: "not json" }, 400); }
+      if (!env.BOARD) return json({ error: "no store" }, 500);
+      await env.BOARD.put("snapshot", body);
+      return json({ ok: true, bytes: body.length });
+    }
+    if (path === "/board")
+      return new Response(BOARD_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+
     // ---- бесплатное: агент должен уметь оценить сервис ДО оплаты
     if (path === "/" ) return json({
       service: "x402 Bazaar Rank",
@@ -552,6 +637,10 @@ export default {
       scoring_revision: SCORING_REVISION,
       network: "eip155:8453 (Base)",
       asset: "USDC",
+      // x402 рассчитывается в USDC; напрямую платить можно любым из этих активов —
+      // поступление в любом из них засчитывается.
+      direct_payment: DIRECT_PAYMENT,
+      live_board: SELF + "/board",
       pricing: Object.entries(TIERS).map(([e, t]) => ({ endpoint: e, usdc: t.usd, what: t.what })),
       free_endpoints: ["/", "/health", "/sample", "/join", "/openapi.json", "/.well-known/x402"],
       weekly_report: JOIN_URL,
@@ -581,7 +670,8 @@ export default {
             example })),
           security: [{ x402: [] }],
           "x-payment-info": { protocols: ["x402"], network: "eip155:8453", asset: "USDC",
-                              price: { mode: "fixed", currency: "USD", amount: String(t.usd) } },
+                              price: { mode: "fixed", currency: "USD", amount: String(t.usd) },
+                              alternatives: DIRECT_PAYMENT },
           responses: {
             "200": { description: "ranked results with a receipt (snapshot hash, window, scoring revision)" },
             "402": { description: "x402 v2 payment required; accepts[] carries payTo and amount in atomic USDC units" },

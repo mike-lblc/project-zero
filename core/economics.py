@@ -220,9 +220,22 @@ STAGES = [
 ]
 
 
+def revenue_usd(c):
+    """Подтверждённый доход в долларах — В ЛЮБОМ АКТИВЕ (владелец 15.09), не только в
+    стейблах: ETH, BTC, SOL, TRX пересчитываются по споту; актив без курса не теряется —
+    его сумма показывается отдельно."""
+    from core import payment as _p
+    total = 0.0
+    for asset, amount in c.execute("SELECT asset, amount FROM payments"):
+        v = _p.usd_value(asset, amount)
+        if v is not None:
+            total += v
+    return round(total, 6)
+
+
 def stage():
     c = _con()
-    rev = c.execute("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments WHERE asset IN ('USDC','USDC.e','USDT','DAI','USD')").fetchone()[0] or 0.0
+    rev = revenue_usd(c)
     spend = c.execute("SELECT COUNT(*) FROM spend").fetchone()[0]
     c.close()
     cur = STAGES[0]
@@ -243,7 +256,7 @@ def briefing():
     q = lambda s, *a: c.execute(s, a).fetchone()[0]
     day = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     data = {
-        "verified_revenue_usd": q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM payments WHERE asset IN ('USDC','USDC.e','USDT','DAI','USD')"),
+        "verified_revenue_usd": revenue_usd(c),
         "payments_count": q("SELECT COUNT(*) FROM payments"),
         "spend_usd": q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) FROM spend"),
         "cost_units_24h": q("SELECT COALESCE(SUM(units),0) FROM agent_costs WHERE occurred_at > ?", day),

@@ -177,6 +177,11 @@ OWNER_DESTINATIONS = {
     "tron": "TB9rHqT8yLxwdsWCb3zN2nvjc8wLhsUdaQ",
 }
 
+# НАЧАЛО МИССИИ. Переводы с меткой времени раньше этой даты доходом не считаются:
+# у адресов владельца есть своя история (TRON: 3 500 USDT в июле 2026), и без
+# порога первый же обход записал бы её как «первый платёж от постороннего».
+MISSION_START = "2026-09-12T00:00:00+00:00"
+
 # Посев маршрутов. Ни один не объявляется рабочим заранее: статус
 # «unverified», пока проверка не подтвердит. Объявить маршрут рабочим без
 # проверки — это ровно то обещание, которое директива запрещает считать
@@ -201,6 +206,26 @@ SEED_ROUTES = [
     ("self-custody", "crypto", "STX", "stacks", OWNER_DESTINATIONS["stx"]),
     ("self-custody", "crypto", "sBTC", "stacks", OWNER_DESTINATIONS["stx"]),
     ("self-custody", "crypto", "STX", "stacks", OWNER_DESTINATIONS["stx"]),
+    # ЛЮБОЙ АКТИВ, НА КОТОРЫЙ ЕСТЬ АДРЕС (владелец 15.09): не только USDC. Контракты
+    # токенов проверены живым запросом к обозревателю каждой сети 15.09.2026.
+    ("self-custody", "crypto", "USDT", "base", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "USDT", "ethereum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "USDT", "polygon", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "USDT", "arbitrum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "DAI", "base", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "DAI", "ethereum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "DAI", "polygon", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "DAI", "arbitrum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "WETH", "base", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "WETH", "ethereum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "WETH", "polygon", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "WETH", "arbitrum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "cbBTC", "base", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "WBTC", "ethereum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "WBTC", "arbitrum", OWNER_DESTINATIONS["evm"]),
+    ("self-custody", "crypto", "USDT", "solana", OWNER_DESTINATIONS["sol"]),
+    ("self-custody", "crypto", "TRX", "tron", OWNER_DESTINATIONS["tron"]),
+    ("self-custody", "crypto", "USDT", "tron", OWNER_DESTINATIONS["tron"]),
     ("algora", "bounty_platform", "USD", "", None),
     ("polar", "bounty_platform", "USD", "", None),
     ("gitcoin", "bounty_platform", "USD", "", None),
@@ -239,6 +264,8 @@ SEED_NETWORKS = [
     ("stacks", "stacks:1", "STX", 1,
      "кошелёк агента AIBTC; sBTC SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token; "
      "наблюдатель — Hiro API (без ключа)"),
+    ("tron", "tron:mainnet", "TRX", 1,
+     "USDT TRC20 TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t; наблюдатель — Tronscan API (без ключа)"),
 ]
 
 SEED_CURRENCIES = [
@@ -248,10 +275,79 @@ SEED_CURRENCIES = [
     ("SOL", "crypto", 1, None),
     ("sBTC", "crypto", 1, "биткоин на Stacks; так платит доска AIBTC"),
     ("STX", "crypto", 1, None),
+    ("USDT", "stablecoin", 1, None),
+    ("USDC.e", "stablecoin", 1, "мостовой USDC на Polygon/Arbitrum"),
+    ("DAI", "stablecoin", 1, None),
+    ("WETH", "crypto", 1, "обёрнутый ETH, курс ETH"),
+    ("WBTC", "crypto", 1, "обёрнутый BTC на Ethereum/Arbitrum, курс BTC"),
+    ("cbBTC", "crypto", 1, "BTC от Coinbase на Base, курс BTC"),
+    ("POL", "crypto", 1, None),
+    ("TRX", "crypto", 1, None),
     ("USD", "fiat", 1, "через площадку или банк"),
     ("giftcard", "voucher", 0,
      "засчитывается ТОЛЬКО если законна, передаваема и полезна владельцу"),
 ]
+
+
+# ═════════════════════════════════════════════ ЧТО ПРИНИМАЕМ — ОДИН СПИСОК ДЛЯ ВСЕХ
+# Владелец 15.09: «выплата не обязана быть в USDC — ETH, BTC, любой актив, на который
+# есть адрес». Этот список читают доска агентов, правила состава, дилер и воркер.
+ACCEPTED = (
+    ("USDC, USDT, DAI, ETH/WETH, cbBTC, WBTC", "Base, Ethereum, Polygon, Arbitrum", "evm"),
+    ("BTC", "Bitcoin", "btc"),
+    ("SOL, USDC, USDT", "Solana", "sol"),
+    ("STX, sBTC", "Stacks", "stx"),
+    ("TRX, USDT (TRC20)", "TRON", "tron"),
+)
+
+
+def accepted():
+    """Список принимаемых активов с адресами — для машинного чтения."""
+    return [{"assets": a, "networks": n, "address": OWNER_DESTINATIONS[k]} for a, n, k in ACCEPTED]
+
+
+def accepted_line(short=False):
+    """То же одной строкой. short — без адресов (для каналов, где адреса запрещены)."""
+    if short:
+        return "; ".join(f"{a} ({n})" for a, n, _ in ACCEPTED)
+    return "; ".join(f"{a} на {n} → {OWNER_DESTINATIONS[k]}" for a, n, k in ACCEPTED)
+
+
+_STABLE = {"USDC", "USDC.E", "USDT", "DAI", "USD", "USDBC"}
+_SPOT_OF = {"ETH": "ETH", "WETH": "ETH", "BTC": "BTC", "WBTC": "BTC", "CBBTC": "BTC", "SBTC": "BTC",
+            "SOL": "SOL", "POL": "POL", "STX": "STX", "TRX": "TRX"}
+_SPOT_CACHE = {}
+
+
+def spot_usd(symbol):
+    """Курс к доллару: спот Coinbase без ключа, кэш 10 минут. Нет курса — None, не ноль."""
+    import time
+    import urllib.request
+    sym = _SPOT_OF.get(str(symbol).upper())
+    if not sym:
+        return None
+    hit = _SPOT_CACHE.get(sym)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    try:
+        r = urllib.request.urlopen(f"https://api.coinbase.com/v2/prices/{sym}-USD/spot", timeout=10)
+        price = float(json.loads(r.read().decode("utf-8"))["data"]["amount"])
+    except Exception:
+        return hit[1] if hit else None
+    _SPOT_CACHE[sym] = (time.time(), price)
+    return price
+
+
+def usd_value(asset, amount):
+    """Долларовая стоимость поступления в любом активе. Стейблы 1:1, прочее по споту."""
+    try:
+        amt = float(amount)
+    except (TypeError, ValueError):
+        return None
+    if str(asset).upper() in _STABLE:
+        return amt
+    price = spot_usd(asset)
+    return None if price is None else round(amt * price, 6)
 
 
 def seed():

@@ -723,16 +723,22 @@ def compose(cp, channel, snapshot_hash=None):
         "aibtc": "Your bounty is on the AIBTC board where agents pay agents in sBTC.",
     }.get(cp.get("source"), "You are active where agents pay for results.")
     addr_ok = bool(channel.get("allows_wallet_address"))
+    # ЛЮБОЙ АКТИВ, НА КОТОРЫЙ ЕСТЬ АДРЕС (владелец 15.09): обращение называет все пути
+    # оплаты, а не только USDC на Base. Где адреса запрещены — называем монеты и сети.
+    d = payment.OWNER_DESTINATIONS
     if addr_ok and net == "base":
-        pay_line = (f"Pay to {payment.OWNER_DESTINATIONS['evm']} (USDC on Base) — or simply call "
-                    f"{SERVICE_URL}/search?q=<capability>: the 402 response carries the same address "
-                    f"and settles the payment for you.")
+        pay_line = (f"Pay in whichever asset you already hold: USDC, USDT, DAI or ETH on Base, Ethereum, "
+                    f"Polygon or Arbitrum to {d['evm']}; BTC to {d['btc']}; SOL or USDC/USDT on Solana to "
+                    f"{d['sol']}; TRX or USDT (TRC20) to {d.get('tron', '')}. Any of these counts. Or simply call "
+                    f"{SERVICE_URL}/search?q=<capability>: the 402 response carries the Base address and "
+                    f"settles the payment for you.")
     elif net == "stacks":
-        pay_line = (f"Pay in sBTC to the registered agent wallet "
-                    f"{payment.OWNER_DESTINATIONS.get('stx', '')} on Stacks.")
+        pay_line = (f"Pay in sBTC or STX to the registered agent wallet {d.get('stx', '')} on Stacks — "
+                    f"or in USDC/ETH on Base, BTC, SOL or TRX if that is easier; say which and we name the address.")
     else:
-        pay_line = (f"Call {SERVICE_URL}/search?q=<capability>: the 402 response carries the "
-                    f"receiving address and settles the payment; nothing else to set up.")
+        pay_line = (f"Call {SERVICE_URL}/search?q=<capability>: the 402 response carries the receiving "
+                    f"address and settles the payment; nothing else to set up. We also accept ETH, USDT, DAI, "
+                    f"BTC, SOL, STX or TRX — reply with the network you use and we send the address.")
     verify = (f"Verify our side for free first: {SERVICE_URL}/health shows the snapshot hash"
               + (f" ({snapshot_hash})" if snapshot_hash else "")
               + f" and {SERVICE_URL}/sample returns three ranked results with the same receipt.")
@@ -740,7 +746,8 @@ def compose(cp, channel, snapshot_hash=None):
         why,
         "",
         f"What you get: {value}.",
-        f"What we ask: {amount} {cur} for {unit}. Nothing more, no retainer, no account to create.",
+        f"What we ask: {amount} {cur} for {unit} — or the same value in any asset we accept. "
+        f"Nothing more, no retainer, no account to create.",
         pay_line,
         f"If it is useful, reply within {RESPONSE_WINDOW_H} hours; if not, no follow-up from us — "
         f"we write once.",

@@ -447,6 +447,7 @@ def health_check():
                  "healthy" if ok else "DEGRADED", now()))
     con.commit()
     con.close()
+    board = _push_board()
     if ok:
         say("judge", "Проверил свой сервис: 402 отдаётся правильно, страницы живые. "
                      "Это важно — в Bazaar рейтинг зависит от доли успешных ответов.")
@@ -454,7 +455,31 @@ def health_check():
         say("judge", f"⚠ Сервис деградировал: {results}. Пока это не починено, листиться нельзя — "
                      f"плохая надёжность закопает нас в выдаче.")
         note("orchestrator", f"SERVICE DEGRADED: {results}", conf=1.0)
-    return f"health {'ok' if ok else 'DEGRADED'} {results}"
+    return f"health {'ok' if ok else 'DEGRADED'} {results}; доска: {board}"
+
+
+# Публичная доска живёт на воркере Cloudflare, а не на локальном сервисе 127.0.0.1:8402.
+BOARD_PUSH_URL = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/board/push"
+
+
+def _push_board():
+    """Снимок общей доски — на публичную страницу воркера (/board). Раз в оборот сторожа,
+    в пределах бесплатного тарифа KV. Ключ — BOARD_TOKEN из .env; без него шаг молчит."""
+    token = _env_value("BOARD_TOKEN")
+    if not token:
+        return "нет BOARD_TOKEN"
+    try:
+        from core import board as _board
+        body = json.dumps(_board.snapshot(), ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(BOARD_PUSH_URL, data=body, method="POST",
+                                     headers={"User-Agent": UA, "content-type": "application/json",
+                                              "x-board-token": token})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return f"опубликована ({len(body)} байт, HTTP {r.status})"
+    except urllib.error.HTTPError as e:
+        return f"отказ HTTP {e.code}"
+    except Exception as e:
+        return f"не опубликована: {type(e).__name__}"
 
 
 # ---------------------------------------------------------------- 4. LEARN

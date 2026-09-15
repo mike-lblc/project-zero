@@ -104,6 +104,23 @@ class AnswerFirst(TempDB):
         self.assertEqual(chose[0], "answer_agent")
 
 
+class Snapshot(TempDB):
+    def test_snapshot_carries_words_questions_thoughts_and_findings(self):
+        from core import board, bus, roster
+        roster.wire()
+        bus.broadcast("dealer", "контрагентов с кошельком: 12")
+        qid = bus.ask("watchdog", "leads", "что делаешь для первого платежа?")
+        bus.answer("leads", qid, "перепроверил 60 каналов")
+        snap = board.snapshot()
+        kinds = {m["kind"] for m in snap["messages"]}
+        self.assertTrue({"chat", "ask", "answer"} <= kinds, kinds)
+        ask = next(m for m in snap["messages"] if m["kind"] == "ask")
+        self.assertEqual((ask["from"], ask["to"]), ("watchdog", "leads"))
+        self.assertIn("первого платежа", ask["text"])
+        self.assertIn("generated_at", snap)
+        self.assertIn("принимаем", board.view("dealer")["деньги"])
+
+
 class ImproverGuards(unittest.TestCase):
     def test_degradations_are_named(self):
         from agents import improver
