@@ -248,8 +248,10 @@ def dedup_works():
 
 
 def chat_dedup():
+    # Дубль — тот же текст ТОМУ ЖЕ адресату. Уведомление о статусе Moltbook кладётся в
+    # каждый из 19 входящих отдельно (broadcasts are not inboxes) — это не повтор.
     tot = q("SELECT COUNT(*) FROM messages WHERE topic='chat'") or 0
-    uniq = q("SELECT COUNT(DISTINCT body) FROM messages WHERE topic='chat'") or 0
+    uniq = q("SELECT COUNT(DISTINCT COALESCE(recipient,'*')||'|'||body) FROM messages WHERE topic='chat'") or 0
     return (tot - uniq) <= 3, f"дублей реплик {tot - uniq} из {tot}"
 
 
