@@ -47,7 +47,8 @@ class Gates(unittest.TestCase):
 
     def test_violations_are_named(self):
         g = tw.gates_from_brief(CSV)
-        bad = "wrong,header\n1,2\n"
+        bad = ("wrong,header,columns,in,file\n"
+               "Latin,left to right,not conventional,qualification text here,https://www.w3.org/International/questions/qa-scripts\n")
         probs = tw.check(bad, g)
         self.assertTrue(any("заголовком" in p for p in probs), probs)
         self.assertTrue(any("ровно 5" in p for p in probs), probs)
