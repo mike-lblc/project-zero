@@ -1,0 +1,298 @@
+<title>Аудит экосистемы P0</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#f3f4f6; --ink:#1b1f24; --muted:#5f6670; --rule:#d5d9df; --panel:#ffffff;
+  --accent:#1f7a5c; --accent-ink:#ffffff; --warn:#b4761f; --crit:#a33a2f; --ok:#1f7a5c;
+  --chip:#e6ebe8; --mono-bg:#eceff2;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0f1216; --ink:#d7dbe0; --muted:#8b93a0; --rule:#2a3038; --panel:#161a20;
+    --accent:#3fae86; --accent-ink:#0f1216; --warn:#d09a3e; --crit:#d0685c; --ok:#3fae86;
+    --chip:#1d2a25; --mono-bg:#1a1f26;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0f1216; --ink:#d7dbe0; --muted:#8b93a0; --rule:#2a3038; --panel:#161a20;
+  --accent:#3fae86; --accent-ink:#0f1216; --warn:#d09a3e; --crit:#d0685c; --ok:#3fae86;
+  --chip:#1d2a25; --mono-bg:#1a1f26;
+}
+body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:15.5px;line-height:1.55;padding-block:32px 72px;padding-inline:clamp(16px,4vw,40px);margin:0}
+.wrap{max-width:980px;margin:0 auto}
+h1,h2,h3{font-family:"IBM Plex Serif",Georgia,"Times New Roman",serif;text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,4vw,40px);font-weight:600;line-height:1.15}
+h2{font-size:24px;font-weight:600;margin-top:56px;padding-top:18px;border-top:2px solid var(--ink)}
+h3{font-size:18px;font-weight:600;margin-top:28px}
+p,li{max-width:72ch}
+.eyebrow{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px 28px;margin:24px 0 8px;padding:16px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.meta div span{display:block}
+.meta .k{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.meta .v{font-weight:500}
+.toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 24px;margin:20px 0 0;padding:0;list-style:none}
+.toc li a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule)}
+.toc li a:hover,.toc li a:focus-visible{border-bottom-color:var(--accent);outline:none}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:22px 0}
+.verdict div{background:var(--panel);border:1px solid var(--rule);padding:14px 16px}
+.verdict .n{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:26px;font-weight:500;font-variant-numeric:tabular-nums}
+.verdict .l{font-size:13px;color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0}
+.tbl{overflow-x:auto;border:1px solid var(--rule);background:var(--panel)}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--paper)}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",ui-monospace,monospace}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace;font-size:13px;background:var(--mono-bg);padding:1px 5px;border-radius:2px}
+pre{background:var(--mono-bg);padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+.chip{display:inline-block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px;letter-spacing:.04em;padding:1px 7px;border-radius:2px;background:var(--chip);color:var(--ink);white-space:nowrap}
+.ok{color:var(--ok);font-weight:600}.warn{color:var(--warn);font-weight:600}.crit{color:var(--crit);font-weight:600}
+.note{border-left:3px solid var(--accent);padding:10px 14px;background:var(--panel);margin:18px 0}
+.note.risk{border-left-color:var(--warn)}
+ul,ol{padding-left:22px}
+li{margin:4px 0}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 18px;margin:12px 0}
+dt{color:var(--muted);font-size:13px}
+dd{margin:0}
+.diagram{background:var(--panel);border:1px solid var(--rule);padding:12px;overflow-x:auto}
+.diagram svg{display:block;min-width:720px;width:100%;height:auto}
+.small{font-size:13px;color:var(--muted)}
+@media (max-width:600px){dl{grid-template-columns:1fr}.meta{grid-template-columns:1fr 1fr}}
+</style>
+<div class="wrap">
+<div class="eyebrow">Фреймворк Fable · XAD.txt · полный аудит, топологический анализ, стресс-тест</div>
+<h1>Аудит мультиагентной экосистемы P0</h1>
+<div class="meta">
+  <div><span class="k">Объект</span><span class="v">Desktop\Brain · репозиторий project-zero</span></div>
+  <div><span class="k">Ревизия кода</span><span class="v mono">1dc4131 (main), 15.09.2026</span></div>
+  <div><span class="k">Метод</span><span class="v">факты из кода, базы brain.db и живых запросов</span></div>
+  <div><span class="k">Снимок метрик</span><span class="v">15.09.2026, 00:00–03:00 UTC (последние 24 ч)</span></div>
+</div>
+<ul class="toc">
+  <li><a href="#s0">0. Резюме и вердикт</a></li>
+  <li><a href="#s1">1. Таксономия и мастер-реестр</a></li>
+  <li><a href="#s2">2. Рецептура компонентов</a></li>
+  <li><a href="#s3">3. Автономность и самоэволюция</a></li>
+  <li><a href="#s4">4. Топология и синхронизация состояния</a></li>
+  <li><a href="#s5">5. Отказоустойчивость и самозалечивание</a></li>
+</ul>
+
+<h2 id="s0">0. Резюме и вердикт</h2>
+<p>P0 — не рой равноправных LLM-агентов, а <strong>детерминированный планировщик с 19 узкими ролями, общей базой SQLite и одним рассуждающим шагом на оборот</strong>. Интеллект намеренно разделён по трём ярусам: локальные модели (Ollama) делают механику и выбор одного инструмента из белого списка; всё, что является суждением, уходит в очередь эскалаций и решается фронтирной моделью в сессии владельца; облако (GitHub Actions) исполняет только сетевые и базовые шаги. Такая архитектура даёт высокую предсказуемость и слабую «глубину планирования»: ни один агент не строит многошаговый план, кроме нового дилера с явным циклом OBSERVE→MODEL→PRIORITIZE→ACT→VERIFY→LEARN.</p>
+<div class="verdict">
+  <div><span class="n">19 / 59</span><span class="l">рассуждающих агентов / инструментов (51 GREEN, 8 YELLOW)</span></div>
+  <div><span class="n">72</span><span class="l">таблиц в общей базе brain.db (SQLite, WAL)</span></div>
+  <div><span class="n">10 230</span><span class="l">записанных шагов; 11 сбоев за 24 ч (0,9 %)</span></div>
+  <div><span class="n">0 / 96</span><span class="l">открытых / всего суждений в очереди эскалаций</span></div>
+  <div><span class="n">173</span><span class="l">отбитых инъекций на шлюзе из 216 внешних сообщений</span></div>
+  <div><span class="n">0</span><span class="l">подтверждённых платежей от посторонних (цель миссии)</span></div>
+</div>
+<p><strong>Вердикт по стабильности:</strong> система устойчива к падениям процесса (сторож каждую минуту, часовой аудит, замок экземпляра), к повторам без прогресса (пауза с удвоением) и к чужим инструкциям (шлюз). Она <em>не</em> устойчива к трём вещам, найденным этим аудитом и частично исправленным в тот же день: самоухудшение кода улучшателем (дважды снимал предел чтения), клоны зонтичной задачи (9 копий за 5 дней) и расхождение двух реплик базы между облаком и машиной владельца. Подробности — раздел 5.</p>
+
+<h2 id="s1">1. Таксономия и мастер-реестр</h2>
+<h3>1.1 Иерархическая кластеризация</h3>
+<p>Границы доменов проведены по данным, а не по названиям: кто какие таблицы пишет и какие шаги цикла владеет (<code>AGENT_OF</code>). Роли без собственной модели (orchestrator, judge, proposer, merchant, distributor, scribe) существуют как функции цикла и записи справочника <code>bus.DIRECTORY</code>; на дашборде 26 карточек, в реестре рассуждающих — 19.</p>
+<div class="tbl"><table>
+<tr><th>Домен</th><th>Агенты</th><th>Что владеют</th></tr>
+<tr><td>Orchestration &amp; Routing</td><td>orchestrator (функция), watchdog, optimizer, taskmaster (модуль), council (протокол)</td><td>цикл, очередь задач, события, эскалации, паузы, экономика</td></tr>
+<tr><td>Data Ingestion &amp; Market Intelligence</td><td>scout, explorer, prospector, browser_scout, supplier, leads</td><td>каталог x402 (15 477 сервисов), money_paths (772), leads (128+), источники</td></tr>
+<tr><td>Deal Flow &amp; Financial Operations</td><td>salesman, closer, channel_manager, <strong>dealer</strong>, collector, bounty, craftsman, executor</td><td>outreach, сделки (16 состояний), маршруты оплаты (7 сетей), поступления, награды, PR</td></tr>
+<tr><td>QA &amp; Validation</td><td>verifier, adversary, critic + скрипты audit.py (59), mtbx_audit (54), fake_work_audit (7), regressions (121), deep_checks (9), consistency (5)</td><td>доказательства, инварианты, события invariant_broken</td></tr>
+<tr><td>Code Generation &amp; Self-modification</td><td>mechanic, improver</td><td>правки кода под гейтом аудита и evals</td></tr>
+<tr><td>Communication &amp; Presence</td><td>channel_manager (Moltbook), postman (почтовые теги), distributor/merchant/scribe (модуль team)</td><td>посты, комментарии, реестр MCP, тексты</td></tr>
+</table></div>
+
+<h3>1.2 Мастер-реестр рассуждающих агентов</h3>
+<p>UID — имя в <code>core.agent.REGISTRY</code>. Граница ответственности (SLA) — то, что агент обязан считать успехом; всем агентам добавлены 7 инструментов Moltbook (чтение, статус, обсуждение, публикация, комментарий, ответ, правка), они ниже не повторяются. «Шаги» — шаги планировщика, приписанные агенту.</p>
+<div class="tbl"><table>
+<tr><th>UID</th><th>Класс</th><th>Роль</th><th>Собственные инструменты</th><th>SLA (KPI)</th></tr>
+<tr><td class="mono">adversary</td><td>GREEN</td><td>ищет, где система врёт себе</td><td>check_invariants, housekeeping, recall_memory, guard_knowledge</td><td>найденные расхождения между тем, что система сообщает, и данными</td></tr>
+<tr><td class="mono">bounty</td><td>GREEN</td><td>охотник за оплачиваемой работой</td><td>hunt_bounties, fresh_bounties, watch_payments, deliver_aibtc, hunt_contests, hunt_hn_jobs</td><td>доступные задачи, где выплата дойдёт до кошелька</td></tr>
+<tr><td class="mono">browser_scout</td><td>GREEN</td><td>читает то, что не отдаётся обычным запросом</td><td>browse_platform, hunt_offsite, probe_paths</td><td>площадки, найденные браузером после «пусто»</td></tr>
+<tr><td class="mono">channel_manager</td><td>GREEN</td><td>доставка и её след</td><td>channel_health, find_channel, where_visible</td><td>каналы, доказанные настоящей отправкой</td></tr>
+<tr><td class="mono">closer</td><td>GREEN</td><td>от ответа до договорённости</td><td>check_replies, open_deals</td><td>сделки в AGREED с предметом, ценой и условиями</td></tr>
+<tr><td class="mono">collector</td><td>GREEN</td><td>маршрут, запрос, сверка поступления</td><td>verify_routes, collect_payments, money_report, chain_economics, watch_payments</td><td>проверенные маршруты; поступления с доказательством</td></tr>
+<tr><td class="mono">craftsman</td><td>GREEN</td><td>доводит работу до слияния</td><td>watch_prs, collect_payouts, watch_payments, check_indexing, package_docs</td><td>доля утверждений, подтверждённых исходниками; PR до ответа</td></tr>
+<tr><td class="mono">critic</td><td>GREEN</td><td>проверяет остальных</td><td>critique_system, check_invariants, recall_memory</td><td>утверждения без источника, брошенные предложения</td></tr>
+<tr><td class="mono">dealer</td><td>YELLOW</td><td>сеть путей к первому платежу</td><td>dealer_cycle, dealer_state, dealer_report, moltbook_address_survey</td><td>поступления от посторонних; до первого — живые каналы, контрагенты, обращения с шестью элементами</td></tr>
+<tr><td class="mono">executor</td><td>GREEN</td><td>делает работу</td><td>produce_work, check_work, produce_requested_documentation, package_docs</td><td>работы, прошедшие сверку с исходниками</td></tr>
+<tr><td class="mono">explorer</td><td>GREEN</td><td>спрос выше конкуренции</td><td>explore_niches, prospect, study_market, market_demand</td><td>ниши, измеренные впервые</td></tr>
+<tr><td class="mono">improver</td><td>YELLOW</td><td>правит код других агентов моделью</td><td>improve_code, check_invariants, where_time_goes</td><td>правки, принятые аудитом; откат = работа предохранителя</td></tr>
+<tr><td class="mono">leads</td><td>GREEN</td><td>клиенты и законные каналы</td><td>find_leads, find_channel, verify_service, rich_targets</td><td>лиды с проверенным публичным каналом</td></tr>
+<tr><td class="mono">optimizer</td><td>GREEN</td><td>кто окупается</td><td>economic_review, check_invariants, housekeeping, chain_economics, where_time_goes</td><td>места пустой работы с замером до и после</td></tr>
+<tr><td class="mono">prospector</td><td>GREEN</td><td>способы заработка</td><td>prospect, probe_paths, expand_space, hunt_contests</td><td>классы заработка, проверенные впервые</td></tr>
+<tr><td class="mono">salesman</td><td>GREEN</td><td>наблюдение → предложение</td><td>diagnose_leads, study_market, find_channel, where_visible, check_distribution, reach_out, services_catalog</td><td>диагнозы с воспроизводимым фактом</td></tr>
+<tr><td class="mono">supplier</td><td>GREEN</td><td>бесплатные подключения</td><td>supply_check, where_visible, package_docs, market_demand</td><td>живые бесплатные источники; время до обнаружения смерти</td></tr>
+<tr><td class="mono">verifier</td><td>GREEN</td><td>доказательство должно доказывать</td><td>verify_evidence, check_invariants, guard_knowledge</td><td>доля доказательств, подтверждённых перепроверкой</td></tr>
+<tr><td class="mono">watchdog</td><td>GREEN</td><td>агенты живы и работают</td><td>watch_agents, check_invariants, housekeeping, supply_check, where_time_goes</td><td>время между поломкой и обнаружением</td></tr>
+</table></div>
+<p class="small">Нагрузка за 24 ч (шагов ok/сбоев): scout 192/0, watchdog 159/0, orchestrator 87/0, bounty 78/0, collector 46/0, channel_manager 45/0, explorer 41/0, prospector 40/10, salesman 37/0, leads 32/0, closer 28/0, verifier 24/0, mechanic 24/0, craftsman 20/0, optimizer 17/0, dealer 15/0, executor 14/0, adversary 14/0, improver 9/1, scribe 6, merchant 5, supplier 4, judge/distributor/critic по 1.</p>
+
+<h2 id="s2">2. Гранулярная рецептура компонентов</h2>
+<p>Рецептура у всех рассуждающих агентов одна и та же по конструкции (класс <code>core.agent.Agent</code>); различаются системный промпт, KPI и белый список инструментов. Поэтому ниже — общий рецепт плюс отличия.</p>
+
+<h3>2.1 The Brain — конфигурация моделей</h3>
+<div class="tbl"><table>
+<tr><th>Ярус</th><th>Модель</th><th>Где</th><th>Параметры</th><th>Что делает</th></tr>
+<tr><td>light</td><td class="mono">qwen3.5:4b</td><td>Ollama, 3,4 ГБ</td><td>параметры Ollama по умолчанию, stream=false, таймаут 300 с (загрузка весов)</td><td>tag, format, dedupe</td></tr>
+<tr><td>standard</td><td class="mono">qwen3.5:9b</td><td>Ollama, 6,6 ГБ</td><td>то же</td><td>резерв; по умолчанию для неразмеченных типов</td></tr>
+<tr><td>heavy</td><td class="mono">qwen3-coder:30b</td><td>Ollama, 18,6 ГБ</td><td>то же; средняя длительность вызова 15,1 с (597 замеров)</td><td>classify, extract, parse, summarize, translate; <strong>рассуждение агента</strong> идёт как classify</td></tr>
+<tr><td>embeddings</td><td class="mono">bge-m3</td><td>Ollama</td><td>ранее nomic-embed-text (768-d); bge-m3 выбрана по замеру близости пар 0,609 против 0,436</td><td>семантическая память</td></tr>
+<tr><td>cloud (opt-in)</td><td class="mono">@cf/meta/llama-3.2-3b-instruct</td><td>Cloudflare Workers AI</td><td>max_tokens 512, temperature 0.2, только при P0_MODEL_BACKEND=cloudflare и верифицированном Free-плане</td><td>рутина в облаке; рассуждение честно помечается как исполненное слабой моделью</td></tr>
+<tr><td>frontier</td><td>модель сессии владельца</td><td>вне системы</td><td>очередь <code>messages.recipient='ESCALATION'</code></td><td>все суждения: выбор, план, одобрение, тексты лидам</td></tr>
+</table></div>
+<p>Temperature и top_p локальных моделей не переопределяются: вызов идёт в <code>/api/generate</code> с одним промптом. Явные гиперпараметры есть только у облачной модели. Роутер <code>core.router.where()</code> — единственная развилка «где считать»; режимы <code>ollama</code> (дом), <code>split</code> (рутина в облако), <code>cloudflare</code> (всё в облаке). Типы задач разделены на MECHANICAL и JUDGMENT; JUDGMENT на локальной модели поднимает <code>EscalationRequired</code>, никогда не подавляется.</p>
+<p><strong>Системный промпт</strong> = MISSION (перевод денег от постороннего на кошелёк, проверяемый хешем) + COMMON (правила честности и доказательств) + текст роли (3,8–5,0 тыс. символов) + строка KPI + меню инструментов с сигнатурами + факты состояния в JSON + требование ответить одной строкой JSON <code>{"tool","args","why"}</code>. Побудительный шаблон один на всех: «выбери ОДНО действие, предпочитай новое знание или продвижение к деньгам, не повторяй сработавшее без изменения условий».</p>
+
+<h3>2.2 The Memory — архитектура памяти</h3>
+<dl>
+<dt>Краткосрочная</dt><dd>Не буфер диалога, а <em>окно фактов из базы</em>, собираемое при каждом решении (<code>Agent.state()</code>): 6 последних шагов, 8 испробованных инструментов, 4 неудачи, 4 наблюдения, 5 своих задач, 4 входящих сообщения, до 3 уроков из семантической памяти и общий снимок возможностей (<code>capability_map</code>: маршруты, услуги, лиды, конвейер). Диалога между оборотами нет — каждый оборот без состояния, кроме базы.</dd>
+<dt>Память цикла</dt><dd><code>cycle_memory</code> (93 записи): дайджест результата шага, счётчик повторов, пауза; переживает перезапуск процесса.</dd>
+<dt>Долговременная</dt><dd>Единая SQLite <code>data/brain.db</code>, 72 таблицы, режим WAL, busy_timeout 60 с; ключевые: runs (10 230), agent_decisions (139), tasks/task_events, evidence + proof_of_work, payments/payment_receipts/payment_routes, bounties, leads, outreach, counterparties/channels (дилер), messages (2 949), events, invariants (121), audit_cycles (60), spans (6 294).</dd>
+<dt>Векторная</dt><dd>Таблица <code>memory_vectors</code> (120 векторов) в той же базе; линейный косинусный поиск (<code>core.recall</code>), порог по умолчанию 0,50, в состоянии агента 0,55, топ-3. Отдельного векторного хранилища нет намеренно: тысячи записей, миллисекунды.</dd>
+<dt>Граф знаний</dt><dd>Нет. Связи хранятся реляционно: evidence → proposals/objections/rulings, tasks.parent_id, counterparties.source_ref.</dd>
+</dl>
+
+<h3>2.3 The Planning — модуль планирования</h3>
+<p>Паттерн — <strong>одношаговый ReAct без цепочки</strong>: наблюдение состояния → выбор ровно одного инструмента → исполнение → запись исхода в <code>agent_decisions</code>. Глубина рекурсии планирования = 1 на оборот; многошаговость возникает из очереди задач (<code>core.execution</code>): задача не создаётся без исполнимого следующего действия, провал обязан породить ровно одну следующую попытку (родитель уходит в REJECTED), завершение требует доказательства. Сделка проходит 16 состояний с регулярными выражениями доказательств для каждого перехода (CONTACTED — URL или id сообщения; PAID — хеш транзакции).</p>
+<p>Исключения из одношаговости: (а) <strong>дилер</strong> — явный цикл OBSERVE→MODEL→PRIORITIZE→ACT→VERIFY→LEARN с формулой приоритета <code>P(перевода)·P(подтверждения)·доступность ÷ ожидаемое время</code>; (б) <strong>совет</strong> (DECISION_PROTOCOL): Proposer с обязательным фальсификатором → Verifier без доступа к рассуждению предлагающего (антиякорение) → Adversary с целью убить предложение → Judge, обязанный разобрать сильнейшее возражение; на RED действует асимметричное вето одного доказанного возражения. Совет исполняется фронтирной моделью; в базе 2 предложения, 5 возражений, 2 решения — структура есть, статистики исходов ещё нет.</p>
+<p>Ограничители петель: один и тот же результат три раза подряд (<code>SAME_LIMIT=3</code>) → пауза 5·2ⁿ минут с потолком по шагу (наблюдение платежей 15 мин, свежие премии 20, PR 60, снабжение 180, максимум 24 ч); та же ошибка трижды — та же пауза.</p>
+
+<h3>2.4 The Tooling — интерфейсы действий и RBAC</h3>
+<p>59 инструментов, объявленных декоратором <code>@tool(name, class, describe, needs)</code>; повторное имя — ошибка регистрации. Потребности: сеть 40, gh 10, moltbook 7, браузер 1, ключ CDP 1, замеры 1, модель 1. Песочниц (Docker, E2B) нет: код чужих репозиториев не исполняется по правилу (<code>demands_untrusted_execution</code> отклоняет такие заявки), вся работа — чтение, запись файлов и HTTP.</p>
+<div class="tbl"><table>
+<tr><th>Класс</th><th>Смысл</th><th>Гейт</th><th>Инструментов / агентов</th></tr>
+<tr><td>GREEN</td><td>обратимо, приватно, бесплатно</td><td>без одобрения</td><td>51 / 17 агентов с пределом GREEN</td></tr>
+<tr><td>YELLOW</td><td>публично, но отзывно</td><td>постоянное разрешение владельца или совет</td><td>8 / dealer, improver</td></tr>
+<tr><td>RED</td><td>необратимо, наружу, деньги</td><td>совет + вето одного возражения</td><td>0 инструментов объявлено</td></tr>
+<tr><td>BLACK</td><td>аккаунты, KYC, капчи, траты, движение средств</td><td>никогда; только руки владельца</td><td><code>guard.check_action</code> поднимает Forbidden</td></tr>
+</table></div>
+<p>Суточные пределы в коде (<code>guard.CAPS</code>): email_send 200, email_tag 200, page_publish 20, public_post 10, moltbook_publish 1, moltbook_comment 5, moltbook_reply 5, moltbook_edit 5, bounty_claim 3, pr_submit 3, dealer_message 5, aibtc_submit 3. Постоянные разрешения владельца (7) записываются в <code>permission_uses</code> при каждом использовании. Аутентификация: gh CLI под аккаунтом владельца; ключ Moltbook, токен Cloudflare, seed кошелька AIBTC — только в <code>.env</code> (в промпты не попадают; подписи делает Node-скрипт); ключи CDP — секреты воркера Cloudflare. Файл <code>data/KILL_SWITCH</code> останавливает любое действие.</p>
+
+<h2 id="s3">3. Профиль автономности и самоэволюции</h2>
+<h3>3.1 Self-Learning</h3>
+<ul>
+<li><strong>Репутация ролей</strong> (<code>agent_reputation</code>, 91 строка): вызовы/верные по каждому шагу; наблюдается, но не меняет маршрутизацию автоматически.</li>
+<li><strong>Уроки по смыслу</strong>: <code>recall.remember()</code> пишет выводы в векторную память; при следующем решении агент получает до 3 близких уроков — это RAG с обратной связью, но односторонней: сходство не переоценивается по исходам.</li>
+<li><strong>Память цикла</strong>: система замечает собственное повторение и меняет поведение (пауза, <code>next_focus</code>).</li>
+<li><strong>Дилер</strong>: после каждой попытки обновляет модель контрагента (вероятность ответа, возражения, кооперация), доли успеха стратегий и оценку вероятности следующего платежа — единственный агент с явным LEARN.</li>
+<li><strong>Экономика</strong>: <code>economics.survival()</code> считает отдачу агентов по стоимости шагов (spans) и выручке; при нулевой выручке помечает режим выживания.</li>
+<li><strong>Каталог инвариантов</strong> растёт из инцидентов (121 проверок, список списанных RETIRED) — обучение системы, а не модели.</li>
+</ul>
+<h3>3.2 Self-Development</h3>
+<div class="tbl"><table>
+<tr><th>Способность</th><th>Есть?</th><th>Как именно</th></tr>
+<tr><td>Синтез новых инструментов</td><td class="crit">нет</td><td>реестр инструментов фиксирован кодом; повтор имени — ошибка</td></tr>
+<tr><td>Оптимизация собственных промптов</td><td class="crit">нет</td><td>промпты — константы в <code>core/roster.py</code>; improver не имеет права их трогать</td></tr>
+<tr><td>Порождение дочерних агентов</td><td class="crit">нет</td><td>состав фиксирован; масштабирование — один процесс воркера + облачный прогон</td></tr>
+<tr><td>Правка чужого кода детерминированно</td><td class="ok">да, mechanic</td><td>два класса правок (неиспользуемый импорт, голый except); гейт — полный audit.py (59 проверок); хоть одна упала — откат; неприкасаемые файлы: audit.py, guard, execution, .env</td></tr>
+<tr><td>Правка чужого кода моделью</td><td class="ok">да, improver</td><td>область ≤ 80 строк, патч от qwen3-coder:30b; критерии принятия: файл разбирается; <strong>удалённые имена нигде не читаются</strong> (добавлено 15.09); оценка аудита не ухудшилась ни по одной мере; <strong>evals модуля проходят</strong> (добавлено 15.09); запретный список из 12 файлов</td></tr>
+<tr><td>Публикация правок</td><td class="ok">да</td><td>механик коммитит и пушит; облачный цикл коммитит данные дашборда</td></tr>
+</table></div>
+<div class="note risk"><strong>Наблюдённый инцидент самомодификации.</strong> 14–15.09 improver дважды принял правку <code>agents/bounty.py</code>: снял предел чтения страницы (<code>r.read(60000)</code> → безразмерное чтение) и один раз удалил две регулярки, которые читались тремя строками ниже. Первый случай прошёл гейт, потому что аудит меряет систему, а не функцию; второй — потому что <code>ast.parse</code> не видит неопределённых имён. Оба исправлены: AST-сверка удалённых имён, прогон evals модуля, а предел чтения объявлен константой <code>HEAD_BYTES</code>, чтобы правило «обрезка без объявления» больше не срабатывало.</div>
+
+<h2 id="s4">4. Топология коммуникации и синхронизация состояния</h2>
+<h3>4.1 Паттерн взаимодействия</h3>
+<p><strong>Централизованная звезда вокруг общей базы</strong> с одним планировщиком. Агенты не вызывают друг друга и не держат соединений; всё общение — записи в SQLite, которые читает следующий оборот. Внешние протоколы — HTTP/JSON (GitHub API через gh, Moltbook REST, Coinbase Bazaar, Blockscout/Blockstream/Hiro/Solana RPC, Cloudflare), никаких WebSocket или gRPC.</p>
+<div class="diagram" aria-label="Схема потоков">
+<svg viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg" role="img">
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="currentColor"/></marker></defs>
+  <g fill="none" stroke="currentColor" stroke-width="1.2" color="var(--muted)">
+    <rect x="330" y="120" width="240" height="100" rx="3" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.6"/>
+    <rect x="30" y="30" width="200" height="60" rx="3" fill="var(--panel)"/>
+    <rect x="30" y="140" width="200" height="60" rx="3" fill="var(--panel)"/>
+    <rect x="30" y="250" width="200" height="60" rx="3" fill="var(--panel)"/>
+    <rect x="670" y="30" width="200" height="60" rx="3" fill="var(--panel)"/>
+    <rect x="670" y="140" width="200" height="60" rx="3" fill="var(--panel)"/>
+    <rect x="670" y="250" width="200" height="60" rx="3" fill="var(--panel)"/>
+    <path d="M230,60 L330,140" marker-end="url(#a)"/><path d="M230,170 L330,170" marker-end="url(#a)"/><path d="M230,280 L330,200" marker-end="url(#a)"/>
+    <path d="M570,140 L670,60" marker-end="url(#a)"/><path d="M570,170 L670,170" marker-end="url(#a)"/><path d="M570,200 L670,280" marker-end="url(#a)"/>
+  </g>
+  <g fill="var(--ink)" font-family="IBM Plex Sans, sans-serif" font-size="13">
+    <text x="450" y="160" text-anchor="middle" font-weight="600">brain.db (SQLite, WAL)</text>
+    <text x="450" y="182" text-anchor="middle" font-size="12">messages · events · tasks · runs</text>
+    <text x="450" y="200" text-anchor="middle" font-size="12">72 таблицы, один писатель на процесс</text>
+    <text x="130" y="55" text-anchor="middle" font-weight="600">Воркер (машина владельца)</text>
+    <text x="130" y="75" text-anchor="middle" font-size="12">12 быстрых + 62 редких шага, такт 60 с</text>
+    <text x="130" y="165" text-anchor="middle" font-weight="600">Облачный прогон (Actions)</text>
+    <text x="130" y="185" text-anchor="middle" font-size="12">реплика базы, 22 шага, каждые 2–5 ч</text>
+    <text x="130" y="275" text-anchor="middle" font-weight="600">Сторожа (schtasks)</text>
+    <text x="130" y="295" text-anchor="middle" font-size="12">keep_alive 1 мин · hourly_audit 1 ч</text>
+    <text x="770" y="55" text-anchor="middle" font-weight="600">Локальные модели (Ollama)</text>
+    <text x="770" y="75" text-anchor="middle" font-size="12">4b / 9b / 30b · bge-m3</text>
+    <text x="770" y="165" text-anchor="middle" font-weight="600">Очередь эскалаций</text>
+    <text x="770" y="185" text-anchor="middle" font-size="12">фронтирная модель в сессии владельца</text>
+    <text x="770" y="275" text-anchor="middle" font-weight="600">Внешний мир</text>
+    <text x="770" y="295" text-anchor="middle" font-size="12">GitHub · Moltbook · AIBTC · x402 · 7 сетей</text>
+  </g>
+</svg>
+</div>
+<p>Каналы внутри базы и их фактический трафик:</p>
+<div class="tbl"><table>
+<tr><th>Канал</th><th>Механизм</th><th class="num">Записей</th><th>Кто с кем</th></tr>
+<tr><td>Широковещание</td><td><code>bus.broadcast</code> → messages.topic=chat</td><td class="num">2 592</td><td>все → журнал; читается дашбордом и летописцем</td></tr>
+<tr><td>Суждения</td><td><code>council.escalate</code> → recipient=ESCALATION</td><td class="num">96</td><td>любой агент → фронтирная модель; 0 открытых</td></tr>
+<tr><td>Вопрос — ответ</td><td><code>bus.ask / answer</code></td><td class="num">81 / 80</td><td>практически только explorer ↔ merchant</td></tr>
+<tr><td>Передача работы</td><td><code>bus.handoff / take</code></td><td class="num">2</td><td>почти не используется</td></tr>
+<tr><td>События</td><td><code>events.publish</code> с подпиской и приоритетом 1–9</td><td class="num">53</td><td>13 видов; invariant_broken 37 → adversary; все 53 отработаны</td></tr>
+<tr><td>Внешние сообщения</td><td><code>gateway.receive</code></td><td class="num">216</td><td>173 отбито как инъекции (в основном собственная проба аудита), 24 низкое доверие, 19 принято как предложение</td></tr>
+</table></div>
+<h3>4.2 Синхронизация состояния и гонки</h3>
+<ul>
+<li><strong>Один процесс-планировщик</strong>: замок <code>data/worker.pid</code> с проверкой живости PID; второй экземпляр не стартует. Сторож различает «процесс есть» и «журнал свежий» — живым считается тот, кто оставляет след моложе 300 с.</li>
+<li><strong>Конкурентная запись</strong>: WAL + busy_timeout 60 с + <code>db.write()</code> с шестью повторами и линейной задержкой; запись решения агента не имеет права уронить оборот (три повтора, затем потеря записи, но не работы).</li>
+<li><strong>Оптимистическая блокировка событий</strong>: <code>UPDATE events SET claimed_by=? WHERE claimed_by IS NULL</code> — двое не возьмут одно; событие, взятое и брошенное более 30 минут, возвращается в очередь (<code>stale/release</code>).</li>
+<li><strong>Идемпотентность внешних действий</strong>: квитанции Moltbook по хешу запроса (UNIQUE, провалившиеся переименовываются для повтора); поступления по хешу транзакции (UNIQUE — двойной учёт невозможен); задача с той же целью не создаётся второй раз; обращение одному адресату — один раз навсегда.</li>
+<li><strong>Две реплики базы</strong>: облачный прогон восстанавливает <code>brain.db</code> из артефакта и загружает обратно; локальная и облачная копии расходятся и не сливаются. Поэтому шаги, пишущие наружу под одной личностью (обращения дилера, сдача на AIBTC), исполняются только на машине владельца (<code>CLOUD_CANNOT</code>).</li>
+<li><strong>Документированная гонка</strong>: остановка пультом сначала снимает сторожей и кладёт KILL_SWITCH, и только потом убивает воркер — иначе сторож, запущенный секундой раньше, поднимал воркер после остановки.</li>
+</ul>
+
+<h2 id="s5">5. Аудит отказоустойчивости, тупиков и самозалечивания</h2>
+<h3>5.1 Анализ застреваний</h3>
+<div class="tbl"><table>
+<tr><th>Класс</th><th>Где проявлялось</th><th>Защита</th><th>Статус</th></tr>
+<tr><td>Петля повторов без прогресса</td><td>optimizer 52 прогона одной фразы; explore_alternatives 4 захардкоженные строки</td><td>SAME_LIMIT=3 → пауза с удвоением; fake_work_audit (7 проверок); счётчик в базе, переживает перезапуск</td><td class="ok">закрыто</td></tr>
+<tr><td>Клоны задачи</td><td>зонтичная цель «первый платёж» объявлялась зависшей каждые 6 ч → 9 копий за 5 дней, каждая с эскалацией</td><td><code>execution.stalled()</code> не считает цель зависшей при живых сделках; счёт в hourly_audit по тому же определению</td><td class="ok">закрыто 15.09</td></tr>
+<tr><td>Ожидание упавшего соседа</td><td>событие взято и брошено</td><td><code>events.stale(30)</code> + release; шаг с исключением записывается и не блокирует цикл</td><td class="ok">закрыто</td></tr>
+<tr><td>Rate limiting площадок</td><td>Moltbook: бан на 10 провалах проверки; GitHub search; Coinbase feed</td><td>CAPS в коде; предохранитель проверок Moltbook (стоп на 6 подряд); проверочные задачи решаются локально (стресс-тест 4000/4000)</td><td class="ok">закрыто; один пропуск 14.09 из-за слова «total» исправлен</td></tr>
+<tr><td>Галлюцинационная петля модели</td><td>модель предлагает несуществующий инструмент или параметры</td><td>выбор только из белого списка; лишние параметры отбрасываются, отсутствующие блокируют вызов; JUDGMENT на локальной модели запрещён</td><td class="ok">закрыто</td></tr>
+<tr><td>Заблокированный повтор</td><td>провалившийся ответ покупателю навсегда упирался в собственный истёкший черновик (UNIQUE хеш)</td><td>FAILED-квитанция переименовывается, повтор занимает хеш</td><td class="ok">закрыто 15.09</td></tr>
+<tr><td>Самоухудшение кода</td><td>improver дважды снял предел чтения, один раз удалил используемые имена</td><td>AST-гейт, evals модуля, объявленная константа</td><td class="warn">закрыто; наблюдать</td></tr>
+<tr><td>Голодание расписания</td><td>cron каждые 15 мин, фактически 2–5 ч между облачными прогонами</td><td>минуты сдвинуты с :00/:15; внешнее ограничение GitHub</td><td class="warn">открыто, вне контроля</td></tr>
+<tr><td>Загрузка тяжёлой модели</td><td>18,6 ГБ вытесняется из VRAM; первый вызов ждёт весов</td><td>таймаут 300 с вместо «модель недоступна»; лёгкие задачи на 4b</td><td class="warn">смягчено</td></tr>
+<tr><td>Ошибки источников</td><td>prospector 10 сбоев за 24 ч на пробах площадок</td><td>сбой записывается, не маскируется под «пусто»; та же ошибка трижды — пауза</td><td class="warn">в норме</td></tr>
+</table></div>
+
+<h3>5.2 Агент-отладчик — что есть и как устроен</h3>
+<p>Роль надзора разнесена по трём детерминированным контурам и одному агенту; языковая модель в контуре восстановления <strong>не участвует намеренно</strong> — перезапуск и откат должны срабатывать, когда модель как раз недоступна.</p>
+<div class="tbl"><table>
+<tr><th>Контур</th><th>Запуск</th><th>Мониторинг</th><th>Действие</th><th>Инструменты</th></tr>
+<tr><td>keep_alive</td><td>планировщик Windows, каждую минуту</td><td>процесс воркера в списке; последняя запись runs моложе 300 с; /health службы</td><td>убивает застрявшие процессы python, поднимает воркер и службу через <code>core.launch.background</code> (без окна)</td><td>Get-CimInstance, taskkill, запуск</td></tr>
+<tr><td>hourly_audit</td><td>каждый час</td><td>measure(): выручка, платежи, звенья цепи, шаги и сбои за час; узкое место</td><td>repair по приоритетам: система лежит → перезапуск; .env не защищён → починить .gitignore; зависшие задачи → провал с преемником; повторяющийся сбой → механику; затем сверка согласованности (5 детекторов) → события invariant_broken адверсарию; прогон audit.py, mtbx_audit, fake_work_audit; запись в audit_cycles (60 циклов)</td><td>subprocess, execution, consistency, mechanic</td></tr>
+<tr><td>watchdog (агент)</td><td>каждый оборот цикла</td><td>кто из агентов молчит дольше 30 мин, живость службы</td><td>сообщает; событие worker_down</td><td>watch_agents</td></tr>
+<tr><td>mechanic / improver</td><td>редкий слот цикла</td><td>find_problems (AST), находки deep_checks</td><td>правка → аудит → откат при любом падении; резервная копия перед правкой</td><td>audit.py как судья, git для публикации</td></tr>
+<tr><td>KILL_SWITCH</td><td>владелец (пульт .bat)</td><td>наличие файла</td><td>каждое действие поднимает Halted; воркер выходит на ближайшем обороте</td><td>файл</td></tr>
+</table></div>
+<p><strong>Принудительное прерывание зависших сессий.</strong> Шаги исполняются синхронно в одном процессе; прерывания «по агенту» нет. Зависание останавливается тремя способами: таймауты на всех сетевых вызовах и подпроцессах (HTTP 20–60 с, модель 300 с, аудит 600 с, git 180 с); пауза шага после трёх одинаковых результатов или ошибок; сторож, который через 5 минут без записей в журнал убивает процесс целиком и поднимает новый (состояние в базе, поэтому потеря — не больше одного шага).</p>
+
+<h3>5.3 Профиль отладчика, который стоит достроить</h3>
+<ol>
+<li><strong>Бюджет времени на шаг с жёстким прерыванием.</strong> Сегодня шаг может держать цикл на всю сумму своих таймаутов (наблюдался pursue около минуты, hunt_bounties 2 300 с за сутки). Вынести сетевые тяжёлые шаги в подпроцесс с общим лимитом (например 120 с) и учитывать превышение как сбой шага.</li>
+<li><strong>Одна база вместо двух реплик.</strong> Облачный прогон читает и пишет собственную копию; события и эскалации, поднятые в облаке, не видит машина владельца. Минимум — облако только читает и публикует; лучше — общий удалённый SQLite (например, через Turso/libSQL, бесплатный тариф) с тем же WAL-подобным поведением.</li>
+<li><strong>Ревью правок улучшателя адверсарием.</strong> Гейт стал строже, но смысл правки по-прежнему не оценивается. Добавить событие <code>code_fix_applied</code> с приоритетом 2 → adversary читает diff и таблицу code_fixes; при возражении — откат через существующий backup.</li>
+<li><strong>Скоринг совета по исходам.</strong> Протокол требует взвешивать возражения и решения по тому, что случилось потом; данных 2 предложения / 5 возражений — дать судье обязательную обратную связь из состояний сделок.</li>
+<li><strong>Метрика «время до обнаружения».</strong> KPI сторожа названо, но не измеряется: писать в audit_cycles разницу между первой записью о сбое и первым действием восстановления.</li>
+</ol>
+
+<h3>5.4 Проверки, выполненные в ходе аудита (15.09.2026)</h3>
+<div class="tbl"><table>
+<tr><th>Проверка</th><th>Результат</th></tr>
+<tr><td>evals (pytest)</td><td class="ok">145 прошли, 77 подпроверок</td></tr>
+<tr><td>core/regressions.py — каталог инвариантов</td><td class="ok">121 из 121</td></tr>
+<tr><td>mtbx_audit.py (46 прежних + 7 новых по протоколу последней транзакции)</td><td class="ok">53 из 54; единственное падение — незакоммиченные файлы данных каталога</td></tr>
+<tr><td>Живые маршруты оплаты</td><td class="ok">7 сетей проверены запросом: Base, Ethereum, Polygon, Arbitrum, Bitcoin, Solana, Stacks; 15 маршрутов наблюдаются</td></tr>
+<tr><td>Хук выкладки воркера</td><td class="ok">хеш среза в облаке совпал с локальным (bc2bf94fa918084c), каталог 15 477</td></tr>
+<tr><td>Процесс воркера</td><td class="ok">один экземпляр, PID 36976, ревизия 1dc4131</td></tr>
+</table></div>
+<p class="small">Отчёт составлен по коду ревизии 1dc4131, базе data/brain.db и живым запросам к площадкам и сетям 15.09.2026. Числа даны на момент снимка; они меняются каждым оборотом цикла.</p>
+</div>
