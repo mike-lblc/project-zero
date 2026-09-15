@@ -80,6 +80,30 @@ class SharedMind(TempDB):
                 self.assertIn(t, a.tools, f"{name} без {t}")
 
 
+class AnswerFirst(TempDB):
+    """Вопрос соседа получает ответ ФАКТОМ до собственного хода агента — механической
+    выжимкой из состояния, не суждением; модель здесь подменена."""
+
+    def test_pending_question_is_answered_before_acting(self):
+        from core import bus, roster, router, agent as agent_core
+        roster.wire()
+        qid = bus.ask("watchdog", "leads", "Ты молчишь час. Что ты делаешь для первого платежа?")
+        saved = router.run
+        router.run = lambda task, prompt, **k: "Последним проверял каналы 60 лидов; кошелёк известен у троих; мешает отсутствие ответов."
+        try:
+            n = agent_core.get("leads").answer_pending()
+        finally:
+            router.run = saved
+        self.assertEqual(n, 1)
+        answers = bus.answers_for("watchdog", 3)
+        self.assertTrue(any("60 лидов" in a["answer"] for a in answers), answers)
+        self.assertEqual(bus.pending_questions("leads"), [])
+        c = self.db.connect()
+        chose = c.execute("SELECT chose FROM agent_decisions WHERE agent='leads' ORDER BY id DESC LIMIT 1").fetchone()
+        c.close()
+        self.assertEqual(chose[0], "answer_agent")
+
+
 class ImproverGuards(unittest.TestCase):
     def test_degradations_are_named(self):
         from agents import improver

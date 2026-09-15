@@ -296,9 +296,46 @@ class Agent:
         return {"tool": chosen, "why": why, "allowed": allowed,
                 "args": args, "state": st, "raw": (raw or "")[:500]}
 
+    # ---------------------------------------------------------- ответы соседям
+    def answer_pending(self, limit=2):
+        """СНАЧАЛА ОТВЕТЫ, ПОТОМ СВОЙ ХОД. Вопрос соседа получает ответ фактом из состояния —
+        это механическая выжимка (summarize), не суждение. До этого правило «если спросили —
+        ответь» стояло в общих правилах, а локальная модель его игнорировала: сторож задал
+        три вопроса, все три агента получили слово и выбрали что угодно, кроме ответа."""
+        from core import bus
+        try:
+            qs = bus.pending_questions(self.name)[:limit]
+        except Exception:
+            return 0
+        if not qs:
+            return 0
+        st = json.dumps(self.state(), ensure_ascii=False)[:3500]
+        n = 0
+        for q in qs:
+            prompt = (f"Ты — агент «{self.name}»: {self.role}. Агент «{q.get('from')}» спросил: «{q.get('question')}».\n"
+                      f"Ответь двумя-тремя предложениями ТОЛЬКО фактами из твоего состояния ниже: что ты сделал "
+                      f"последним, что нашёл, что тебе мешает. Никаких обещаний и планов, ничего не выдумывай. "
+                      f"Если в состоянии нет ответа — скажи, что именно неизвестно.\nСостояние: {st}")
+            try:
+                text = str(router.run("summarize", prompt) or "").strip()
+            except Exception:
+                break
+            if not text:
+                continue
+            try:
+                bus.answer(self.name, q["id"], text[:600])
+            except Exception:
+                continue
+            self._record({"tool": "answer_agent", "why": f"вопрос #{q.get('id')} от {q.get('from')}",
+                          "allowed": True, "state": {}}, text[:300], ok=True)
+            n += 1
+        return n
+
     # ---------------------------------------------------------- действие
     def act(self, dry_run=False):
-        """Полный оборот агента: посмотреть, решить, проверить права, сделать."""
+        """Полный оборот агента: сначала ответить тем, кто спросил, потом посмотреть,
+        решить, проверить права, сделать."""
+        answered = 0 if dry_run else self.answer_pending()
         d = self.decide()
         chose, why, args = d.get("tool"), d.get("why", ""), d.get("args", {})
         if not d.get("allowed"):
@@ -318,7 +355,7 @@ class Agent:
             out, ok = f"{type(e).__name__}: {str(e)[:120]}", False
         self._record(d, str(out)[:300], ok=ok)
         return {"agent": self.name, "chose": chose, "ok": ok,
-                "detail": str(out)[:200], "why": why}
+                "detail": str(out)[:200], "why": why, "answered": answered}
 
     def _record(self, d, outcome, ok, _retry=3):
         """Запись решения НЕ ИМЕЕТ ПРАВА уронить оборот агента.
