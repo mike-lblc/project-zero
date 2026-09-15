@@ -460,6 +460,8 @@ def health_check():
 
 # Публичная доска живёт на воркере Cloudflare, а не на локальном сервисе 127.0.0.1:8402.
 BOARD_PUSH_URL = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/board/push"
+BOARD_EVERY_S = 180                 # раз в три минуты — в пределах бесплатного тарифа KV
+_BOARD_PUSHED = [0.0]
 
 
 def _push_board():
@@ -1301,6 +1303,7 @@ PAUSE_CAP_MIN = {
     "strategist_report": 60,
     "reason_and_act": 10,
     "hunt_offsite": 360,
+    "health_check": 30,       # здоровье сервиса — коммерческий показатель, не молчать по 160 минут
     "taskmarket_sync": 60,
     "explore_alternatives": 180,
     "scout_registrations": 720,
@@ -1457,6 +1460,14 @@ def run_forever(interval=90):
         except Exception as e:
             print(f"[worker] HALTED: {e}", flush=True)
             return
+        # ДОСКА — ПО ЧАСАМ, А НЕ ПО ШАГУ. Снимок публичной доски шёл из health_check, а тот
+        # уходит на паузу, когда сервис стабильно здоров, — и доска застывала на часы.
+        if time.time() - _BOARD_PUSHED[0] > BOARD_EVERY_S:
+            _BOARD_PUSHED[0] = time.time()
+            try:
+                print(f"[worker] доска: {_push_board()}", flush=True)
+            except Exception as e:
+                print(f"[worker] доска не опубликована: {type(e).__name__}", flush=True)
         # каждые SLOW_EVERY шагов — один редкий вместо быстрого
         if i and i % SLOW_EVERY == 0:
             name, fn = SLOW_CYCLE[slow_at % len(SLOW_CYCLE)]
