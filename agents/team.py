@@ -201,13 +201,48 @@ def watchdog():
         bus.answer("watchdog", q["id"],
                    "Сервис и цикл живы; " + ("проблем нет" if not problems else "; ".join(problems)))
 
+    # СТОРОЖ СПРАШИВАЕТ, А НЕ ТОЛЬКО ПЕРЕЧИСЛЯЕТ. Список молчащих никого не будил: агент
+    # видел своё имя в чужом сообщении и ничего не был должен. Вопрос, адресованный ему,
+    # ложится на его доску, поднимает его в очереди рассуждения и требует ответа фактом
+    # или действием. Двое самых давних, каждому не чаще раза в три часа.
+    asked = []
+    try:
+        from core import agent as _agent
+        llm = set(_agent.REGISTRY)
+        hour_ago = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
+        three_h = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+        con = connect()
+        for name, last_at in sorted(silent, key=lambda s: s[1] or ""):
+            if name not in llm or name == "watchdog" or (last_at or "") > hour_ago:
+                continue
+            recent = con.execute("SELECT 1 FROM messages WHERE sender='watchdog' AND recipient=? "
+                                 "AND topic='ask' AND created_at > ? LIMIT 1", (name, three_h)).fetchone()
+            if recent:
+                continue
+            bus.ask("watchdog", name,
+                    f"Ты молчишь с {(last_at or '')[:16]}. Что ты сейчас делаешь для первого платежа? "
+                    f"Возьми действие из своего меню или передай работу тому, чья она (handoff_to).")
+            asked.append(name)
+            if len(asked) >= 2:
+                break
+        con.close()
+    except Exception:
+        pass
+
     if not problems:
         bus.broadcast("watchdog", "Все агенты отзываются, падений нет, успешность в норме.")
         return "всё живо"
     txt = "; ".join(problems)
     bus.broadcast("watchdog", f"⚠ Нашёл проблемы: {txt}")
-    note("watchdog", f"WATCHDOG: {txt}", conf=1.0)
-    return txt
+    # В доказательства — только при изменении списка, а не каждые пять минут.
+    try:
+        from core import memory as _mem
+        fresh, _ = _mem.changed("watchdog", "silent-list", txt)
+    except Exception:
+        fresh = True
+    if fresh:
+        note("watchdog", f"WATCHDOG: {txt}", conf=1.0)
+    return txt + (f"; спросил: {', '.join(asked)}" if asked else "")
 
 
 # ============================================================ EXPLORER-ОТВЕТЧИК

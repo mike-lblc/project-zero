@@ -842,6 +842,140 @@ def search_offsite(per_site=8):
 AIBTC_API = "https://aibtc.com/api/bounties?status=open&limit=100"
 
 
+# ═══════════════════════════════════ Taskmarket: наши подачи и выплаты (15.09)
+TM_DIR = ROOT / "ops" / "taskmarket"
+TM_WORK = ROOT / "work" / "taskmarket"
+
+
+def _tm(args, timeout=120):
+    """Вызов CLI Taskmarket; возвращает разобранный JSON-конверт или {'ok': False, 'error': ...}."""
+    import os as _os
+    env = dict(_os.environ, TASKMARKET_API_URL="https://api.taskmarket.dev")
+    try:
+        r = subprocess.run(["npx", "taskmarket"] + list(args), cwd=str(TM_DIR), env=env, shell=True,
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout, stdin=subprocess.DEVNULL)
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
+    raw = (r.stdout or "").strip() or (r.stderr or "").strip()
+    try:
+        return json.loads(raw[raw.index("{"):]) if "{" in raw else {"ok": False, "error": raw[:200]}
+    except Exception:
+        return {"ok": False, "error": raw[:200]}
+
+
+def _note(agent, claim, conf=None):
+    """Находка на общую доску через журнал воркера (импорт ленивый: воркер сам импортирует нас)."""
+    try:
+        from agents.worker import note as _wnote
+        _wnote(agent, claim, conf=conf)
+    except Exception:
+        pass
+
+
+def _tm_table(c):
+    c.execute("CREATE TABLE IF NOT EXISTS taskmarket_state (task_id TEXT PRIMARY KEY, title TEXT, "
+              "status TEXT, our_role TEXT, submitted INTEGER DEFAULT 0, detail TEXT, updated_at TEXT)")
+
+
+def taskmarket_sync():
+    """Наши задачи на Taskmarket: статусы подач, выплата на кошелёк владельца, новые задачи класса."""
+    guard.check_action("research", "GREEN")
+    if not (TM_DIR / "node_modules").exists():
+        return "CLI Taskmarket не установлен (ops/taskmarket) — шаг ждёт установки"
+    lines, changes = [], []
+    c = _con(); _tm_table(c)
+    # 1) в каких задачах мы участвуем и что изменилось
+    inbox = _tm(["inbox"])
+    tasks = []
+    if inbox.get("ok"):
+        d = inbox.get("data") or {}
+        for key in ("working", "workingOn", "tasks", "created", "invitedPrivateTasks"):
+            v = d.get(key) if isinstance(d, dict) else None
+            if isinstance(v, list):
+                tasks += v
+        if isinstance(d, list):
+            tasks = d
+    for t in tasks:
+        tid = str(t.get("id") or t.get("taskId") or "")
+        if not tid:
+            continue
+        status = str(t.get("status") or "")
+        title = (t.get("description") or t.get("title") or "").split("\n")[0][:120]
+        prev = c.execute("SELECT status FROM taskmarket_state WHERE task_id=?", (tid,)).fetchone()
+        c.execute("INSERT INTO taskmarket_state(task_id,title,status,our_role,submitted,updated_at) VALUES (?,?,?,?,1,?) "
+                  "ON CONFLICT(task_id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at",
+                  (tid, title, status, "worker", now()))
+        if prev and prev[0] != status:
+            changes.append(f"{title[:50]}: {prev[0]} → {status}")
+    c.commit()
+    lines.append(f"наших задач {len(tasks)}")
+    if changes:
+        bus.broadcast("bounty", "Taskmarket: изменились статусы наших подач — " + "; ".join(changes))
+        for ch in changes:
+            _note("bounty", f"TASKMARKET: {ch}", conf=0.9)
+    # 2) что нам должны сейчас
+    acts = _tm(["actions"])
+    items = (acts.get("data") or {}).get("items") if acts.get("ok") and isinstance(acts.get("data"), dict) else None
+    if items:
+        lines.append("действий в очереди " + str(len(items)))
+        bus.broadcast("bounty", "Taskmarket ждёт от нас: " + "; ".join(
+            f"{i.get('intent')} по {str(i.get('id'))[:14]}" for i in items[:4]))
+    # 3) баланс → вывод на кошелёк владельца (адрес зарегистрирован одноразово, иной CLI не примет)
+    bal = _tm(["wallet", "balance"])
+    usdc = 0.0
+    if bal.get("ok"):
+        d = bal.get("data") or {}
+        for k in ("usdc", "balance", "usdcBalance", "formatted"):
+            try:
+                usdc = float(str(d.get(k)).replace(",", "")); break
+            except (TypeError, ValueError):
+                continue
+    lines.append(f"баланс USDC {usdc:.4f}")
+    if usdc >= 0.01:
+        guard.check_action("taskmarket_withdraw", "YELLOW")
+        w = _tm(["withdraw", f"{usdc:.6f}".rstrip("0").rstrip(".")], timeout=180)
+        if w.get("ok"):
+            tx = (w.get("data") or {}).get("txHash")
+            _note("bounty", f"TASKMARKET PAYOUT: {usdc:.4f} USDC выведено на кошелёк владельца, tx {tx}", conf=1.0)
+            bus.broadcast("bounty", f"Taskmarket: выплата {usdc:.4f} USDC ушла на кошелёк владельца (Base), tx {tx}. "
+                                    f"Наблюдатель поступлений должен увидеть её на адресе владельца.")
+            lines.append(f"выведено {usdc:.4f} USDC, tx {str(tx)[:14]}")
+        else:
+            lines.append(f"вывод не прошёл: {str(w.get('error'))[:80]}")
+    # 4) открытые задачи нашего класса без нашей подачи — на доску, один раз на задачу
+    try:
+        import urllib.request as _u
+        raw = _u.urlopen(_u.Request("https://taskmarket.dev/api/tasks", headers={"User-Agent": "P0-agent"}), timeout=30).read()
+        data = json.loads(raw)
+        opened = data if isinstance(data, list) else (data.get("tasks") or data.get("items") or data.get("data") or [])
+        ours = 0
+        for t in opened:
+            if t.get("status") != "open" or t.get("mode") not in ("bounty", "claim"):
+                continue
+            desc = (t.get("description") or "").lower()
+            if not any(k in desc for k in ("markdown", "csv", "html", "document", "readme", "dataset", "guide", "write")):
+                continue
+            tid = str(t.get("id"))
+            if c.execute("SELECT 1 FROM taskmarket_state WHERE task_id=?", (tid,)).fetchone():
+                continue
+            ours += 1
+            c.execute("INSERT OR IGNORE INTO taskmarket_state(task_id,title,status,our_role,submitted,updated_at) "
+                      "VALUES (?,?,?,?,0,?)", (tid, (t.get("description") or "").split("\n")[0][:120], "open", "candidate", now()))
+            reward = float(t.get("reward") or 0) / 1e6
+            bus.handoff("bounty", "craftsman",
+                        f"Taskmarket: открыта задача нашего класса «{(t.get('description') or '')[:60]}» за {reward:.2f} USDC, "
+                        f"срок {str(t.get('expiryTime'))[:16]} — сделать и подать через ops/taskmarket (task submit)",
+                        "подача бесплатна, выплата идёт на кошелёк владельца; текст работы — суждение, его пишет сильная модель")
+        c.commit()
+        if ours:
+            lines.append(f"новых задач класса {ours}")
+    except Exception as e:
+        lines.append(f"список задач не прочитан: {type(e).__name__}")
+    c.close()
+    return "; ".join(lines)
+
+
 def _flag_once(source, key, question, context):
     """Одна эскалация на (источник, ключ): повторные заходы молчат."""
     try:

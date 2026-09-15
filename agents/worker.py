@@ -127,7 +127,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             # улучшатель и снабженец выглядели молчащими при настоящей работе,
             # и сторож называл их в списке молчащих. Хозяин шага — владелец
             # инструмента, которым шаг исполняется.
-            "advance_tasks":"orchestrator", "hunt_contests":"bounty", "hunt_hn_jobs":"bounty",
+            "advance_tasks":"orchestrator", "hunt_contests":"bounty", "hunt_hn_jobs":"bounty", "taskmarket_sync":"bounty",
             "market_demand":"explorer", "chain_economics":"collector", "rich_targets":"leads",
             "package_docs":"executor", "supply_check":"supplier", "where_time_goes":"optimizer",
             "produce_work":"executor", "check_work":"executor", "guard_knowledge":"verifier",
@@ -135,7 +135,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "dealer_cycle":"dealer", "dealer_state":"dealer", "deliver_aibtc":"bounty",
             "revalidate_channels":"leads",
             "strategist_think":"orchestrator", "strategist_report":"orchestrator",
-            "scout_registrations":"browser_scout",
+            "scout_registrations":"browser_scout", "hunt_offsite":"browser_scout",
             "moltbook_address_survey":"dealer"}
 
 
@@ -531,9 +531,18 @@ def next_reasoner(names):
     try:
         last = dict(c.execute("SELECT agent, MAX(decided_at) FROM agent_decisions "
                               "GROUP BY agent").fetchall())
+        # К КОМУ ОБРАТИЛИСЬ — ТОТ ГОВОРИТ ПЕРВЫМ. Вопрос или передача, пришедшие после
+        # его последнего решения, поднимают агента в очереди на один оборот; ответив
+        # (или нет), он возвращается в общий порядок — голодания остальных не будет.
+        waiting = dict(c.execute("SELECT recipient, MAX(created_at) FROM messages "
+                                 "WHERE topic IN ('ask','handoff') AND consumed_at IS NULL "
+                                 "AND recipient IS NOT NULL GROUP BY recipient").fetchall())
     finally:
         c.close()
-    return min(names, key=lambda n: (last.get(n) or "", n))
+    def key(n):
+        addressed = (waiting.get(n) or "") > (last.get(n) or "")
+        return (0 if addressed else 1, last.get(n) or "", n)
+    return min(names, key=key)
 
 
 # Какое событие чьим шагом отрабатывается. Событие без обработчика будет
@@ -623,7 +632,11 @@ def reason_and_act():
     for _ in range(REASONERS_PER_TURN):
         name = next_reasoner(names)
         a = agent.get(name)
+        started = now()
         r = a.act()
+        # ПОД СВОИМ ИМЕНЕМ. Иначе сторож и ведомость считают агента молчащим ровно в
+        # ту минуту, когда он сам выбрал и выполнил действие.
+        record_run(f"act:{r.get('chose')}", name, bool(r.get("ok")), str(r.get("detail"))[:300], started, now())
         if r.get("ok"):
             say(name, f"Решил сам: беру «{r['chose']}». Почему: {r.get('why','')[:160]}")
         outs.append(f"{name} -> {r.get('chose')}: {str(r.get('detail'))[:60]}")
@@ -955,6 +968,12 @@ def _src(tool_name):
     return run
 
 
+def _offsite_step():
+    """Задачи с площадок вне GitHub — работа браузерного разведчика в редком слоте."""
+    from agents import bounty
+    return bounty.hunt_offsite()
+
+
 def _team(fn_name):
     def run():
         from agents import team
@@ -1039,6 +1058,8 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               # конкурс платит ОДНОМУ победителю — это слабее прямой очереди задач.
               ("hunt_contests", _src("hunt_contests")),    # конкурсы с призовым фондом
               ("hunt_hn_jobs", _src("hunt_hn_jobs")),      # вакансии без ключа
+              ("hunt_offsite", _offsite_step),              # площадки вне GitHub — браузерный разведчик
+              ("taskmarket_sync", _src("taskmarket_sync")),  # наши подачи и выплаты на Taskmarket
               ("market_demand", _src("market_demand")),    # спрос, измеренный чужими руками
               ("chain_economics", _src("chain_economics")),  # выручка в долларах, не в токенах
               ("rich_targets", _src("rich_targets")),      # у кого есть деньги
@@ -1163,6 +1184,7 @@ CLOUD_STEPS = [
     # Бесплатные подключения: всем нужна только сеть, значит облако их тянет.
     "hunt_contests",       # конкурсы с призовым фондом
     "hunt_hn_jobs",        # вакансии и заказы без ключа
+    "hunt_offsite",        # площадки вне GitHub — только сеть
     "market_demand",       # где люди дописывают недостающее руками
     "chain_economics",     # состояние сети оплаты и курсы
     "rich_targets",        # организации с деньгами и продуктом
@@ -1191,6 +1213,7 @@ CLOUD_CANNOT = {
     "mail_sync": "нужен ключ EmailOctopus, в облачные секреты не передан",
     "mail_advance": "тот же ключ",
     "reason_and_act": "рассуждение агентов идёт через локальную модель",
+    "taskmarket_sync": "ключ кошелька Taskmarket лежит только на этой машине (~/.taskmarket)",
     "health_check": "проверяет локальный сервис на 127.0.0.1",
     "scout_research": "идёт через локальную языковую модель",
     "deep_check": "тоже через локальную модель",
@@ -1252,6 +1275,8 @@ PAUSE_CAP_MIN = {
     "strategist_think": 30,
     "strategist_report": 60,
     "reason_and_act": 10,
+    "hunt_offsite": 360,
+    "taskmarket_sync": 60,
     "explore_alternatives": 180,
     "scout_registrations": 720,
 }

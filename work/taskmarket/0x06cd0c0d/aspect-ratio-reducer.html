@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aspect Ratio Reducer</title>
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; padding: 16px; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1a1a1a; background: #f7f7f5; }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .lede { margin: 0 0 20px; color: #444; }
+  form { display: grid; gap: 14px; grid-template-columns: 1fr; }
+  @media (min-width: 480px) { form { grid-template-columns: 1fr 1fr; } }
+  label { display: block; font-weight: 600; margin-bottom: 4px; }
+  input[type="number"] { width: 100%; box-sizing: border-box; padding: 10px 12px; font: inherit; border: 2px solid #6b6b6b; border-radius: 6px; background: #fff; }
+  input[type="number"]:focus { outline: 3px solid #1d4ed8; outline-offset: 2px; border-color: #1d4ed8; }
+  input[aria-invalid="true"] { border-color: #b3261e; }
+  .error { color: #b3261e; font-size: 0.95rem; margin: 6px 0 0; min-height: 1.4em; }
+  .result { margin-top: 20px; padding: 16px; border: 2px solid #d0d0cc; border-radius: 8px; background: #fff; }
+  .ratio { font-size: 2rem; font-weight: 700; margin: 0 0 6px; letter-spacing: 0.02em; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+  dt { font-weight: 600; }
+  dd { margin: 0; }
+  .muted { color: #444; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #d0d0cc; }
+  th { background: #ececea; }
+  h2 { font-size: 1.1rem; margin: 24px 0 6px; }
+  p { margin: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Aspect Ratio Reducer</h1>
+  <p class="lede">Enter an image's width and height in pixels to get its simplest whole-number ratio. This tool only calculates a ratio; it does not resize, crop or improve any image.</p>
+
+  <form id="form" novalidate>
+    <div>
+      <label for="width">Width (pixels)</label>
+      <input id="width" name="width" type="number" inputmode="numeric" min="1" max="1000000" step="1" value="1024" aria-describedby="width-error" required>
+      <p class="error" id="width-error" aria-live="polite"></p>
+    </div>
+    <div>
+      <label for="height">Height (pixels)</label>
+      <input id="height" name="height" type="number" inputmode="numeric" min="1" max="1000000" step="1" value="1536" aria-describedby="height-error" required>
+      <p class="error" id="height-error" aria-live="polite"></p>
+    </div>
+  </form>
+
+  <section class="result" aria-labelledby="result-heading">
+    <h2 id="result-heading" style="margin-top:0">Result</h2>
+    <div id="status" role="status" aria-live="polite">
+      <p class="ratio" id="ratio">&nbsp;</p>
+      <dl>
+        <dt>Orientation</dt><dd id="orientation">&nbsp;</dd>
+        <dt>Divisor used</dt><dd id="divisor">&nbsp;</dd>
+        <dt>Original size</dt><dd id="original">&nbsp;</dd>
+      </dl>
+      <p class="muted" id="explain"></p>
+    </div>
+  </section>
+
+  <h2>How it works</h2>
+  <p>The reduced ratio is found by dividing both the width and the height by the same number: their greatest common divisor, the largest whole number that divides both without a remainder. Because both sides are divided by the same value, the proportions stay exactly the same.</p>
+
+  <h2>Reference examples</h2>
+  <table>
+    <thead><tr><th scope="col">Width × Height</th><th scope="col">Divisor</th><th scope="col">Reduced ratio</th></tr></thead>
+    <tbody>
+      <tr><td>1024 × 1536</td><td>512</td><td>2:3</td></tr>
+      <tr><td>1920 × 1080</td><td>120</td><td>16:9</td></tr>
+      <tr><td>1000 × 1000</td><td>1000</td><td>1:1</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">Accepted values: whole numbers from 1 to 1,000,000 for each dimension. Works offline; nothing is uploaded or stored.</p>
+</main>
+
+<script>
+(function () {
+  var MIN = 1, MAX = 1000000;
+  var widthEl = document.getElementById('width');
+  var heightEl = document.getElementById('height');
+  var widthErr = document.getElementById('width-error');
+  var heightErr = document.getElementById('height-error');
+  var ratioEl = document.getElementById('ratio');
+  var orientEl = document.getElementById('orientation');
+  var divisorEl = document.getElementById('divisor');
+  var originalEl = document.getElementById('original');
+  var explainEl = document.getElementById('explain');
+
+  function gcd(a, b) {
+    while (b !== 0) { var t = a % b; a = b; b = t; }
+    return a;
+  }
+
+  // Returns {value} for a valid integer in range, otherwise {error} with a specific message.
+  function validate(el, label) {
+    var raw = el.value;
+    if (raw === '' || raw === null) {
+      return { error: label + ' is required. Enter a whole number from 1 to 1,000,000.' };
+    }
+    if (el.validity && el.validity.badInput) {
+      return { error: label + ' must be a number, not text or symbols.' };
+    }
+    if (!/^\s*[+-]?\d+(\.\d+)?\s*$/.test(raw)) {
+      return { error: label + ' must be a plain whole number (no letters, spaces or exponents).' };
+    }
+    var num = Number(raw);
+    if (!Number.isInteger(num)) {
+      return { error: label + ' must be a whole number of pixels; fractions such as ' + raw.trim() + ' are not accepted.' };
+    }
+    if (num === 0) {
+      return { error: label + ' cannot be zero; an image needs at least 1 pixel in each direction.' };
+    }
+    if (num < 0) {
+      return { error: label + ' cannot be negative.' };
+    }
+    if (num < MIN || num > MAX) {
+      return { error: label + ' must be between 1 and 1,000,000. You entered ' + num.toLocaleString('en-US') + '.' };
+    }
+    return { value: num };
+  }
+
+  function clearResult() {
+    ratioEl.textContent = ' ';
+    orientEl.textContent = ' ';
+    divisorEl.textContent = ' ';
+    originalEl.textContent = ' ';
+    explainEl.textContent = 'Fix the highlighted input to see the ratio.';
+  }
+
+  function update() {
+    var w = validate(widthEl, 'Width');
+    var h = validate(heightEl, 'Height');
+    widthErr.textContent = w.error || '';
+    heightErr.textContent = h.error || '';
+    widthEl.setAttribute('aria-invalid', w.error ? 'true' : 'false');
+    heightEl.setAttribute('aria-invalid', h.error ? 'true' : 'false');
+    if (w.error || h.error) { clearResult(); return; }
+
+    var d = gcd(w.value, h.value);
+    var rw = w.value / d, rh = h.value / d;
+    var orientation = h.value > w.value ? 'Portrait' : (w.value > h.value ? 'Landscape' : 'Square');
+    ratioEl.textContent = rw + ':' + rh;
+    orientEl.textContent = orientation;
+    divisorEl.textContent = d.toLocaleString('en-US');
+    originalEl.textContent = w.value.toLocaleString('en-US') + ' × ' + h.value.toLocaleString('en-US') + ' pixels';
+    explainEl.textContent = 'Both ' + w.value.toLocaleString('en-US') + ' and ' + h.value.toLocaleString('en-US') +
+      ' were divided by their greatest common divisor, ' + d.toLocaleString('en-US') + ', giving ' + rw + ':' + rh + '.';
+  }
+
+  widthEl.addEventListener('input', update);
+  heightEl.addEventListener('input', update);
+  document.getElementById('form').addEventListener('submit', function (e) { e.preventDefault(); update(); });
+  update();
+})();
+</script>
+</body>
+</html>

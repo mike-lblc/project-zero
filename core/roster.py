@@ -350,6 +350,14 @@ def _contests():
             f"${top['prize_usd']:,}; ВНИМАНИЕ: платят одному победителю")
 
 
+@tool("taskmarket_sync", "GREEN",
+      "наши подачи на Taskmarket: статусы, выплата на кошелёк владельца, новые задачи класса",
+      needs=("сеть", "node"))
+def _tm_sync():
+    from agents import bounty
+    return bounty.taskmarket_sync()
+
+
 @tool("hunt_hn_jobs", "GREEN",
       "свежие вакансии и заказы с Hacker News — источник без ключа и аккаунта",
       needs=("сеть",))
