@@ -128,6 +128,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "improve_code":"improver", "reach_out":"salesman",
             "dealer_cycle":"dealer", "dealer_state":"dealer", "deliver_aibtc":"bounty",
             "revalidate_channels":"leads",
+            "strategist_think":"strategist", "strategist_report":"strategist",
             "moltbook_address_survey":"dealer"}
 
 
@@ -1051,6 +1052,9 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("dealer_cycle", _src("dealer_cycle")),
               ("deliver_aibtc", _src("deliver_aibtc")),      # сдача готовых результатов на AIBTC
               ("revalidate_channels", _src("revalidate_channels")),  # каналы лидов стареют
+              # СТРАТЕГ — оборот мышления: гипотезы из живых компонентов, эксперименты, отбор.
+              ("strategist_think", _src("strategist_think")),
+              ("strategist_report", _src("strategist_report")),
               ("moltbook_address_survey", _src("moltbook_address_survey"))]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 # ДЕНЕЖНЫЕ ШАГИ — СВОЙ СЛОТ. Заявка, доставка, поиск наград, ответы лидам и сбор
@@ -1059,7 +1063,7 @@ SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстр
 # очереди). Между редкими слотами теперь есть ещё один, только для них.
 MONEY_STEPS = ("pursue", "find_doc_work", "deliver_ready", "hunt_bounties", "fresh_bounties",
                "check_replies", "reach_out", "watch_prs", "collect_payouts", "moltbook_demand",
-               "dealer_cycle", "deliver_aibtc")
+               "dealer_cycle", "deliver_aibtc", "strategist_think")
 MONEY_CYCLE = []
 for _n, _f in SLOW_CYCLE:
     if _n in MONEY_STEPS and all(_n != m for m, _ in MONEY_CYCLE):
@@ -1157,6 +1161,8 @@ CLOUD_CANNOT = {
     "mtbx_audit": "часть проверок обращается к локальному сервису",
     "deliver_aibtc": "коммит результата и подпись кошельком агента — только с машины, где лежит seed",
     "revalidate_channels": "правит таблицу лидов; из облачной реплики правки не доходят до машины владельца",
+    "strategist_think": "эксперименты пишут наружу (обращения, посты) и в локальную базу; с одной машины",
+    "strategist_report": "читает локальную базу стратега",
     "dealer_cycle": "обращения к контрагентам из двух баз (облачной и локальной) продублировали "
                     "бы сообщение одному адресату; оборот дилера идёт только с одной машины",
 }
@@ -1205,6 +1211,8 @@ PAUSE_CAP_MIN = {
     "moltbook_replies": 30,
     "collect_payouts": 60,
     "revalidate_channels": 720,
+    "strategist_think": 30,
+    "strategist_report": 60,
 }
 # На сколько оборотов он после этого уходит на паузу. Растёт с каждым повтором,
 # но не бесконечно: раз в сутки проверить состояние обязан любой шаг.
