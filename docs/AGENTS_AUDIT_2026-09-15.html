@@ -1,0 +1,170 @@
+<title>Аудит агентов P0 поимённо</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--paper:#f3f4f6;--ink:#1b1f24;--muted:#5f6670;--rule:#d5d9df;--panel:#ffffff;--accent:#1f7a5c;--warn:#b4761f;--crit:#a33a2f;--ok:#1f7a5c;--chip:#e6ebe8;--mono-bg:#eceff2}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--paper:#0f1216;--ink:#d7dbe0;--muted:#8b93a0;--rule:#2a3038;--panel:#161a20;--accent:#3fae86;--warn:#d09a3e;--crit:#d0685c;--ok:#3fae86;--chip:#1d2a25;--mono-bg:#1a1f26}}
+:root[data-theme="dark"]{--paper:#0f1216;--ink:#d7dbe0;--muted:#8b93a0;--rule:#2a3038;--panel:#161a20;--accent:#3fae86;--warn:#d09a3e;--crit:#d0685c;--ok:#3fae86;--chip:#1d2a25;--mono-bg:#1a1f26}
+body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,"Segoe UI",sans-serif;font-size:15.5px;line-height:1.55;margin:0;padding-block:32px 72px;padding-inline:clamp(16px,4vw,40px)}
+.wrap{max-width:1000px;margin:0 auto}
+h1,h2,h3{font-family:"IBM Plex Serif",Georgia,serif;text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,4vw,40px);font-weight:600;line-height:1.15}
+h2{font-size:23px;font-weight:600;margin-top:48px;padding-top:16px;border-top:2px solid var(--ink)}
+h3{font-size:17px;font-weight:600;margin:0}
+p,li{max-width:74ch}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 28px;margin:22px 0 6px;padding:14px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.meta .k{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.meta .v{font-weight:500}
+.tbl{overflow-x:auto;border:1px solid var(--rule);background:var(--panel);margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--paper);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+code{font-family:"IBM Plex Mono",monospace;font-size:12.5px;background:var(--mono-bg);padding:1px 5px;border-radius:2px}
+.ok{color:var(--ok);font-weight:600}.warn{color:var(--warn);font-weight:600}.crit{color:var(--crit);font-weight:600}
+.agent{background:var(--panel);border:1px solid var(--rule);padding:14px 16px;margin:14px 0;border-left:4px solid var(--rule)}
+.agent.good{border-left-color:var(--ok)}.agent.mid{border-left-color:var(--warn)}.agent.bad{border-left-color:var(--crit)}
+.agent .hd{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;margin-bottom:6px}
+.agent .hd .id{font-family:"IBM Plex Mono",monospace;font-size:13px;color:var(--muted)}
+.stat{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 16px;margin:8px 0 10px;font-size:13px}
+.stat span b{font-family:"IBM Plex Mono",monospace;font-weight:500}
+.stat .k{color:var(--muted);font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;display:block}
+.agent p{margin:6px 0}
+.tag{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.04em;padding:1px 7px;border-radius:2px;background:var(--chip)}
+ul,ol{padding-left:22px}li{margin:4px 0}
+.small{font-size:13px;color:var(--muted)}
+</style>
+<div class="wrap">
+<div class="eyebrow">P0 · аудит по каждому агенту · данные за 7 дней до 15.09.2026 10:30 UTC</div>
+<h1>Аудит агентов P0 поимённо</h1>
+<div class="meta">
+  <div><span class="k">Состав</span><span class="v">19 рассуждающих агентов + 7 ролей-функций</span></div>
+  <div><span class="k">Источник</span><span class="v">runs, agent_decisions, agent_reputation, spans, tasks, messages, evidence, moltbook_receipts</span></div>
+  <div><span class="k">Ревизия</span><span class="v"><code>24f6cff</code>; тесты 145, аудиты 91/91 · 121/121 · 6/6</span></div>
+  <div><span class="k">Платежей от посторонних</span><span class="v crit">0</span></div>
+</div>
+<p>Как читать. <strong>Шаги</strong> — сколько раз планировщик запускал шаги этого агента за 7 дней и сколько из них упали. <strong>Решения</strong> — обороты, где агент сам выбирал инструмент моделью (выбрал / прошло проверку прав / исполнилось). <strong>Репутация</strong> — вызовы/верные по журналу. <strong>Время</strong> — секунды исполнения по замерам spans. Все падения «NameError telemetry» и «InvalidTransition failed→running» датированы 11.09 и уже исправлены; они остаются в недельной статистике, но не в текущей работе.</p>
+
+<h2>1. Сводная таблица</h2>
+<div class="tbl"><table>
+<tr><th>Агент</th><th class="num">Шаги 7д</th><th class="num">Сбои</th><th class="num">Решения</th><th class="num">Репутация</th><th class="num">Время, с</th><th class="num">Сообщений</th><th>Вердикт</th></tr>
+<tr><td>watchdog</td><td class="num">1 709</td><td class="num">32*</td><td class="num">4/4/4</td><td class="num">1622/1590</td><td class="num">536</td><td class="num">492</td><td class="ok">работает; шумит</td></tr>
+<tr><td>scout</td><td class="num">1 605</td><td class="num">35*</td><td class="num">—</td><td class="num">1578/1543</td><td class="num">4 167</td><td class="num">500</td><td class="ok">работает</td></tr>
+<tr><td>bounty</td><td class="num">1 048</td><td class="num">184*</td><td class="num">16/14/14</td><td class="num">883/829</td><td class="num">6 104</td><td class="num">129</td><td class="warn">ищет много, сдаёт мало</td></tr>
+<tr><td>collector</td><td class="num">755</td><td class="num">12*</td><td class="num">7/7/7</td><td class="num">138/138</td><td class="num">1 288</td><td class="num">23</td><td class="ok">работает; ждёт денег</td></tr>
+<tr><td>orchestrator</td><td class="num">746</td><td class="num">37*</td><td class="num">—</td><td class="num">1951/1768</td><td class="num">15 088</td><td class="num">467</td><td class="warn">дорог; клонировал цель</td></tr>
+<tr><td>explorer</td><td class="num">529</td><td class="num">7</td><td class="num">7/6/6</td><td class="num">452/449</td><td class="num">193</td><td class="num">209</td><td class="warn">повторяется</td></tr>
+<tr><td>distributor</td><td class="num">514</td><td class="num">0</td><td class="num">—</td><td class="num">514/514</td><td class="num">8</td><td class="num">22</td><td class="warn">слить</td></tr>
+<tr><td>salesman</td><td class="num">485</td><td class="num">1</td><td class="num">5/4/4</td><td class="num">394/394</td><td class="num">3 636</td><td class="num">70</td><td class="warn">узкое горло воронки</td></tr>
+<tr><td>leads</td><td class="num">471</td><td class="num">3</td><td class="num">6/5/5</td><td class="num">460/457</td><td class="num">2 856</td><td class="num">97</td><td class="ok">работает</td></tr>
+<tr><td>prospector</td><td class="num">433</td><td class="num">21</td><td class="num">6/6/6</td><td class="num">433/412</td><td class="num">5 746</td><td class="num">356</td><td class="ok">работает; 403 на пробах</td></tr>
+<tr><td>craftsman</td><td class="num">426</td><td class="num">3</td><td class="num">11/11/11</td><td class="num">426/423</td><td class="num">44</td><td class="num">121</td><td class="warn">1 PR, выплата не пришла</td></tr>
+<tr><td>adversary</td><td class="num">411</td><td class="num">1</td><td class="num">20/18/17</td><td class="num">411/410</td><td class="num">213</td><td class="num">66</td><td class="ok">работает</td></tr>
+<tr><td>judge (функция)</td><td class="num">347</td><td class="num">1</td><td class="num">—</td><td class="num">347/346</td><td class="num">0</td><td class="num">—</td><td class="warn">только health_check</td></tr>
+<tr><td>optimizer</td><td class="num">232</td><td class="num">2</td><td class="num">6/6/6</td><td class="num">150/148</td><td class="num">5</td><td class="num">93</td><td class="ok">работает</td></tr>
+<tr><td>channel_manager</td><td class="num">189</td><td class="num">0</td><td class="num">7/6/6</td><td class="num">118/118</td><td class="num">253</td><td class="num">55</td><td class="ok">работает</td></tr>
+<tr><td>mechanic</td><td class="num">109</td><td class="num">2</td><td class="num">—</td><td class="num">109/107</td><td class="num">80</td><td class="num">71</td><td class="ok">19 правок под гейтом</td></tr>
+<tr><td>critic</td><td class="num">105</td><td class="num">0</td><td class="num">8/8/8</td><td class="num">105/105</td><td class="num">—</td><td class="num">20</td><td class="ok">работает</td></tr>
+<tr><td>scribe (функция)</td><td class="num">103</td><td class="num">0</td><td class="num">—</td><td class="num">103/103</td><td class="num">15</td><td class="num">16</td><td class="ok">отчёты</td></tr>
+<tr><td>verifier</td><td class="num">91</td><td class="num">0</td><td class="num">3/2/2</td><td class="num">145/144</td><td class="num">413</td><td class="num">42</td><td class="ok">работает</td></tr>
+<tr><td>dealer</td><td class="num">91</td><td class="num">0</td><td class="num">1/1/1</td><td class="num">91/91</td><td class="num">967</td><td class="num">15</td><td class="ok">новый; сеть растёт</td></tr>
+<tr><td>closer</td><td class="num">85</td><td class="num">0</td><td class="num">7/5/5</td><td class="num">76/76</td><td class="num">219</td><td class="num">45</td><td class="ok">работает; мало ответов</td></tr>
+<tr><td>merchant (функция)</td><td class="num">84</td><td class="num">2</td><td class="num">—</td><td class="num">84/82</td><td class="num">12</td><td class="num">101</td><td class="warn">цены без продаж</td></tr>
+<tr><td>executor</td><td class="num">76</td><td class="num">0</td><td class="num">5/5/5</td><td class="num">41/41</td><td class="num">818</td><td class="num">11</td><td class="ok">1 работа слита</td></tr>
+<tr><td>supplier</td><td class="num">70</td><td class="num">0</td><td class="num">6/6/6</td><td class="num">18/18</td><td class="num">692</td><td class="num">5</td><td class="ok">11/11 источников живы</td></tr>
+<tr><td>improver</td><td class="num">50</td><td class="num">1</td><td class="num">5/2/2</td><td class="num">26/25</td><td class="num">6 539</td><td class="num">18</td><td class="crit">дважды ухудшил код</td></tr>
+<tr><td>browser_scout</td><td class="num">—</td><td class="num">—</td><td class="num">14/11/11</td><td class="num">—</td><td class="num">—</td><td class="num">10</td><td class="warn">без шага в цикле</td></tr>
+<tr><td>postman (функция)</td><td class="num">(в channel_manager)</td><td class="num">0</td><td class="num">—</td><td class="num">62/62</td><td class="num">2</td><td class="num">15</td><td class="warn">отправлять не может</td></tr>
+</table></div>
+<p class="small">* сбои 11.09 (устранены): NameError telemetry — 148, InvalidTransition — 35; devpost SourceDown у bounty — 131 до 13.09. Текущие сбои за сутки: 11, все — недоступные внешние страницы.</p>
+
+<h2>2. Разбор по агентам</h2>
+
+<div class="agent good"><div class="hd"><h3>dealer</h3><span class="id">YELLOW · dealer_cycle, dealer_state, dealer_report, moltbook_address_survey</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>91 / 0 сбоев</b></span><span><span class="k">Каналы</span><b>45 (живых 37)</b></span><span><span class="k">Контрагенты</span><b>292</b></span><span><span class="k">Обращения</span><b>1 опубликовано</b></span><span><span class="k">Плательщики</span><b>300 → 61 с ≥2 продавцами</b></span></div>
+<p><strong>Что делает.</strong> Сеть путей к платежу: реестр каналов, контрагентов, приоритет, обращения по шести элементам, делегирование, сверка поступлений, обучение. С 15.09 — реестр активных плательщиков x402 (x402scan), реестр индексов с регистрацией по API, эскроу-задачи taskmarket, обход отказов канала.</p>
+<p><strong>Что нашёл аудит.</strong> Первый день обращения не уходили — гвард отвергал ссылки (исправлено); просящие денег принимались за плательщиков (исправлено). <strong>Вердикт:</strong> работает; главный агент следующего этапа. <strong>Дальше:</strong> вход в экосистемы плательщиков (PayAI, fluxa) требует расчётов через их фасилитаторы — задача для механика воркера.</p></div>
+
+<div class="agent mid"><div class="hd"><h3>salesman</h3><span class="id">GREEN · diagnose_leads, study_market, find_channel, where_visible, check_distribution, reach_out, services_catalog</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>485 / 1</b></span><span><span class="k">Обращений всего</span><b>7</b></span><span><span class="k">Сделки</span><b>7 CONTACTED · 1 NEGOTIATING · 20 REJECTED</b></span><span><span class="k">Диагнозов</span><b>336 прогонов</b></span><span><span class="k">Время</span><b>3 636 с</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Диагнозы делаются сотнями, обращения — единицами: предел 3/сутки при окне 24 ч плюс пауза давали 1,4 письма в сутки. Двадцать отклонённых задач — клоны «разобрать, почему шаг не двигается». <strong>Сделано:</strong> предел 5, потолок паузы 15 мин, клоны остановлены. <strong>Вердикт:</strong> узкое горло воронки, теперь расширено; ответов пока 1 из 7.</p></div>
+
+<div class="agent mid"><div class="hd"><h3>bounty</h3><span class="id">GREEN · hunt_bounties, fresh_bounties, watch_payments, deliver_aibtc, hunt_contests, hunt_hn_jobs</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>1 048 / 184*</b></span><span><span class="k">Найдено наград</span><b>25 объявленных, 13 снято</b></span><span><span class="k">Заявок</span><b>1 (0,10 USDC, ждёт)</b></span><span><span class="k">Время</span><b>6 104 с</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Самый дорогой поисковик системы и почти без сдачи: конкурсы (devpost) не деньги, доска AIBTC — только аудиты Clarity, GitHub-награды в нашем классе редки. Сбои — упавший источник devpost (131) и старая ошибка telemetry. <strong>Сделано:</strong> сдача на AIBTC автономно; taskmarket.dev добавлен как источник эскроу-задач (7 открытых, 6 нашего класса). <strong>Вердикт:</strong> ищет много, сдаёт мало; ценность появится с Taskmarket.</p></div>
+
+<div class="agent mid"><div class="hd"><h3>craftsman</h3><span class="id">GREEN · watch_prs, collect_payouts, watch_payments, check_indexing, package_docs; заявки и PR</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>426 / 3</b></span><span><span class="k">PR</span><b>1 слит (omi), выплата не назначена</b></span><span><span class="k">watch_prs</span><b>291 прогон на 1 PR</b></span><span><span class="k">pursue</span><b>47</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Единственный PR слит, но «$25» оказались предложением стороннего пользователя, не проекта. 291 наблюдение за одним PR — пустая работа, пауза по повтору её ограничивает не полностью. <strong>Вердикт:</strong> работает честно; нужна очередь задач нашего класса (Taskmarket, AIBTC), иначе ему нечего сдавать.</p></div>
+
+<div class="agent good"><div class="hd"><h3>leads</h3><span class="id">GREEN · find_leads, find_channel, verify_service, rich_targets, revalidate_channels</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>471 / 3</b></span><span><span class="k">Лидов</span><b>886, достижимых 273</b></span><span><span class="k">Обращено</span><b>7</b></span><span><span class="k">Время</span><b>2 856 с</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Работает исправно: границы плательщиков честные, каналы — только репозиторий продавца. 273 достижимых лида против 7 обращений — запас не использован. <strong>Сделано:</strong> подключена перепроверка каналов (раз в 12 ч). <strong>Вердикт:</strong> работает.</p></div>
+
+<div class="agent good"><div class="hd"><h3>collector</h3><span class="id">GREEN · verify_routes, collect_payments, money_report, chain_economics, watch_payments</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>755 / 12*</b></span><span><span class="k">Маршрутов</span><b>15 на 7 сетях, все verified</b></span><span><span class="k">Поступлений</span><b>0</b></span></div>
+<p><strong>Вердикт:</strong> работает; с 15.09 видит Solana и Stacks. Ждёт денег.</p></div>
+
+<div class="agent good"><div class="hd"><h3>closer</h3><span class="id">GREEN · check_replies, open_deals</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>85 / 0</b></span><span><span class="k">Ответов получено</span><b>1 (agent402)</b></span><span><span class="k">Эскалаций с текстом</span><b>да</b></span></div>
+<p><strong>Вердикт:</strong> работает; нечего закрывать, пока обращений единицы.</p></div>
+
+<div class="agent good"><div class="hd"><h3>channel_manager</h3><span class="id">GREEN · channel_health, find_channel, where_visible; Moltbook heartbeat/replies/demand; почтовые теги</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>189 / 0</b></span><span><span class="k">Moltbook</span><b>1 пост, 2 комментария, 1 ответ, 1 правка</b></span><span><span class="k">Спрос найден</span><b>3 поста</b></span><span><span class="k">Ответов под нашим</span><b>1</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Сканер спроса принимал просящих денег за плательщиков (исправлено в дилере); политика адресов теперь измеряется им. Почтовые шаги (mail_sync, mail_advance) бесплатным тарифом отправлять не могут — это известное ограничение, не сбой. <strong>Вердикт:</strong> работает.</p></div>
+
+<div class="agent good"><div class="hd"><h3>scout</h3><span class="id">функция цикла · refresh_market, scout_research</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>1 605 / 35*</b></span><span><span class="k">Каталог</span><b>15 587 сервисов, полная перекачка раз в 6 ч</b></span><span><span class="k">Свидетельств</span><b>208</b></span></div>
+<p><strong>Что нашёл аудит.</strong> До 14.09 «обновление» было фикцией; сейчас перекачка настоящая, а с 15.09 после неё выкладывается воркер (хеш среза сверяется по /health). <strong>Вердикт:</strong> работает.</p></div>
+
+<div class="agent mid"><div class="hd"><h3>orchestrator</h3><span class="id">функция цикла · advance_tasks, reason_and_act, briefing, escalation_watch</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>746 / 37*</b></span><span><span class="k">Время</span><b>15 088 с — самый дорогой</b></span><span><span class="k">Рассуждений</span><b>135 через локальную модель</b></span><span><span class="k">Задач</span><b>8 REJECTED (клоны цели)</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Девять раз клонировал зонтичную цель «первый платёж» и засорял очередь суждений (исправлено). Время — в основном ожидание тяжёлой модели. <strong>Вердикт:</strong> работает, дорог; кандидат на перевод reason_and_act на лёгкую модель для рутинных оборотов.</p></div>
+
+<div class="agent good"><div class="hd"><h3>watchdog</h3><span class="id">GREEN · watch_agents, check_invariants, housekeeping, supply_check, where_time_goes</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>1 709 / 32*</b></span><span><span class="k">Свидетельств</span><b>327</b></span><span><span class="k">Сообщений</span><b>492</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Каждую минуту пишет список «молчат дольше 30 мин» — половина состава и должна молчать по расписанию; это шум, который прячет настоящие поломки. Не видит перезагрузку машины (сторож-планировщик стоит «Interactive only»; владелец решил не менять). <strong>Вердикт:</strong> работает; сообщать только об изменениях состояния.</p></div>
+
+<div class="agent good"><div class="hd"><h3>prospector</h3><span class="id">GREEN · prospect, probe_paths, expand_space, hunt_contests</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>433 / 21</b></span><span><span class="k">Путей к деньгам</span><b>772, открытых 9</b></span><span><span class="k">Сбои</span><b>deep_check 403 ×15</b></span></div>
+<p><strong>Вердикт:</strong> работает; его находки теперь питают реестр каналов дилера. 403 — площадки закрываются от роботов, это факт рынка.</p></div>
+
+<div class="agent mid"><div class="hd"><h3>explorer</h3><span class="id">GREEN · explore_niches, prospect, study_market, market_demand</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>529 / 7</b></span><span><span class="k">explore_alternatives</span><b>194 прогона</b></span><span><span class="k">Свидетельств</span><b>100</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Ранее пойман на четырёх захардкоженных «альтернативах»; сейчас честнее, но 194 прогона одного шага — повтор. <strong>Вердикт:</strong> реже, с новыми входными данными.</p></div>
+
+<div class="agent good"><div class="hd"><h3>adversary · critic · verifier · optimizer</h3><span class="id">GREEN · контур QA</span></div>
+<div class="stat"><span><span class="k">adversary</span><b>411 шагов, 20 решений, аудит 347+63</b></span><span><span class="k">critic</span><b>105 / 0</b></span><span><span class="k">verifier</span><b>91; проверено 8 доказательств</b></span><span><span class="k">optimizer</span><b>232; 62 свидетельства</b></span></div>
+<p><strong>Вердикт:</strong> все четверо работают и ловят настоящее (повторы, подделку продуктивности, устаревшие источники). Слабое место — верификатор почти без работы: доказательств мало, потому что сделок мало.</p></div>
+
+<div class="agent good"><div class="hd"><h3>mechanic</h3><span class="id">YELLOW-класс правок · единственный, кто меняет код детерминированно</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>109 / 2</b></span><span><span class="k">Правок</span><b>19, все под гейтом audit.py</b></span></div>
+<p><strong>Вердикт:</strong> работает; два класса правок (импорты, голые except) — безопасно и полезно.</p></div>
+
+<div class="agent bad"><div class="hd"><h3>improver</h3><span class="id">YELLOW · improve_code, check_invariants, where_time_goes</span></div>
+<div class="stat"><span><span class="k">Шаги 7д</span><b>50 / 1</b></span><span><span class="k">Решения</span><b>5 выбрано, 2 исполнено</b></span><span><span class="k">Время</span><b>6 539 с — второй по стоимости</b></span><span><span class="k">Вредных правок</span><b>2 (откачены)</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Дважды принял правку, ухудшившую код (снял предел чтения; удалил используемые имена). Гейт был формальным: аудит меряет систему, не функцию. <strong>Сделано:</strong> AST-сверка удалённых имён, прогон evals модуля, причина находки устранена. <strong>Вердикт:</strong> самый рискованный агент; держать под наблюдением адверсария (рекомендация: событие code_fix_applied → ревью diff).</p></div>
+
+<div class="agent good"><div class="hd"><h3>executor · supplier</h3><span class="id">GREEN</span></div>
+<div class="stat"><span><span class="k">executor</span><b>76 шагов; 1 работа слита (omi quickstart)</b></span><span><span class="k">supplier</span><b>70 шагов; 11 из 11 источников живы</b></span></div>
+<p><strong>Вердикт:</strong> работают; исполнителю нужен поток задач нашего класса.</p></div>
+
+<div class="agent mid"><div class="hd"><h3>distributor · merchant · scribe · judge · postman</h3><span class="id">роли-функции без собственной модели</span></div>
+<div class="stat"><span><span class="k">distributor</span><b>514 прогонов, 3 свидетельства</b></span><span><span class="k">merchant</span><b>84; тарифы без продаж</b></span><span><span class="k">scribe</span><b>103 отчёта</b></span><span><span class="k">judge</span><b>347 health_check</b></span><span><span class="k">postman</span><b>теги без отправки</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Distributor 514 раз проверил «видно ли нас» и оставил 3 свидетельства — почти вся работа повторная; judge исполняет только проверку живости службы; merchant считает цены при нуле продаж. <strong>Рекомендация:</strong> слить distributor в channel_manager, health_check передать сторожу, merchant запускать только по событию первой продажи. Postman — известное ограничение тарифа, не дефект.</p></div>
+
+<div class="agent mid"><div class="hd"><h3>browser_scout</h3><span class="id">GREEN · browse_platform, hunt_offsite, probe_paths</span></div>
+<div class="stat"><span><span class="k">Решения</span><b>14 / 11 / 11</b></span><span><span class="k">Шаг в цикле</span><b>нет — только через reason_and_act</b></span></div>
+<p><strong>Что нашёл аудит.</strong> Единственный агент, читающий площадки браузером, вызывается только когда оркестратор решит. <strong>Рекомендация:</strong> дать ему шаг в редком слоте для регистрационных форм индексов (x402scan подтвердил: формы без аккаунта существуют).</p></div>
+
+<h2>3. Итоги по составу</h2>
+<ul>
+<li><strong>Работают как задумано (13):</strong> dealer, leads, collector, closer, channel_manager, scout, prospector, adversary, critic, verifier, optimizer, mechanic, executor, supplier.</li>
+<li><strong>Работают, но требуют перестройки (7):</strong> salesman (объём), bounty (сдача), craftsman (поток задач), orchestrator (стоимость и клоны — исправлено), explorer (повторы), watchdog (шум), browser_scout (без шага).</li>
+<li><strong>Слить или сузить (4):</strong> distributor, judge-функция, merchant, postman.</li>
+<li><strong>Под наблюдением (1):</strong> improver.</li>
+</ul>
+<p>Общая картина одна: контур поиска и проверки работает плотно, контур продаж и сдачи — тонко. Все исправления 15.09 направлены именно туда: обращения уходят, пределы расширены, найдены плательщики и рынки, где они ищут, и эскроу-задачи, за которые уже внесены деньги.</p>
+<p class="small">Снимок 15.09.2026 ~10:30 UTC, ревизия 24f6cff. Отчёт составлен из таблиц data/brain.db; числа меняются каждым оборотом.</p>
+</div>
