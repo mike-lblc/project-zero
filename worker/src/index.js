@@ -579,6 +579,7 @@ export default {
           parameters: Object.entries(q).map(([name, example]) => ({
             name, in: "query", required: name === "q", schema: { type: typeof example === "number" ? "integer" : "string" },
             example })),
+          security: [{ x402: [] }],
           "x-payment-info": { protocols: ["x402"], network: "eip155:8453", asset: "USDC",
                               price: { mode: "fixed", currency: "USD", amount: String(t.usd) } },
           responses: {
@@ -601,9 +602,10 @@ export default {
                            + "the snapshot hash and scoring revision." },
         servers: [{ url: SELF }],
         paths,
+        // security — ТОЛЬКО у платных операций: глобальная пометка заставила x402scan счесть
+        // /sample, /health и / закрытыми ключом (apiKeyCount 3, publicCount 0).
         components: { securitySchemes: { x402: { type: "apiKey", in: "header", name: "PAYMENT-SIGNATURE",
                                                   description: "x402 v2 payment signature; the 402 response tells how" } } },
-        security: [{ x402: [] }],
         "x-discovery": { protocols: ["x402"], network: "eip155:8453", payTo },
       });
     }
