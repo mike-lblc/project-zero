@@ -1,0 +1,118 @@
+<title>Почему P0 ещё не получил платёж</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--paper:#f3f4f6;--ink:#1b1f24;--muted:#5f6670;--rule:#d5d9df;--panel:#ffffff;--accent:#1f7a5c;--warn:#b4761f;--crit:#a33a2f;--ok:#1f7a5c;--chip:#e6ebe8;--mono-bg:#eceff2}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--paper:#0f1216;--ink:#d7dbe0;--muted:#8b93a0;--rule:#2a3038;--panel:#161a20;--accent:#3fae86;--warn:#d09a3e;--crit:#d0685c;--ok:#3fae86;--chip:#1d2a25;--mono-bg:#1a1f26}}
+:root[data-theme="dark"]{--paper:#0f1216;--ink:#d7dbe0;--muted:#8b93a0;--rule:#2a3038;--panel:#161a20;--accent:#3fae86;--warn:#d09a3e;--crit:#d0685c;--ok:#3fae86;--chip:#1d2a25;--mono-bg:#1a1f26}
+body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,"Segoe UI",sans-serif;font-size:15.5px;line-height:1.55;margin:0;padding-block:32px 72px;padding-inline:clamp(16px,4vw,40px)}
+.wrap{max-width:960px;margin:0 auto}
+h1,h2,h3{font-family:"IBM Plex Serif",Georgia,serif;text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,4vw,40px);font-weight:600;line-height:1.15}
+h2{font-size:23px;font-weight:600;margin-top:52px;padding-top:16px;border-top:2px solid var(--ink)}
+h3{font-size:17px;font-weight:600;margin-top:26px}
+p,li{max-width:72ch}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px 28px;margin:22px 0 6px;padding:14px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.meta .k{display:block;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.meta .v{font-weight:500}
+.tbl{overflow-x:auto;border:1px solid var(--rule);background:var(--panel);margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:500;background:var(--paper)}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace}
+code{font-family:"IBM Plex Mono",monospace;font-size:13px;background:var(--mono-bg);padding:1px 5px;border-radius:2px}
+.ok{color:var(--ok);font-weight:600}.warn{color:var(--warn);font-weight:600}.crit{color:var(--crit);font-weight:600}
+.cause{background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--crit);padding:14px 16px;margin:14px 0}
+.cause.fixed{border-left-color:var(--ok)}
+.cause.owner{border-left-color:var(--warn)}
+.cause h3{margin-top:0}
+.tag{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.04em;padding:1px 7px;border-radius:2px;background:var(--chip);margin-left:8px;vertical-align:middle}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:22px 0}
+.verdict div{background:var(--panel);border:1px solid var(--rule);padding:14px 16px}
+.verdict .n{font-family:"IBM Plex Mono",monospace;font-size:26px;font-weight:500;font-variant-numeric:tabular-nums}
+.verdict .l{font-size:13px;color:var(--muted)}
+ul,ol{padding-left:22px}li{margin:4px 0}
+.small{font-size:13px;color:var(--muted)}
+</style>
+<div class="wrap">
+<div class="eyebrow">P0 · операционный аудит · 15.09.2026, 09:00–10:30 UTC</div>
+<h1>Почему P0 ещё не получил платёж</h1>
+<div class="meta">
+  <div><span class="k">Ревизия</span><span class="v"><code>ebe44d1</code> main, все коммиты выложены</span></div>
+  <div><span class="k">Метод</span><span class="v">живые запросы к базе, сетям, площадкам и журналу Cloudflare</span></div>
+  <div><span class="k">Платежей от посторонних</span><span class="v crit">0</span></div>
+  <div><span class="k">Что изменилось за аудит</span><span class="v">7 исправлений в коде, 1 регистрация в индексе, 1 действие ждёт владельца</span></div>
+</div>
+
+<h2>1. Всё ли из предыдущих шагов действительно сделано</h2>
+<div class="tbl"><table>
+<tr><th>Шаг</th><th>Доказательство (живой запрос)</th><th>Итог</th></tr>
+<tr><td>Opire удалён, подпись инструмента убрана</td><td>0 упоминаний в репозитории; 0 строк в очереди наград после повторной проверки на новом коде; все 9 публичных issue/PR и наши комментарии чисты</td><td class="ok">сделано</td></tr>
+<tr><td>Дилер (19-й агент) и фазы 0–3</td><td>реестр 19 агентов; таблицы channels (31, живых 29), counterparties (231), dealer_state пишется; постоянное разрешение и пределы в guard</td><td class="ok">сделано</td></tr>
+<tr><td>Наблюдатели Solana и Stacks</td><td>payment_routes: 7 сетей verified (Base, Ethereum, Polygon, Arbitrum, Bitcoin, Solana, Stacks), 15 маршрутов наблюдаются каждый оборот</td><td class="ok">сделано</td></tr>
+<tr><td>Политика адресов Moltbook по замеру</td><td>таблица moltbook_address_policy: clawtasks 5/50, usdc 4/87, agentfinance 3/100, agentcommerce 2/100, x402 1/66, forhire 1/39, general 0/100</td><td class="ok">сделано</td></tr>
+<tr><td>Сдача на AIBTC автономно</td><td>шаг deliver_aibtc в денежном слоте; work/aibtc/ ждёт результатов; открытые задачи доски — только аудиты Clarity (не наш класс)</td><td class="ok">сделано, ждёт задач нашего класса</td></tr>
+<tr><td>Выкладка воркера после перекачки</td><td>«deployed: live snapshot fd82f847af690c1c == local», каталог 15 587</td><td class="ok">сделано</td></tr>
+<tr><td>Отчёт XAD</td><td>docs/XAD_REPORT.html, артефакт R4NbpiCMQeT4Nj3abWfwMu</td><td class="ok">сделано</td></tr>
+</table></div>
+<p>Проверки на ревизии ebe44d1: evals <span class="ok">145 из 145</span>, audit.py <span class="ok">91 из 91</span>, fake_work_audit <span class="ok">6 из 6</span>, каталог инвариантов <span class="ok">121 из 121</span>, mtbx_audit <span class="ok">53 из 54</span> (единственное падение — незакоммиченные файлы данных каталога, которые переписывает сам воркер).</p>
+
+<h2>2. Здоровье экосистемы сейчас</h2>
+<div class="verdict">
+  <div><span class="n">6,5 ч</span><span class="l">простой сегодня: перезагрузка 05:53 → вход владельца 12:21</span></div>
+  <div><span class="n">7 · 1 · 1 · 1</span><span class="l">обращений · заявок · PR · постов за 5 дней</span></div>
+  <div><span class="n">0</span><span class="l">строк о нас в индексе Coinbase Bazaar</span></div>
+  <div><span class="n">4 / 5</span><span class="l">запросов к сервису за 75 с — наши собственные</span></div>
+  <div><span class="n">231</span><span class="l">контрагентов у дилера; 1 прямое обращение опубликовано</span></div>
+  <div><span class="n">11</span><span class="l">сбоев шагов за сутки из ~1 100 (все — недоступные внешние страницы)</span></div>
+</div>
+<p>Цепочка deep_checks обрывается на звене 6 «выплата объявлена нам: 0» — то есть всё до денег работает: служба отвечает 402, маршруты проверены, обращения уходят. Обрыв — на стороне спроса, и ниже названо, почему спроса нет.</p>
+
+<h2>3. Что именно останавливает первый платёж</h2>
+<p>Причины расположены по весу. У каждой — доказательство и что с ней сделано.</p>
+
+<div class="cause owner"><h3>Причина 1. Система стоит, когда владелец не вошёл в Windows <span class="tag">ждёт владельца · 2 минуты</span></h3>
+<p>Машина перезагрузилась в 05:53 (обновление Windows). Обе задачи планировщика, которые должны поднимать воркер, стоят в режиме «Interactive only» — они не запускаются, пока пользователь не вошёл. В базе разрыв записей с 03:00 до 09:21 UTC. Облачный прогон за это время сработал дважды (01:00 и 06:07), но денежные шаги в облаке не идут (одна личность — одна база).</p>
+<p><strong>Починка только руками владельца:</strong> Планировщик заданий → задачи <code>P0-keep-alive</code> и <code>P0-hourly-audit</code> → Свойства → «Выполнять вне зависимости от регистрации пользователя» (потребует пароль Windows один раз). Альтернатива — автовход в Windows. Без этого каждая перезагрузка останавливает пайплайн до вашего входа.</p></div>
+
+<div class="cause fixed"><h3>Причина 2. Обращения дилера не уходили: гвард Moltbook отвергал ссылку на наш сервис <span class="tag">исправлено</span></h3>
+<p>Каждое обращение по протоколу несёт адрес проверки и оплаты — ссылку на наш хост. Гвард комментариев и ответов Moltbook принимал ссылки на свой хост только в постах; в комментариях любая ссылка отвергалась как «autonomous contributions may not contain links». Дилер молча пропускал всех контрагентов. После правки первое обращение опубликовано: комментарий под постом MakiMolt в clawtasks (агент с платным API и оплаченными заказами), проверочная задача решена автоматически, квитанция подтверждена.</p></div>
+
+<div class="cause fixed"><h3>Причина 3. Денежные шаги засыпали на часы <span class="tag">исправлено</span></h3>
+<p>Защита от повторов уводит шаг в паузу с удвоением после трёх одинаковых ответов; у денежных шагов не было своего потолка, и «предел исчерпан» трижды подряд отправлял обращения продавца в паузу до суток. При пределе 3 в сутки фактически уходило 1,4 обращения в сутки: 7 за пять дней при 273 достижимых лидах. Теперь потолки паузы: обращения 15 минут, заявки, ответы и дилер 30, сдача на AIBTC 60; предел обращений поднят до пяти (один адресат — одно письмо навсегда остаётся); инвариант каталога расширен и записан с вашим решением.</p></div>
+
+<div class="cause fixed"><h3>Причина 4. Нас нет ни в одном индексе, где агенты ищут платные сервисы <span class="tag">частично снято</span></h3>
+<p>В индексе Coinbase Bazaar — 0 строк о нас: Bazaar заносит сервис только после первого <em>оплаченного</em> вызова через фасилитатор CDP, а платить себе вы запретили. Это замкнутый круг: нас не находят, потому что нам не платили. Сегодня найден второй индекс, x402scan, который регистрирует по документу обнаружения без платежа и без аккаунта. Воркер теперь отдаёт <code>/.well-known/x402</code> и <code>/openapi.json</code> с ценами; регистрация прошла: «Successfully registered 7 of 7 resources», выдана страница продавца <code>tryponcho.com/m/x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev</code>. Видимость в общем списке появляется после их индексации; прямые адреса страниц пока отвечают 404.</p></div>
+
+<div class="cause"><h3>Причина 5. Спроса на платные вызовы почти нет <span class="tag">измерено</span></h3>
+<p>Cloudflare показывает 1,7–2,3 тыс. запросов в сутки к сервису, но живая выборка журнала за 75 секунд: 5 запросов, из них 4 — наши собственные проверки (агенты P0 и аудит), 1 внешний — Node-клиент, читающий <code>/openapi.json</code> (индексатор). Один запрос к платному <code>/search</code> без оплаты пришёл от нашего же аудита. До сегодняшнего дня попытки оплаты были невидимы вовсе; теперь в воркере включены Workers Logs, и каждая выдача 402, каждая попытка verify/settle пишется с исходом и причиной. Через сутки будет точный ответ, приходит ли к нам кто-то платить и на чём срывается.</p></div>
+
+<div class="cause"><h3>Причина 6. Воронка слишком тонкая для вероятностного события <span class="tag">структурно</span></h3>
+<p>Публичные действия системы за пять дней: 7 обращений, 1 заявка на награду, 1 PR, 1 пост. Ответов на обращения — 1 (agent402, вежливый отказ), переписка закрыта. Открытая сдача — одна (0,10 USDC за дефект в x402-url-extractor, ждёт мейнтейнера с 14.09). При типичных долях ответа 5–10 % и конверсии в оплату 10–20 % первого платежа при таком объёме можно ждать месяцами. Исправления 2–3 поднимают объём в несколько раз, но не на порядок: пределы площадок и правило «один адресат — одно письмо» остаются.</p></div>
+
+<div class="cause"><h3>Причина 7. Наш платный продукт мало кому нужен за деньги <span class="tag">структурно</span></h3>
+<p>Единственный конкурент по рейтингу продавцов x402 (api.oblique.markets) за 30 дней получил 14 вызовов от 7 плательщиков по $0,003. Работа под заказ (документация, аудиты) платится людьми и медленно. Доска AIBTC платит агентам, но открытые задачи — аудиты Clarity-контрактов вне нашего класса. Пути дохода есть, и они ведутся сетью дилера, но ни один из них не даёт быстрого первого платежа сам по себе.</p></div>
+
+<h2>4. Что сделано за этот аудит</h2>
+<div class="tbl"><table>
+<tr><th>Изменение</th><th>Файл</th><th>Проверка</th></tr>
+<tr><td>Ссылки на наш хост в комментариях и ответах Moltbook</td><td><code>core/moltbook.py</code>, <code>agents/dealer.py</code></td><td>обращение дилера опубликовано и подтверждено квитанцией</td></tr>
+<tr><td>Потолки паузы денежных шагов; dealer_state — в редкие (ядро 12 шагов)</td><td><code>agents/worker.py</code></td><td>audit.py 91/91</td></tr>
+<tr><td>Предел обращений 3 → 5; инвариант 76 расширен с записью решения</td><td><code>agents/outreach.py</code>, <code>data/invariants.json</code></td><td>регрессии 121/121</td></tr>
+<tr><td>Журнал попыток оплаты в воркере (402 / paid / pay_failed) + Workers Logs</td><td><code>worker/src/index.js</code>, <code>wrangler.toml</code></td><td>событие 402 поймано в живой выборке</td></tr>
+<tr><td>Документы обнаружения и регистрация в x402scan</td><td><code>worker/src/index.js</code></td><td>7 из 7 адресов зарегистрированы</td></tr>
+<tr><td>Подключены revalidate_channels и unsolved_challenges</td><td><code>core/roster.py</code>, <code>agents/moltbook.py</code></td><td>fake_work_audit 6/6</td></tr>
+<tr><td>Правило дублей реплик — по (адресат, текст)</td><td><code>mtbx_audit.py</code></td><td>mtbx 53/54</td></tr>
+</table></div>
+
+<h2>5. Что остаётся между нами и первым платежом</h2>
+<ol>
+<li><strong>Ваше действие, 2 минуты:</strong> перевести две задачи планировщика в режим «вне зависимости от регистрации» (см. причину 1). Пока это не сделано, каждая перезагрузка останавливает всё.</li>
+<li><strong>Сутки наблюдения:</strong> журнал воркера покажет, приходят ли попытки оплаты и на чём они срываются; если срываются на verify/settle — это чинится в коде за час.</li>
+<li><strong>Индексация x402scan:</strong> проверить видимость через 1–2 дня; по желанию — <code>/favicon.ico</code> и контактный e-mail в openapi.json (они просят для верификации владения; какой адрес публиковать — ваше решение).</li>
+<li><strong>Первый оплаченный вызов через CDP:</strong> единственный способ попасть в индекс Coinbase. Вы отвергли оплату самим себе; остаются два честных пути — дождаться внешнего плательщика (теперь нас можно найти через x402scan) или провести сквозной тест платёжного рельса в тестовой сети Base Sepolia с тестовыми USDC (реальных денег нет, но он докажет, что verify/settle работают до того, как придёт настоящий покупатель).</li>
+<li><strong>Задачи нашего класса на AIBTC:</strong> когда появятся (перепись, документация, кросс-пост), результат кладётся в <code>work/aibtc/&lt;id&gt;.md</code>, сдача и выплата sBTC идут автоматически.</li>
+</ol>
+<p class="small">Все числа — на момент снимка 15.09.2026 ~10:30 UTC, из базы data/brain.db, журнала Cloudflare и живых запросов к площадкам. Воркер PID 8232 работает на ревизии ebe44d1.</p>
+</div>
