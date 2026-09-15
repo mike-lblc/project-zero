@@ -858,10 +858,15 @@ def _tm(args, timeout=120):
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:120]}"}
     raw = (r.stdout or "").strip() or (r.stderr or "").strip()
-    try:
-        return json.loads(raw[raw.index("{"):]) if "{" in raw else {"ok": False, "error": raw[:200]}
-    except Exception:
-        return {"ok": False, "error": raw[:200]}
+    # Конверт — последняя строка, начинающаяся с «{»: перед ней CLI печатает ход загрузки.
+    for line in reversed(raw.splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except Exception:
+                continue
+    return {"ok": False, "error": raw[:200]}
 
 
 def _note(agent, claim, conf=None):
@@ -886,21 +891,24 @@ def taskmarket_sync():
     lines, changes = [], []
     c = _con(); _tm_table(c)
     # 1) в каких задачах мы участвуем и что изменилось
+    # inbox.asWorker — задачи, где нас выбрали; actions.waiting — наши подачи, ждущие
+    # решения заказчика (в bounty-режиме до выбора мы «ждём», а не «работаем»).
     inbox = _tm(["inbox"])
     tasks = []
-    if inbox.get("ok"):
-        d = inbox.get("data") or {}
-        for key in ("working", "workingOn", "tasks", "created", "invitedPrivateTasks"):
-            v = d.get(key) if isinstance(d, dict) else None
-            if isinstance(v, list):
-                tasks += v
-        if isinstance(d, list):
-            tasks = d
+    if inbox.get("ok") and isinstance(inbox.get("data"), dict):
+        tasks += [t for t in (inbox["data"].get("asWorker") or []) if isinstance(t, dict)]
+    acts = _tm(["actions"])
+    waiting = (acts.get("data") or {}).get("waiting") if acts.get("ok") and isinstance(acts.get("data"), dict) else None
+    for w in waiting or []:
+        t = dict(w.get("task") or {})
+        if t:
+            t["_phase"] = str(w.get("id", "")).split(":")[-1]
+            tasks.append(t)
     for t in tasks:
         tid = str(t.get("id") or t.get("taskId") or "")
         if not tid:
             continue
-        status = str(t.get("status") or "")
+        status = str(t.get("status") or "") + (f"/{t['_phase']}" if t.get("_phase") else "")
         title = (t.get("description") or t.get("title") or "").split("\n")[0][:120]
         prev = c.execute("SELECT status FROM taskmarket_state WHERE task_id=?", (tid,)).fetchone()
         c.execute("INSERT INTO taskmarket_state(task_id,title,status,our_role,submitted,updated_at) VALUES (?,?,?,?,1,?) "
@@ -915,7 +923,6 @@ def taskmarket_sync():
         for ch in changes:
             _note("bounty", f"TASKMARKET: {ch}", conf=0.9)
     # 2) что нам должны сейчас
-    acts = _tm(["actions"])
     items = (acts.get("data") or {}).get("items") if acts.get("ok") and isinstance(acts.get("data"), dict) else None
     if items:
         lines.append("действий в очереди " + str(len(items)))
@@ -949,30 +956,50 @@ def taskmarket_sync():
         raw = _u.urlopen(_u.Request("https://taskmarket.dev/api/tasks", headers={"User-Agent": "P0-agent"}), timeout=30).read()
         data = json.loads(raw)
         opened = data if isinstance(data, list) else (data.get("tasks") or data.get("items") or data.get("data") or [])
-        ours = 0
+        # Наш класс: текстовые и табличные результаты. Плакаты, иллюстрации, ручное тестирование —
+        # не наше, даже если в описании есть слово «document». Истекающие раньше чем через два
+        # часа не берём: сделать и подать не успеть.
+        FORMATS = ("markdown", ".md", "csv", "html file", "dataset", "documentation", "readme", "guide", "json file")
+        NOT_OURS = ("poster", "illustration", "artwork", "design", "testing", "macos", "windows", "video", "audio", "image")
+        soon = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        found = []
         for t in opened:
             if t.get("status") != "open" or t.get("mode") not in ("bounty", "claim"):
                 continue
+            if str(t.get("expiryTime") or "") and str(t.get("expiryTime"))[:19] < soon[:19]:
+                continue
             desc = (t.get("description") or "").lower()
-            if not any(k in desc for k in ("markdown", "csv", "html", "document", "readme", "dataset", "guide", "write")):
+            tags = " ".join(str(x) for x in (t.get("tags") or [])).lower()
+            if not any(k in desc for k in FORMATS) or any(k in desc or k in tags for k in NOT_OURS):
                 continue
             tid = str(t.get("id"))
             if c.execute("SELECT 1 FROM taskmarket_state WHERE task_id=?", (tid,)).fetchone():
                 continue
-            ours += 1
             c.execute("INSERT OR IGNORE INTO taskmarket_state(task_id,title,status,our_role,submitted,updated_at) "
-                      "VALUES (?,?,?,?,0,?)", (tid, (t.get("description") or "").split("\n")[0][:120], "open", "candidate", now()))
+                      "VALUES (?,?,?,?,0,?)", (tid, (t.get("description") or "").split(chr(10))[0][:120], "open", "candidate", now()))
+            found.append(t)
+        c.commit()
+        # Передачи — ПОСЛЕ фиксации и закрытия нашей записи: у шины своё соединение, и
+        # открытая транзакция здесь держала бы её до «database is locked».
+        c.close(); c = None
+        if found:
+            try:
+                from core import roster as _roster
+                _roster.wire()                      # справочник адресатов заполняется составом
+            except Exception:
+                pass
+        for t in found:
             reward = float(t.get("reward") or 0) / 1e6
             bus.handoff("bounty", "craftsman",
                         f"Taskmarket: открыта задача нашего класса «{(t.get('description') or '')[:60]}» за {reward:.2f} USDC, "
                         f"срок {str(t.get('expiryTime'))[:16]} — сделать и подать через ops/taskmarket (task submit)",
                         "подача бесплатна, выплата идёт на кошелёк владельца; текст работы — суждение, его пишет сильная модель")
-        c.commit()
-        if ours:
-            lines.append(f"новых задач класса {ours}")
+        if found:
+            lines.append(f"новых задач класса {len(found)}")
     except Exception as e:
         lines.append(f"список задач не прочитан: {type(e).__name__}")
-    c.close()
+    if c is not None:
+        c.close()
     return "; ".join(lines)
 
 
