@@ -127,6 +127,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "produce_work":"executor", "check_work":"executor", "guard_knowledge":"verifier",
             "improve_code":"improver", "reach_out":"salesman",
             "dealer_cycle":"dealer", "dealer_state":"dealer", "deliver_aibtc":"bounty",
+            "revalidate_channels":"leads",
             "moltbook_address_survey":"dealer"}
 
 
@@ -965,8 +966,7 @@ CYCLE = [("watch_payments", watch_payments),        # миссия: первый
          ("refresh_market", refresh_market),        # свежесть данных = свежесть диагнозов
          ("audit", audit),                          # целостность доказательства
          ("advance_tasks", advance_tasks),           # двигает очередь — её не двигал никто
-         ("watchdog", _team("watchdog")),          # живость агентов
-         ("dealer_state", _src("dealer_state"))]   # состояние сети путей к платежу (раздел IX)
+         ("watchdog", _team("watchdog"))]           # живость агентов
 
 # РЕДКИЕ — полезны, но не ежеминутно.
 SLOW_CYCLE = [("mechanic", _mech("mechanic")),
@@ -1047,8 +1047,10 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("services_catalog", _src("services_catalog")),
               # ДИЛЕР — сеть путей к платежу по MTBX: каналы, контрагенты, обращения,
               # сверка поступлений, обучение. Замер адресов — его же инструмент.
+              ("dealer_state", _src("dealer_state")),        # состояние сети путей к платежу (раздел IX)
               ("dealer_cycle", _src("dealer_cycle")),
               ("deliver_aibtc", _src("deliver_aibtc")),      # сдача готовых результатов на AIBTC
+              ("revalidate_channels", _src("revalidate_channels")),  # каналы лидов стареют
               ("moltbook_address_survey", _src("moltbook_address_survey"))]
 SLOW_EVERY = 20   # один редкий шаг на каждые 20 быстрых
 # ДЕНЕЖНЫЕ ШАГИ — СВОЙ СЛОТ. Заявка, доставка, поиск наград, ответы лидам и сбор
@@ -1154,6 +1156,7 @@ CLOUD_CANNOT = {
     "mechanic": "правит код и публикует — из облака это менять репозиторий на ходу",
     "mtbx_audit": "часть проверок обращается к локальному сервису",
     "deliver_aibtc": "коммит результата и подпись кошельком агента — только с машины, где лежит seed",
+    "revalidate_channels": "правит таблицу лидов; из облачной реплики правки не доходят до машины владельца",
     "dealer_cycle": "обращения к контрагентам из двух баз (облачной и локальной) продублировали "
                     "бы сообщение одному адресату; оборот дилера идёт только с одной машины",
 }
@@ -1189,6 +1192,19 @@ PAUSE_CAP_MIN = {
     "advance_tasks":   30,   # очередь не должна застывать надолго
     "find_leads":      45,
     "diagnose_leads":  45,
+    # ДЕНЕЖНЫЕ ШАГИ НЕ СПЯТ СУТКАМИ. Без своего предела шаг после трёх одинаковых
+    # ответов («предел исчерпан», «новых нет») уходил в паузу с удвоением до 24 ч —
+    # 15.09: reach_out при пределе 3/сутки фактически делал 1,4 обращения в сутки.
+    "reach_out":       15,
+    "pursue":          30,
+    "check_replies":   30,
+    "dealer_cycle":    30,
+    "dealer_state":    30,
+    "deliver_aibtc":   60,
+    "moltbook_demand": 30,
+    "moltbook_replies": 30,
+    "collect_payouts": 60,
+    "revalidate_channels": 720,
 }
 # На сколько оборотов он после этого уходит на паузу. Растёт с каждым повтором,
 # но не бесконечно: раз в сутки проверить состояние обязан любой шаг.

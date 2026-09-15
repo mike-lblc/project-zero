@@ -731,11 +731,15 @@ def create_post(agent: str, title: str, content: str, submolt: str = "general",
 def add_comment(agent: str, post_id: str, content: str,
                 transport: Transport | None = None, *,
                 submolt: str | None = None,
-                allow_addresses: bool | None = None) -> dict[str, Any]:
+                allow_addresses: bool | None = None,
+                allow_own_links: bool = False) -> dict[str, Any]:
     post_id = _id(post_id, "post id")
     if allow_addresses is None:
         allow_addresses = address_ok(submolt)
-    payload = {"content": _attributed(agent, _clean_content(content, allow_addresses=allow_addresses), 2000)}
+    # allow_own_links — только наш хост (ALLOWED_LINK_HOSTS): обращение дилера несёт адрес
+    # проверки и оплаты; чужие ссылки по-прежнему запрещены.
+    payload = {"content": _attributed(agent, _clean_content(content, allow_own_links=allow_own_links,
+                                                            allow_addresses=allow_addresses), 2000)}
     return _write(agent, "comment", f"/posts/{post_id}/comments", payload,
                   target_id=post_id, transport=transport)
 
@@ -743,12 +747,14 @@ def add_comment(agent: str, post_id: str, content: str,
 def reply(agent: str, post_id: str, parent_id: str, content: str,
           transport: Transport | None = None, *,
           submolt: str | None = None,
-          allow_addresses: bool | None = None) -> dict[str, Any]:
+          allow_addresses: bool | None = None,
+          allow_own_links: bool = False) -> dict[str, Any]:
     post_id = _id(post_id, "post id")
     parent_id = _id(parent_id, "parent comment id")
     if allow_addresses is None:
         allow_addresses = address_ok(submolt)
-    payload = {"content": _attributed(agent, _clean_content(content, allow_addresses=allow_addresses), 2000),
+    payload = {"content": _attributed(agent, _clean_content(content, allow_own_links=allow_own_links,
+                                                            allow_addresses=allow_addresses), 2000),
                "parent_id": parent_id}
     return _write(agent, "reply", f"/posts/{post_id}/comments", payload,
                   target_id=post_id, parent_id=parent_id, transport=transport)

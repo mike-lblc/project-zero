@@ -455,8 +455,8 @@ def compose(cp, channel, snapshot_hash=None):
     """
     value, unit, amount, cur, net = _offer_for(cp.get("needs"))
     why = {
-        "moltbook_demand": f"You wrote about paying for work in m/{(cp.get('ref') or '')[:0]}"
-                           f"«{(cp.get('needs') or '')[:70]}» — that is exactly the kind of job we take.",
+        "moltbook_demand": f"You wrote «{(cp.get('needs') or '')[:70]}» — you pay for results and take "
+                           f"paid work, so a cheap, verifiable data call may be useful to you.",
         "moltbook_inbound": "You replied under our post, so you already know what we measure.",
         "leads": "Your endpoints are in our x402 index and you are receiving payments there, "
                  "so a market read is directly useful to you.",
@@ -547,7 +547,7 @@ def act(dry_run=False, limit=MAX_MESSAGES_PER_CYCLE):
                 continue
             try:
                 from core import moltbook as mb
-                res = mb.add_comment("dealer", cp["ref"], text, submolt=sub)
+                res = mb.add_comment("dealer", cp["ref"], text, submolt=sub, allow_own_links=True)
             except Exception as e:
                 skipped.append(f"{cp['handle']}: {type(e).__name__}: {str(e)[:80]}")
                 continue

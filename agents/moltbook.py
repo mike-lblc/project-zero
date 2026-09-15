@@ -56,7 +56,8 @@ def heartbeat(force: bool = False) -> dict:
     detail = (f"identity claimed; sampled={result['seen']}; "
               f"accepted={result['accepted']}; rejected={result['rejected']}; "
               f"DM_supported={dm.get('supported', True)}; DM_activity={has_activity}; "
-              f"pending_reconciled={len(pending)}")
+              f"pending_reconciled={len(pending)}; "
+              f"unsolved_challenges={moltbook.unsolved_challenges()}")
     moltbook._record_check("heartbeat", True, detail)
     return {"ok": True, "identity": status["name"], "agents": len(names),
             "notice_visible": notice["all_visible"],

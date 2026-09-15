@@ -785,7 +785,7 @@ register(Agent(
     role="Разведка клиентов и законных каналов связи",
     kpi="число лидов с ПРОВЕРЕННЫМ публичным каналом и воспроизводимых дефектов, "
         "дающих законный повод для обращения",
-    tools=("find_leads", "find_channel", "verify_service", "rich_targets"),
+    tools=("find_leads", "find_channel", "verify_service", "rich_targets", "revalidate_channels"),
     system=COMMON + """
 ТЫ — РАЗВЕДКА КЛИЕНТОВ.
 
@@ -977,6 +977,15 @@ register(Agent(
 данных» — это не находка, а вежливость. Находка — это конкретная строка,
 конкретное утверждение и конкретное основание считать его негодным.
 """))
+
+
+@tool("revalidate_channels", "GREEN",
+      "перепроверить уже найденные каналы лидов правилом владения: чужой репозиторий "
+      "с общим словом в имени — не канал продавца",
+      needs=("сеть", "gh"))
+def _revalidate_channels():
+    from agents import leads
+    return leads.revalidate_channels(limit=60)
 
 
 @tool("deliver_aibtc", "YELLOW",

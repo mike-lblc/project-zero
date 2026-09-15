@@ -640,12 +640,16 @@ export default {
                                  description: t.what },
                      accepts: [reqs],
                      extensions: bazaarExtension(path) };
+        console.log(JSON.stringify({ ev: "402", path, ua: (request.headers.get("user-agent") || "").slice(0, 80) }));
         const body402 = { ...pr, error: "Payment Required",
                           free_alternative: "/sample", weekly_report: JOIN_URL };
         return json(body402, 402, { "payment-required": b64utf8(JSON.stringify(pr)) });
       }
 
       const r = await settle(header, reqs, env);
+      // ПОПЫТКА ОПЛАТЫ — САМОЕ ВАЖНОЕ СОБЫТИЕ СЕРВИСА: пишется всегда, с исходом и причиной.
+      console.log(JSON.stringify({ ev: r.ok ? "paid" : "pay_failed", path, via: r.via, tx: r.tx || null,
+                                   why: r.ok ? null : String(r.why).slice(0, 160) }));
       if (!r.ok)
         return json({ x402Version: 2, error: "Payment failed", reason: r.why, accepts: [reqs] }, 402);
 
