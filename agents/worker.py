@@ -998,7 +998,8 @@ def _src(tool_name):
 def _offsite_step():
     """Задачи с площадок вне GitHub — работа браузерного разведчика в редком слоте."""
     from agents import bounty
-    return bounty.hunt_offsite()
+    rows = bounty.enrich_and_score(bounty.search_offsite())
+    return f"вне GitHub найдено задач: {len(rows)}"
 
 
 def _team(fn_name):

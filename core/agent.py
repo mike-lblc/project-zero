@@ -339,9 +339,27 @@ class Agent:
         d = self.decide()
         chose, why, args = d.get("tool"), d.get("why", ""), d.get("args", {})
         if not d.get("allowed"):
+            # ЧУЖОЙ ИНСТРУМЕНТ — ПЕРЕДАЧА, А НЕ ОТКАЗ. Локальная модель в шестидесяти случаях
+            # за сутки выбирала настоящий инструмент, но чужой (улучшатель хотел разведку,
+            # критик — проверку ответов). Раньше это записывалось как неудача; теперь
+            # желание становится передачей работы тому, у кого этот инструмент есть, —
+            # так агенты дополняют друг друга, а не спотыкаются о границы меню.
+            owner = None
+            if chose and chose in TOOLS and chose not in self.tools:
+                owner = next((n for n, a in sorted(REGISTRY.items()) if chose in a.tools and n != self.name), None)
+            if owner:
+                try:
+                    from core import bus
+                    bus.handoff(self.name, owner, f"сделать {chose}: {why[:160]}", f"инструмент {chose} есть у тебя, у меня нет")
+                    d2 = dict(d, tool="handoff_to", allowed=True)
+                    self._record(d2, f"передано {owner}: {chose}", ok=True)
+                    return {"agent": self.name, "chose": "handoff_to", "ok": True, "why": why,
+                            "detail": f"хотел {chose} — передал {owner}", "answered": answered}
+                except Exception:
+                    pass
             self._record(d, "не выполнено", ok=False)
             return {"agent": self.name, "chose": chose, "ok": False,
-                    "detail": why or "выбор не прошёл проверку"}
+                    "detail": why or "выбор не прошёл проверку", "answered": answered}
         t = TOOLS[chose]
         if dry_run:
             self._record(d, "вхолостую", ok=True)

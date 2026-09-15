@@ -231,11 +231,16 @@ def reach_out(dry_run=True):
 
     c = connect()
     _schema(c)
+    # ТОЛЬКО В ПРОВЕРЕННЫЙ КАНАЛ. 15.09 обращение к laso.finance ушло в ranaroussi/yfinance —
+    # репозиторий, который ей не принадлежит (совпало слово «finance»); проверка владения
+    # отклонила канал через 11 минут ПОСЛЕ отправки. Ответ мейнтейнера: «wtf are you talking
+    # about?». Теперь reachable=1 — условие выборки, а не последующая пометка.
     rows = c.execute(
         """SELECT domain, services, calls_30d, payers_30d, avg_price, channel,
                   COALESCE(payers_min_30d, 0)
            FROM leads
            WHERE channel IS NOT NULL AND channel <> ''
+             AND COALESCE(reachable, 0) = 1          -- владение каналом ПРОВЕРЕНО до отправки
              AND calls_30d > 0 AND payers_30d > 0
              AND domain NOT IN (SELECT domain FROM outreach)
            ORDER BY COALESCE(payers_min_30d, 0) DESC, payers_30d DESC LIMIT 1""").fetchall()
