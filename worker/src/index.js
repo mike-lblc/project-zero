@@ -415,38 +415,78 @@ async function settle(paymentHeader, reqs, env) {
     try { payload = JSON.parse(paymentHeader); } catch { return { ok: false, why: "payload не разобран" }; }
   }
   const body = JSON.stringify({ x402Version: 2, paymentPayload: payload, paymentRequirements: reqs });
-  const useCdp = Boolean(env && env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET);
+  const haveCdp = Boolean(env && env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET);
 
-  async function post(step) {
-    if (useCdp) {
-      const path = `/platform/v2/x402/${step}`;
-      const token = await cdpJwt(env, "POST", path);
-      return fetch(CDP_BASE + "/" + step, {
-        method: "POST",
-        headers: { "content-type": "application/json",
-                   authorization: `Bearer ${token}` },
-        body,
+  // ЧЕРЕЗ КАКОЙ ФАСИЛИТАТОР СЧИТАТЬ — ЭТО ВОПРОС ВИДИМОСТИ, А НЕ ВКУСА.
+  //
+  // В ленту обнаружения Coinbase (api.cdp.coinbase.com/platform/v2/x402/discovery)
+  // продавец попадает ТОЛЬКО после платежа, проведённого через их фасилитатор.
+  // Эндпоинта регистрации нет ни у одной ленты: на Bazaar POST отдаёт 405, на
+  // фасилитаторах 404 (проверено). А по этой ленте ходит не меньше десятка роботов,
+  // которые платят всем подряд по мелочи: 0xA19F6215… (145 разных получателей),
+  // 0xc9c7b38C… (136, все из ленты Bazaar), 0xe3Badbd4… (114 из 115 из ленты),
+  // 0x7EF12BE6… (подтверждён: 15 платежей за день по 0.001 USDC через EIP-3009).
+  // Нас в этой ленте нет ни одной записи из 15 757. Значит первый платёж, проведённый
+  // через CDP, стоит дороже самого платежа: он открывает этот пул.
+  //
+  // Но переключиться на CDP НАСОВСЕМ нельзя: если он недоступен, платёж терялся бы
+  // молча — клиент получил бы 402 с правильной подписью в руках. Поэтому CDP идёт
+  // первым, а публичный фасилитатор остаётся страховкой. Деньги важнее видимости.
+  async function attempt(useCdp) {
+    async function post(step) {
+      if (useCdp) {
+        const path = `/platform/v2/x402/${step}`;
+        const token = await cdpJwt(env, "POST", path);
+        return fetch(CDP_BASE + "/" + step, {
+          method: "POST",
+          headers: { "content-type": "application/json",
+                     authorization: `Bearer ${token}` },
+          body,
+        });
+      }
+      return fetch(`${FACILITATOR}/${step}`, {
+        method: "POST", headers: { "content-type": "application/json" }, body,
       });
     }
-    return fetch(`${FACILITATOR}/${step}`, {
-      method: "POST", headers: { "content-type": "application/json" }, body,
-    });
+    const via = useCdp ? "cdp" : "public";
+    // Отказ фасилитатора (5xx, истёкший ключ, сеть) — это НЕ «подпись плохая»:
+    // на таком можно и нужно пробовать второго. Отличаем одно от другого.
+    let v, vr;
+    try {
+      v = await post("verify");
+      vr = await v.json().catch(() => ({}));
+    } catch (e) {
+      return { ok: false, retryable: true, via, why: `verify unreachable: ${String(e).slice(0, 80)}` };
+    }
+    if (v.status >= 500 || v.status === 401 || v.status === 403 || v.status === 429)
+      return { ok: false, retryable: true, via, why: `verify ${v.status}` };
+    if (!v.ok || vr.isValid === false || vr.valid === false)
+      // Расчёта ещё не было, значит второго фасилитатора попробовать безопасно.
+      return { ok: false, retryable: true, via, why: vr.invalidReason || vr.error || `verify ${v.status}` };
+
+    let s, sr;
+    try {
+      s = await post("settle");
+      sr = await s.json().catch(() => ({}));
+    } catch (e) {
+      // Расчёт МОГ пройти, а ответ не дойти. Повторять его у второго фасилитатора
+      // нельзя: это попытка провести одну и ту же подпись дважды.
+      return { ok: false, retryable: false, via, why: `settle unreachable: ${String(e).slice(0, 80)}` };
+    }
+    if (s.status >= 500 || s.status === 401 || s.status === 403 || s.status === 429)
+      return { ok: false, retryable: s.status === 401 || s.status === 403, via, why: `settle ${s.status}` };
+    if (!s.ok || sr.success === false)
+      return { ok: false, retryable: false, via, why: sr.errorReason || sr.error || `settle ${s.status}` };
+    return { ok: true, tx: sr.transaction || sr.txHash || null, via };
   }
 
-  const v = await post("verify");
-  const vr = await v.json().catch(() => ({}));
-  if (!v.ok || vr.isValid === false || vr.valid === false)
-    return { ok: false, why: vr.invalidReason || vr.error || `verify ${v.status}`,
-             via: useCdp ? "cdp" : "public" };
-
-  const s = await post("settle");
-  const sr = await s.json().catch(() => ({}));
-  if (!s.ok || sr.success === false)
-    return { ok: false, why: sr.errorReason || sr.error || `settle ${s.status}`,
-             via: useCdp ? "cdp" : "public" };
-
-  return { ok: true, tx: sr.transaction || sr.txHash || null,
-           via: useCdp ? "cdp" : "public" };
+  if (haveCdp) {
+    const r = await attempt(true);
+    if (r.ok || !r.retryable) return r;
+    const f = await attempt(false);
+    return { ...f, via: f.ok ? "public-after-cdp-failed" : f.via, cdpWhy: r.why };
+  }
+  return attempt(false);
 }
 
 // ------------------------------------------------------------------ квитанция
@@ -993,9 +1033,17 @@ export default {
         "x-discovery": { protocols: ["x402"], network: "eip155:8453", payTo },
       });
     }
+    // settlement — ТОЛЬКО признак, никогда значение ключа. Через какой фасилитатор мы
+    // считаем, решает, попадём ли мы в ленту обнаружения Coinbase (туда заносят только
+    // после платежа через их фасилитатор), и проверить это снаружи было нечем: ключи
+    // ставятся отдельной командой и в списке привязок из wrangler.toml не видны.
     if (path === "/health") return json({ ok: true, catalog: CATALOG.length, snapshotHash: SNAPSHOT.sha256,
                     snapshotGeneratedAt: SNAPSHOT.generatedAt, scoringRevision: SCORING_REVISION,
-                    version: WORKER_VERSION, weekly_report: JOIN_URL });
+                    version: WORKER_VERSION,
+                    settlement: { primary: (env && env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET) ? "cdp" : "public",
+                                  fallback: "public",
+                                  note: "cdp first so the first settled payment enters the Coinbase discovery feed; the public facilitator stays as fallback so an outage cannot lose a payment" },
+                    weekly_report: JOIN_URL });
 
     // ---- подписка: живёт здесь же, значит не зависит от машины владельца
     if (path === "/join")
