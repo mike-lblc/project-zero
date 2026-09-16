@@ -283,6 +283,15 @@ def _explore():
     return growth.explore()
 
 
+@tool("directory_watch", "GREEN",
+      "наши объявления в nohumans.directory: жив ли каждый платный маршрут и не купил ли "
+      "уже скаут каталога — платёж записывается в доказательства вместе с хешем расчёта",
+      needs=("сеть",))
+def _directory_watch():
+    from agents import directory_watch
+    return directory_watch.check()
+
+
 @tool("check_indexing", "GREEN",
       "проверить готовность платных адресов к попаданию в индекс Bazaar: "
       "25 проверок Coinbase по каждому тарифу",
@@ -1094,7 +1103,8 @@ register(Agent(
     kpi="число подтверждённых хешем поступлений от посторонних; до первого — число живых "
         "каналов и контрагентов с известным способом оплаты, обращений с шестью элементами "
         "протокола и ответов на них; обещание, счёт и заявка не засчитываются",
-    tools=("dealer_cycle", "dealer_state", "dealer_report", "moltbook_address_survey"),
+    tools=("dealer_cycle", "dealer_state", "dealer_report", "moltbook_address_survey",
+           "directory_watch"),
     max_class="YELLOW",
     system=COMMON + """
 ТЫ — ДИЛЕР. Спецификация — MTBX.txt (протокол последней транзакции) с решениями
