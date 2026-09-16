@@ -114,6 +114,14 @@ const TIERS = {
   "/dataset": { amount: "250000", usd: 0.25, what: "complete dataset export: every listed service with 30-day calls, unique payers, price, network (compact keys, legend included)" },
   "/price":   { amount: "20000",  usd: 0.02, what: "price benchmark: what comparable x402 services actually charge — p10/median/p90 per capability, with how many charge nothing" },
   "/networks":{ amount: "1000",   usd: 0.001, what: "chain breakdown: providers, 30-day calls, unique paying wallets and median price per network — where the paying demand actually is" },
+  // УЗКИЕ СПРАВКИ ПО НИЖНЕМУ ДЕЦИЛЮ. Замер 16.09: медиана вызовов на платящего по рынку
+  // = 1.00, то есть до продавца без аудитории доходят ОДНОРАЗОВЫЕ проверочные покупки.
+  // У onesource.io 11 мест в топ-12 именно так: одиннадцать дешёвых узких маршрутов,
+  // на каждом 678-1076 платящих с c/y=1.00. Один маршрут = один кандидат на покупку.
+  "/count":    { amount: "1000",   usd: 0.001, what: "catalogue size and 30-day totals: services, calls, unique paying wallets, with the snapshot hash" },
+  "/tags":     { amount: "1000",   usd: 0.001, what: "tag vocabulary: every capability tag with its provider count, 30-day paying wallets and median price" },
+  "/top":      { amount: "1000",   usd: 0.001, what: "highest-demand services: ranked by 30-day unique paying wallets, with calls, price and calls-per-payer" },
+  "/service":  { amount: "1000",   usd: 0.001, what: "one service by resource URL: its 30-day calls, unique paying wallets, price, network and tags" },
 };
 
 // Стейблкоины Base, принимаемые прямым переводом (1 токен = $1). Контракты проверены по
@@ -234,6 +242,20 @@ const INPUTS = {
     required: [],
   },
   "/networks": { method: "GET", queryParams: {}, params: {}, required: [] },
+  "/count": { method: "GET", queryParams: {}, params: {}, required: [] },
+  "/tags": { method: "GET", queryParams: {}, params: {}, required: [] },
+  "/top": {
+    method: "GET",
+    queryParams: { n: 25 },
+    params: { n: { type: "integer", minimum: 1, maximum: 100, default: 25 } },
+    required: [],
+  },
+  "/service": {
+    method: "GET",
+    queryParams: { u: "api.onesource.io" },
+    params: { u: { type: "string", description: "resource URL or any substring of it; omit for the single highest-demand service" } },
+    required: [],
+  },
 };
 
 // СХЕМА ОПИСЫВАЕТ ВЕСЬ ОБЪЕКТ input, а не только параметры запроса.
@@ -512,6 +534,11 @@ const median = (a) => (a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.leng
 // /alpha и /price платили эту цену каждый по отдельности. Снимок каталога внутри
 // одного развёртывания неизменен, поэтому пересчитывать его нечего.
 const CATEGORY_STAT = categories();
+// Топ по платящим считается один раз: сортировка 15 758 записей на каждый запрос
+// съела бы бюджет процессора, а снимок внутри развёртывания неизменен.
+const TOP_BY_PAYERS = [...CATALOG].sort((a, b) => (b.y || 0) - (a.y || 0)).slice(0, 100);
+const TOTAL_CALLS = CATALOG.reduce((n, s) => n + (s.c || 0), 0);
+const TOTAL_PAYERS = CATALOG.reduce((n, s) => n + (s.y || 0), 0);
 const PRICES_ALL = CATALOG.map((s) => s.p)
   .filter((p) => typeof p === "number" && p > 0 && p <= PRICE_CEILING).sort((a, b) => a - b);
 const PRICE_ZERO = CATALOG.filter((s) => s.p === 0).length;
@@ -594,6 +621,41 @@ function payload(path, url) {
                      : "no q supplied: prices across the whole catalogue",
              method: "percentiles over services that declare a price above zero and at or below $" + PRICE_CEILING + "/call; zero-price services and outliers counted separately",
              benchmark: band, byCategory };
+  }
+  if (path === "/count") {
+    return { generatedAt: new Date().toISOString(), receipt: receipt(),
+             services: CATALOG.length, calls30d: TOTAL_CALLS, payers30d: TOTAL_PAYERS,
+             callsPerPayer: +(TOTAL_CALLS / (TOTAL_PAYERS || 1)).toFixed(3),
+             note: "payers30d is the sum of per-resource distinct payer counts as published by the feed, not a distinct count across the market" };
+  }
+  if (path === "/tags") {
+    const tags = Object.entries(CATEGORY_STAT).map(([tag, d]) => {
+      const ps = d.prices.filter((x) => x > 0 && x <= PRICE_CEILING).sort((a, b) => a - b);
+      return { tag, providers: d.n, payers30d: d.payers, calls30d: d.calls, medianPriceUsd: pct(ps, 0.50) };
+    }).sort((a, b) => b.payers30d - a.payers30d).slice(0, 200);
+    return { generatedAt: new Date().toISOString(), receipt: receipt(), count: tags.length, tags };
+  }
+  if (path === "/top") {
+    const n = Math.min(Math.max(+url.searchParams.get("n") || 25, 1), 100);
+    return { generatedAt: new Date().toISOString(), receipt: receipt(), count: n,
+             method: "ranked by 30-day unique paying wallets; callsPerPayer near 1 means each payer bought once (a verification sweep), high values mean repeat use",
+             services: TOP_BY_PAYERS.slice(0, n).map((s) => ({
+               resource: s.u, name: s.n || null, priceUsd: s.p, network: s.w,
+               calls30d: s.c, payers30d: s.y,
+               callsPerPayer: s.y ? +((s.c || 0) / s.y).toFixed(2) : null })) };
+  }
+  if (path === "/service") {
+    const q = (url.searchParams.get("u") || "").trim().toLowerCase();
+    // Без параметра платный вызов обязан отдать данные: берём сервис с самым большим спросом.
+    const hit = q ? CATALOG.find((s) => (s.u || "").toLowerCase().includes(q)) : TOP_BY_PAYERS[0];
+    if (!hit) return { generatedAt: new Date().toISOString(), receipt: receipt(), query: q,
+                       found: false, note: "no listed service matches that URL substring",
+                       hint: "call /service?u=<part of the resource URL>, or omit u for the highest-demand service" };
+    return { generatedAt: new Date().toISOString(), receipt: receipt(),
+             query: q || null, mode: q ? "lookup" : "highest_demand", found: true,
+             service: { resource: hit.u, name: hit.n || null, description: hit.d, tags: hit.t,
+                        priceUsd: hit.p, network: hit.w, calls30d: hit.c, payers30d: hit.y,
+                        callsPerPayer: hit.y ? +((hit.c || 0) / hit.y).toFixed(2) : null } };
   }
   if (path === "/networks") {
     const byNet = {};

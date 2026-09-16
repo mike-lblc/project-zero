@@ -58,6 +58,14 @@ TARIFF = {
     # продукт стоит столько, сколько за такое платят внизу рынка: покупатель с бюджетом
     # в полцента должен иметь возможность купить у нас хоть что-то.
     "/networks": {"usd": 0.001, "what": "chain breakdown: where the paying demand is"},
+    # Узкие справки по p10. Замер 16.09: медиана вызовов на платящего по рынку = 1.00 —
+    # до продавца без аудитории доходят ОДНОРАЗОВЫЕ проверочные покупки, и каждый
+    # отдельный маршрут это отдельный кандидат на такую покупку (onesource.io держит
+    # 11 мест в топ-12 ровно этим: одиннадцать дешёвых узких маршрутов).
+    "/count": {"usd": 0.001, "what": "catalogue size and 30-day totals"},
+    "/tags": {"usd": 0.001, "what": "tag vocabulary with providers, payers and median price"},
+    "/top": {"usd": 0.001, "what": "highest-demand services with calls-per-payer"},
+    "/service": {"usd": 0.001, "what": "one service by resource URL"},
 }
 
 # Цены только, для мест, которым нужен простой словарь.
