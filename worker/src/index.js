@@ -1003,7 +1003,9 @@ export default {
             name, in: "query", required: name === "q", schema: { type: typeof example === "number" ? "integer" : "string" },
             example })),
           security: [{ x402: [] }],
-          "x-payment-info": { protocols: ["x402"], network: "eip155:8453", asset: "USDC",
+          // protocols — массив ОБЪЕКТОВ, так это описано в spec.md x402scan; массив строк
+          // сканер разбирает иначе, и операция рискует не попасть в разряд платных.
+          "x-payment-info": { protocols: [{ x402: {} }], network: "eip155:8453", asset: "USDC",
                               price: { mode: "fixed", currency: "USD", amount: String(t.usd) },
                               alternatives: DIRECT_PAYMENT },
           responses: {
@@ -1016,6 +1018,11 @@ export default {
         paths[e] = { get: { summary: e === "/sample" ? "three ranked results, free, with receipt"
                                     : e === "/health" ? "liveness, catalog size, snapshot hash" : "service description and pricing",
                             operationId: e === "/" ? "root" : e.slice(1),
+                            // ПУСТОЙ security — это «денег не требует», и он тут обязателен.
+                            // Без него сканер не отличает бесплатный маршрут от платного,
+                            // настроенного неверно: опрашивает его впустую, пишет ошибки и
+                            // задерживает регистрацию остальных (spec.md x402scan).
+                            security: [],
                             responses: { "200": { description: "ok" } } } };
       }
       return json({
@@ -1023,7 +1030,21 @@ export default {
         info: { title: "x402 Bazaar Rank", version: WORKER_VERSION,
                 description: "Ranked discovery over the live x402 service market: every indexed service "
                            + "scored by real 30-day calls and paying-wallet bounds, with a receipt naming "
-                           + "the snapshot hash and scoring revision." },
+                           + "the snapshot hash and scoring revision.",
+                // x-guidance — обязательное поле верхнего уровня по spec.md x402scan, и это
+                // единственное место, где агенту объясняют, с чего начать. Пишем по делу:
+                // какой маршрут для чего и что вызов без параметров тоже отдаёт данные.
+                "x-guidance":
+                  "Market data over 15,758 live x402 services, 30-day window, on Base. Start with "
+                  + "GET /search?q=<capability> for ranked services, or /top for the highest-demand ones "
+                  + "with callsPerPayer (near 1 means each payer bought once, high means repeat use). "
+                  + "/price benchmarks what comparable services charge, /networks breaks demand down by "
+                  + "chain, /tags is the capability vocabulary, /count is the market totals, /service looks "
+                  + "one service up by URL, /report and /alpha are the category report and the underserved "
+                  + "niches, /dataset is the full export. EVERY paid route answers a call with no parameters "
+                  + "at all with real data rather than an error, so a blind purchase is never wasted. "
+                  + "/sample and /health are free. Payment is x402 v2, scheme exact, network eip155:8453, "
+                  + "native USDC; a plain USDC/USDT/DAI transfer on Base also works via ?tx=<hash>." },
         servers: [{ url: SELF }],
         paths,
         // security — ТОЛЬКО у платных операций: глобальная пометка заставила x402scan счесть
