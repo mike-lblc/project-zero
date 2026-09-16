@@ -323,7 +323,7 @@ print("\n5. ЖИВОЙ СЕРВИС")
 check("/health = 200", lambda: (http("/health")[0] == 200, "отвечает"))
 check("/join = 200", lambda: (http("/join")[0] == 200, "страница подписки живая"))
 check("/dashboard = 200", lambda: (http("/dashboard")[0] == 200, "дашборд отдаётся"))
-for ep, price in [("/search?q=a", 0.01), ("/report", 0.10), ("/alpha", 0.50), ("/dataset", 1.25)]:
+for ep, price in [("/search?q=a", 0.01), ("/report", 0.02), ("/alpha", 0.05), ("/dataset", 0.25)]:
     def tier_ok(ep=ep, price=price):
         st, body = http(ep)
         if st != 402:

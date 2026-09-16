@@ -475,16 +475,27 @@ def probe(limit=6):
     """
     guard.check_action("research", "GREEN")
     con = _con()
-    rows = con.execute("SELECT platform,category FROM money_paths "
-                       "WHERE open_to_us IS NULL ORDER BY id LIMIT ?", (limit,)).fetchall()
+    # СНАЧАЛА НИКОГДА НЕ ПРОВЕРЯВШИЕСЯ, ПОТОМ САМЫЕ ДАВНИЕ. Прежний порядок «по id» брал одни
+    # и те же шесть неоткрывающихся площадок с 11.09: неудача не отмечалась, и 865 из 911
+    # площадок не были прощупаны ни разу.
+    rows = con.execute("SELECT platform,category FROM money_paths WHERE open_to_us IS NULL "
+                       "ORDER BY (checked_at IS NOT NULL), checked_at, id LIMIT ?", (limit,)).fetchall()
     con.close()
     if not rows:
         return "непроверенных площадок нет"
 
-    checked = opened = 0
+    checked = opened = failed = 0
     for platform, cat in rows:
         html = _get("https://" + platform)
         if not html:
+            failed += 1
+            try:                                   # неудача — тоже результат: очередь идёт дальше
+                con = _con()
+                con.execute("UPDATE money_paths SET evidence=?, checked_at=? WHERE platform=?",
+                            ("страница не открылась при проверке", now(), platform))
+                con.commit(); con.close()
+            except Exception:
+                pass
             continue
         text = _text(html).lower()
         evidence, flags = [], {}
@@ -553,7 +564,7 @@ def probe(limit=6):
                                     f"{opened}. Лучшая — {best[0]} (класс «{best[1]}», "
                                     f"платит {best[2]}). Это проверено по её же странице, "
                                     f"а не предположено.")
-    return f"проверено {checked}, открытых {opened}"
+    return f"проверено {checked}, открытых {opened}" + (f", не открылись {failed}" if failed else "")
 
 
 # ---------------------------------------------------------------- 3. картина целиком

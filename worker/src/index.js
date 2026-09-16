@@ -103,12 +103,94 @@ tick();setInterval(tick,5000);
 
 // Тарифы в микро-USDC. Цены выставлены по реальному рынку:
 // медиана $0.0100, 99-й перцентиль $1.40 — мы стоим ниже потолка.
+// ЦЕНЫ — ПО НИШЕ, А НЕ ПО ВСЕМУ РЫНКУ (16.09). В нише x402-разведки (283 сервиса) платящий
+// спрос лежит на $0.002–$0.01, медиана $0.0054; выше $0.10 — 16 плательщиков на всю нишу.
+// /search остаётся на медиане рынка ($0.01); верхние тарифы опущены в полосы, где платят.
+// Описания — только то, что отдаётся, без «movers» и «price bands», которых в ответе нет.
 const TIERS = {
-  "/search":  { amount: "10000",   usd: 0.01, what: "ranked service search by capability" },
-  "/report":  { amount: "100000",  usd: 0.10, what: "market report: demand, pricing bands, movers" },
-  "/alpha":   { amount: "500000",  usd: 0.50, what: "underserved niches by demand-per-provider" },
-  "/dataset": { amount: "1250000", usd: 1.25, what: "complete dataset export with usage metrics" },
+  "/search":  { amount: "10000",  usd: 0.01, what: "ranked service search by capability: up to 50 services with 30-day calls, unique payers and price, plus a receipt" },
+  "/report":  { amount: "20000",  usd: 0.02, what: "market report: top 40 categories by paying wallets (providers, calls, payers, median price) and top 25 services by 30-day calls" },
+  "/alpha":   { amount: "50000",  usd: 0.05, what: "underserved niches: categories ranked by paying wallets per provider, with median price" },
+  "/dataset": { amount: "250000", usd: 0.25, what: "complete dataset export: every listed service with 30-day calls, unique payers, price, network (compact keys, legend included)" },
 };
+
+// Стейблкоины Base, принимаемые прямым переводом (1 токен = $1). Контракты проверены по
+// Blockscout 15.09.2026.
+const BASE_STABLES = {
+  "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": { symbol: "USDC", decimals: 6 },
+  "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": { symbol: "USDT", decimals: 6 },
+  "0x50c5725949a6f0c72e6c4a641f24049a917db0cb": { symbol: "DAI", decimals: 18 },
+};
+
+// СЧЁТЧИКИ СОБЫТИЙ В KV. Раньше 402/paid/pay_failed жили только в журнале Cloudflare, и локально
+// нельзя было отличить «никто не пробовал» от «пробовали и сорвалось». Бесплатный тариф KV —
+// 1000 записей в сутки: не больше 400 инкрементов в день, остальное — только чтение.
+async function bump(env, ev) {
+  if (!env.BOARD) return;
+  try {
+    const day = new Date().toISOString().slice(0, 10);
+    const key = "ev:" + day;
+    const cur = JSON.parse((await env.BOARD.get(key)) || "{}");
+    if ((cur.w || 0) >= 400) return;
+    cur[ev] = (cur[ev] || 0) + 1;
+    cur.w = (cur.w || 0) + 1;
+    await env.BOARD.put(key, JSON.stringify(cur), { expirationTtl: 60 * 60 * 24 * 40 });
+  } catch {}
+}
+
+// ПРЯМОЙ ПЕРЕВОД ВМЕСТО x402. Покупатель, у которого нет клиента x402 (человек, агент на другом
+// стеке), платит стейблкоином на Base на наш адрес и открывает платный адрес с ?tx=<hash>.
+// Перевод проверяется по Blockscout: успех, получатель — наш адрес, признанный токен, сумма не
+// меньше цены, не старше 30 дней, хэш ещё не использован (KV). Один перевод — один ответ.
+async function directPaid(tx, tier, payTo, env) {
+  if (!env.BOARD) return { ok: false, why: "store unavailable" };
+  const usedKey = "used:" + tx.toLowerCase();
+  if (await env.BOARD.get(usedKey)) return { ok: false, why: "this transaction was already used for a purchase" };
+  let d;
+  try {
+    const r = await fetch("https://base.blockscout.com/api/v2/transactions/" + tx, { headers: { accept: "application/json" } });
+    if (!r.ok) return { ok: false, why: "transaction not found on Base (" + r.status + ")" };
+    d = await r.json();
+  } catch (e) { return { ok: false, why: "explorer unavailable" }; }
+  if (d.status !== "ok" || (d.result && d.result !== "success")) return { ok: false, why: "transaction did not succeed" };
+  const ts = Date.parse(d.timestamp || "");
+  if (!ts || Date.now() - ts > 30 * 864e5) return { ok: false, why: "transaction older than 30 days" };
+  const hit = (d.token_transfers || []).find((t) => {
+    const to = ((t.to || {}).hash || "").toLowerCase();
+    const tok = BASE_STABLES[((t.token || {}).address_hash || (t.token || {}).address || "").toLowerCase()];
+    if (to !== payTo.toLowerCase() || !tok) return false;
+    const raw = ((t.total || {}).value || t.value || "0");
+    const usd = Number(raw) / 10 ** tok.decimals;
+    return usd + 1e-9 >= tier.usd;
+  });
+  if (!hit) return { ok: false, why: "no stablecoin transfer to " + payTo + " of at least $" + tier.usd + " found in this transaction (USDC, USDT or DAI on Base)" };
+  const tok = BASE_STABLES[((hit.token || {}).address_hash || (hit.token || {}).address || "").toLowerCase()];
+  const amount = Number(((hit.total || {}).value || hit.value || "0")) / 10 ** tok.decimals;
+  try { await env.BOARD.put(usedKey, JSON.stringify({ at: new Date().toISOString(), amount, asset: tok.symbol }), { expirationTtl: 60 * 60 * 24 * 400 }); } catch {}
+  return { ok: true, tx, asset: tok.symbol, amount, from: ((hit.from || {}).hash || "") };
+}
+
+const PAY_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buy without an x402 client</title>
+<style>body{margin:0;background:#0b0f16;color:#e6ecf5;font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
+.w{max-width:760px;margin:0 auto}h1{font-size:22px;margin:0 0 6px}h2{font-size:16px;margin:22px 0 6px;color:#a9b6c8}
+code,pre{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;background:#111826;border:1px solid rgba(110,168,255,.18);border-radius:6px;padding:2px 6px}
+pre{padding:10px 12px;overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0}td,th{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(110,168,255,.14);font-size:14px}
+a{color:#6ea8ff}.n{color:#6d7b90;font-size:13px}</style></head><body><div class="w">
+<h1>Buy without an x402 client</h1>
+<p>Every paid endpoint of this service settles through x402 (USDC on Base). If you cannot send an x402 payment, pay by a plain transfer and claim the result with the transaction hash. No account, no email.</p>
+<h2>1. Pick what you want</h2>
+<table><tr><th>Endpoint</th><th>Price</th><th>You get</th></tr>__ROWS__</table>
+<h2>2. Send the price (or more) in USDC, USDT or DAI on Base</h2>
+<p>To <code>__PAYTO__</code> (Base mainnet, chain id 8453). One transfer pays for one response.</p>
+<h2>3. Claim the result</h2>
+<pre>GET __SELF__/search?q=&lt;capability&gt;&amp;tx=&lt;your transaction hash&gt;
+GET __SELF__/report?tx=&lt;hash&gt;    GET __SELF__/alpha?tx=&lt;hash&gt;    GET __SELF__/dataset?tx=&lt;hash&gt;</pre>
+<p>The transfer is verified on-chain (recipient, token, amount, success, age under 30 days); a hash can be used once. Verification usually completes within a minute of confirmation.</p>
+<h2>Other assets</h2>
+<p>We also accept BTC, ETH, SOL, STX/sBTC and TRX/USDT (TRC20) at the addresses listed at <a href="__SELF__/">/</a>. Those cannot be verified automatically yet: send the hash to the public thread where we spoke with you, and the result follows by hand within a day.</p>
+<p class="n">Free first: <a href="__SELF__/sample">/sample</a> returns three ranked results with the same receipt; <a href="__SELF__/health">/health</a> shows the current snapshot hash.</p>
+</div></body></html>`;
 
 const json = (data, status = 200, extra = {}) =>
   new Response(JSON.stringify(data), {
@@ -179,6 +261,11 @@ function requirements(path, payTo, description) {
     description,
     mimeType: "application/json",
     maxTimeoutSeconds: 300,
+    // ДОМЕН EIP-712 USDC — ОБЯЗАТЕЛЕН. Эталонный клиент x402 v2 бросает исключение до подписи
+    // («EIP-712 domain parameters (name, version) are required»), а фасилитатор при проверке
+    // отвечает ErrMissingEip712Domain. У 125 из 125 проиндексированных продавцов на Base это
+    // поле есть; у нас его не было до 16.09 — стандартным клиентом заплатить было нельзя.
+    extra: { name: "USD Coin", version: "2" },
     // resource — ПОЛНЫЙ АДРЕС строкой. Ни путь «/search», ни объект с полем
     // url не подходят: у всех проиндексированных сервисов здесь строка.
     resource: SELF + path,
@@ -413,7 +500,10 @@ function payload(path, url) {
              method: "unique payers per provider, 30d window; min 3 providers, 10 payers",
              opportunities: gaps };
   }
-  return { generatedAt: new Date().toISOString(), receipt: receipt(), count: CATALOG.length, services: CATALOG };
+  return { generatedAt: new Date().toISOString(), receipt: receipt(), count: CATALOG.length,
+           fields: { u: "resource URL", n: "service name", d: "description", t: "tags", p: "price in USD per call",
+                     w: "network (CAIP-2)", c: "calls in the trailing 30 days", y: "unique paying wallets in the trailing 30 days" },
+           services: CATALOG };
 }
 
 const JOIN_HTML = `<!doctype html><html lang="ru"><head><meta charset="utf-8">
@@ -626,6 +716,20 @@ export default {
     if (path === "/board")
       return new Response(BOARD_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
+    if (path === "/pay") {
+      const rows = Object.entries(TIERS).map(([e, t]) => `<tr><td><code>${e}</code></td><td>$${t.usd}</td><td>${t.what}</td></tr>`).join("");
+      return new Response(PAY_HTML.replace("__ROWS__", rows).replace(/__PAYTO__/g, payTo).replace(/__SELF__/g, SELF),
+                          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+    }
+    if (path === "/stats.json") {
+      const out = {};
+      if (env.BOARD) for (let i = 0; i < 7; i++) {
+        const day = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
+        try { out[day] = JSON.parse((await env.BOARD.get("ev:" + day)) || "{}"); } catch { out[day] = {}; }
+      }
+      return json({ note: "counts of payment-path events per UTC day: 402 (price shown), paid, pay_failed, direct_paid, direct_failed; w = KV writes used (cap 400)", days: out }, 200, { "cache-control": "no-store" });
+    }
+
     // ---- бесплатное: агент должен уметь оценить сервис ДО оплаты
     if (path === "/" ) return json({
       service: "x402 Bazaar Rank",
@@ -640,6 +744,8 @@ export default {
       // x402 рассчитывается в USDC; напрямую платить можно любым из этих активов —
       // поступление в любом из них засчитывается.
       direct_payment: DIRECT_PAYMENT,
+      buy_without_x402: SELF + "/pay",
+      payment_stats: SELF + "/stats.json",
       live_board: SELF + "/board",
       pricing: Object.entries(TIERS).map(([e, t]) => ({ endpoint: e, usdc: t.usd, what: t.what })),
       free_endpoints: ["/", "/health", "/sample", "/join", "/openapi.json", "/.well-known/x402"],
@@ -748,6 +854,15 @@ export default {
     if (TIERS[path]) {
       const t = TIERS[path];
       const reqs = requirements(path, payTo, t.what);
+      // ПРЯМОЙ ПЕРЕВОД: ?tx=<hash> — проверяем перевод на Base и отдаём ответ без x402.
+      const txParam = url.searchParams.get("tx") || "";
+      if (/^0x[0-9a-fA-F]{64}$/.test(txParam)) {
+        const d = await directPaid(txParam, t, payTo, env);
+        console.log(JSON.stringify({ ev: d.ok ? "direct_paid" : "direct_failed", path, tx: txParam, why: d.ok ? null : d.why }));
+        await bump(env, d.ok ? "direct_paid" : "direct_failed");
+        if (!d.ok) return json({ error: "direct payment not verified", reason: d.why, how_to_pay: SELF + "/pay", accepts: [reqs] }, 402);
+        return json({ ...payload(path, url), paid_via: "direct-transfer", tx: d.tx, asset: d.asset, amount: d.amount }, 200);
+      }
       // ЧИТАЕМ ОБА ЗАГОЛОВКА — И ЭТО НЕ ПЕРЕСТРАХОВКА.
       //
       // Служба объявляла себя версией 2 и понимала только заголовок версии 1.
@@ -781,8 +896,9 @@ export default {
                      accepts: [reqs],
                      extensions: bazaarExtension(path) };
         console.log(JSON.stringify({ ev: "402", path, ua: (request.headers.get("user-agent") || "").slice(0, 80) }));
+        await bump(env, "402");
         const body402 = { ...pr, error: "Payment Required",
-                          free_alternative: "/sample", weekly_report: JOIN_URL };
+                          free_alternative: "/sample", pay_without_x402: SELF + "/pay", weekly_report: JOIN_URL };
         return json(body402, 402, { "payment-required": b64utf8(JSON.stringify(pr)) });
       }
 
@@ -790,6 +906,7 @@ export default {
       // ПОПЫТКА ОПЛАТЫ — САМОЕ ВАЖНОЕ СОБЫТИЕ СЕРВИСА: пишется всегда, с исходом и причиной.
       console.log(JSON.stringify({ ev: r.ok ? "paid" : "pay_failed", path, via: r.via, tx: r.tx || null,
                                    why: r.ok ? null : String(r.why).slice(0, 160) }));
+      await bump(env, r.ok ? "paid" : "pay_failed");
       if (!r.ok)
         return json({ x402Version: 2, error: "Payment failed", reason: r.why, accepts: [reqs] }, 402);
 

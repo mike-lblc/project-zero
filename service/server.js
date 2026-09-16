@@ -91,9 +91,9 @@ app.get('/', (_req, res) => res.json({
   catalog_size: CATALOG.length,
   pricing: [
     { endpoint: '/search',  usdc: 0.01, what: 'ranked service search by capability' },
-    { endpoint: '/report',  usdc: 0.10,  what: 'full market report: demand, pricing bands, movers' },
-    { endpoint: '/alpha',   usdc: 0.50,  what: 'underserved niches: demand-per-provider ranking' },
-    { endpoint: '/dataset', usdc: 1.25,  what: 'complete dataset export, all services + metrics' }
+    { endpoint: '/report',  usdc: 0.02,  what: 'market report: top categories by paying wallets and top services by 30-day calls' },
+    { endpoint: '/alpha',   usdc: 0.05,  what: 'underserved niches: demand-per-provider ranking' },
+    { endpoint: '/dataset', usdc: 0.25,  what: 'complete dataset export, all services + metrics' }
   ],
   free_endpoints: ['/', '/health', '/sample']
 }));
@@ -139,7 +139,7 @@ function categoryStats() {
 }
 
 // $0.05 — полный отчёт по рынку
-app.get('/report', tier(100000,
+app.get('/report', tier(20000,
   'Full x402 market report: category demand, pricing bands, top movers and quiet services. '
   + 'Built from a complete crawl of every listed service with 30-day usage metrics.'),
   (_req, res) => {
@@ -159,7 +159,7 @@ app.get('/report', tier(100000,
   });
 
 // $0.25 — где спрос выше конкуренции (то, за что реально платят консультантам)
-app.get('/alpha', tier(500000,
+app.get('/alpha', tier(50000,
   'Underserved-niche finder: categories ranked by demand-per-provider (unique payers divided by '
   + 'number of providers). Shows where paying demand exceeds supply, with price bands.'),
   (_req, res) => {
@@ -179,7 +179,7 @@ app.get('/alpha', tier(500000,
   });
 
 // $0.50 — весь датасет целиком
-app.get('/dataset', tier(1250000,
+app.get('/dataset', tier(250000,
   'Complete x402 service dataset: every indexed service with pricing, network, tags and '
   + '30-day call and unique-payer counts. One-shot export, JSON.'),
   (_req, res) => res.json({ generatedAt: new Date().toISOString(), count: CATALOG.length,

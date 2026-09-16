@@ -184,16 +184,23 @@ def compose(lead, rank):
         ]
         if rank.get("выше_нас"):
             lines.append(f"Directly above you: {', '.join(rank['выше_нас'])}.")
+    # ПРОСЬБА И СПОСОБ ОПЛАТЫ — В КАЖДОМ ПИСЬМЕ. Двадцать обращений без единого ценового
+    # предложения читались как отчёт-спам с заранее объявленным уходом; занятый мейнтейнер
+    # закрывал их. Теперь есть что купить, сколько стоит, как заплатить (x402 или прямой
+    # перевод любым принимаемым активом) и приглашение ответить.
+    brand = domain.split(".")[0]
     lines += [
         "",
-        f"The full ranked dataset — every indexed service with 30-day calls, "
-        f"unique payers and price bands — is available at {SERVICE_URL}/search "
-        f"(x402, $0.01 per query). A free sample is at {SERVICE_URL}/sample if "
-        f"you just want to see the shape of it.",
+        f"If a ranked read of your category is useful — every competing service with 30-day "
+        f"calls, unique payers and price, with a receipt naming the data snapshot — it is "
+        f"$0.01 per query: `{SERVICE_URL}/search?q={brand}` settles by x402 (USDC on Base), "
+        f"or pay the same amount in USDC/USDT/DAI on Base by plain transfer and open the URL "
+        f"with `?tx=<hash>` ({SERVICE_URL}/pay explains; BTC, ETH, SOL and TRX are accepted too). "
+        f"A free sample with the same receipt: {SERVICE_URL}/sample.",
         "",
-        "No follow-up from me either way — I only send this once. If the numbers "
-        "look wrong, I'd genuinely like to know: the index is only as good as "
-        "what it measures.",
+        "If a category comparison with your competitors named would help, reply here and I "
+        "will post the exact query. I won't chase this thread otherwise. If the numbers look "
+        "wrong, I'd genuinely like to know: the index is only as good as what it measures.",
     ]
     return "\n".join(lines)
 
@@ -242,6 +249,8 @@ def reach_out(dry_run=True):
            WHERE channel IS NOT NULL AND channel <> ''
              AND COALESCE(reachable, 0) = 1          -- владение каналом ПРОВЕРЕНО до отправки
              AND calls_30d > 0 AND payers_30d > 0
+             AND payers_30d <= calls_30d               -- больше плательщиков, чем вызовов, — ошибка данных
+             AND COALESCE(avg_price, 0) <= 100         -- «средняя цена $5 000 000 000» письмом не уходит
              AND domain NOT IN (SELECT domain FROM outreach)
            ORDER BY COALESCE(payers_min_30d, 0) DESC, payers_30d DESC LIMIT 1""").fetchall()
     c.close()

@@ -121,7 +121,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             # study_market — работу продавца, приписанную не тому агенту.
             "verify_routes":"collector", "money_report":"collector", "collect_payments":"collector",
             "open_deals":"closer",
-            "check_replies":"closer", "verify_evidence":"verifier",
+            "check_replies":"closer", "answer_replies":"closer", "verify_evidence":"verifier",
             "channel_health":"channel_manager", "services_catalog":"salesman",
             # ШАГИ БЕЗ ХОЗЯИНА писались в журнал как orchestrator: исполнитель,
             # улучшатель и снабженец выглядели молчащими при настоящей работе,
@@ -582,7 +582,7 @@ EVENT_HANDLER = {
     "payout_announced": "collect_payouts",
     "payment_received": "collect_payments",
     "outreach_sent": "check_replies",
-    "lead_replied": "check_replies",       # ход наш: разговор уже в очереди суждений с текстом
+    "lead_replied": "answer_replies",      # ход наш — отвечаем сразу, очередь суждений получает копию
     "evidence_recorded": "verify_evidence",
     "channel_unavailable": "channel_health",
     "fresh_bounty": "pursue",
@@ -1123,6 +1123,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               # управляющий каналами следит, чтобы канал был доказан отправкой.
               ("verify_routes", _src("verify_routes")),
               ("check_replies", _src("check_replies")),
+              ("answer_replies", _src("answer_replies")),   # ответ лиду сразу, без ожидания сеанса
               ("verify_evidence", _src("verify_evidence")),
               ("channel_health", _src("channel_health")),
               ("money_report", _src("money_report")),
@@ -1153,7 +1154,7 @@ THINK_AT = 15
 # полтора-два часа (pursue: 11:50 — и больше ни разу за день при 55 наградах в
 # очереди). Между редкими слотами теперь есть ещё один, только для них.
 MONEY_STEPS = ("pursue", "find_doc_work", "deliver_ready", "hunt_bounties", "fresh_bounties",
-               "check_replies", "reach_out", "watch_prs", "collect_payouts", "moltbook_demand",
+               "check_replies", "answer_replies", "reach_out", "watch_prs", "collect_payouts", "moltbook_demand",
                "dealer_cycle", "deliver_aibtc", "strategist_think", "taskmarket_work")
 MONEY_CYCLE = []
 for _n, _f in SLOW_CYCLE:
@@ -1248,6 +1249,7 @@ CLOUD_CANNOT = {
     "reason_and_act": "рассуждение агентов идёт через локальную модель",
     "taskmarket_sync": "ключ кошелька Taskmarket лежит только на этой машине (~/.taskmarket)",
     "taskmarket_work": "ключ кошелька и локальная модель — только на этой машине",
+    "answer_replies": "ответ лиду: локальная модель для намерения и gh владельца — только на этой машине",
     "health_check": "проверяет локальный сервис на 127.0.0.1",
     "scout_research": "идёт через локальную языковую модель",
     "deep_check": "тоже через локальную модель",
@@ -1313,6 +1315,7 @@ PAUSE_CAP_MIN = {
     "health_check": 30,       # здоровье сервиса — коммерческий показатель, не молчать по 160 минут
     "taskmarket_sync": 60,
     "taskmarket_work": 30,
+    "answer_replies": 30,
     "explore_alternatives": 180,
     "scout_registrations": 720,
 }

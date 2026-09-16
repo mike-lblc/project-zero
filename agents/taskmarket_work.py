@@ -55,7 +55,9 @@ def gates_from_brief(desc: str) -> dict:
     d = desc or ""
     low = d.lower()
     g = {"kind": None, "ext": None, "min_words": None, "max_words": None, "max_bytes": None,
-         "header": None, "rows": None, "sources": ("source url" in low or "source_url" in low or "authoritative source" in low),
+         "header": None, "rows": None,
+         "sources": bool(re.search(r"source url|source_url|authoritative source|official https sources|https sources|official sources|"
+                                   r"publicly readable .{0,20}sources|with .{0,12}sources|cite ", low)),
          "self_contained": "self-contained" in low or "no external" in low}
     if re.search(r"\bmarkdown\b|\.md\b", low):
         g["kind"], g["ext"] = "markdown", ".md"

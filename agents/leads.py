@@ -339,7 +339,11 @@ def _accept_repo(domain, brand, full_name):
     home = str(info.get("homepageUrl") or "").lower()
     desc = str(info.get("description") or "").lower()
     owner = str((info.get("owner") or {}).get("login") or "").lower()
-    return (root in home) or (root in desc) or (domain.lower() in desc) or (brand in owner)
+    # ТОЛЬКО ДОМАШНЯЯ СТРАНИЦА ИЛИ ВЛАДЕЛЕЦ. Упоминание домена в описании принимало чужие
+    # репозитории: 15.09 письмо laso.finance ушло в ranaroussi/yfinance («wtf are you talking
+    # about?»), другое — в экспортёр CoinMarketCap, который бирже не принадлежит.
+    del desc
+    return (root in home) or (brand in owner)
 
 
 def _github_channel(domain):

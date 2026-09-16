@@ -159,6 +159,116 @@ def check_replies():
 
 
 OUR_LOGIN = "mike-lblc"
+SERVICE_URL = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev"
+REAL_ASSOC = {"OWNER", "MEMBER", "COLLABORATOR"}       # кто в репозитории действительно решает
+
+
+def _classify_reply(text):
+    """Намерение ответа лида — механическая классификация локальной моделью.
+    Возвращает одно из: interested, question, declined, hostile, other."""
+    from core import router
+    prompt = ("Classify the intent of this reply to our unsolicited offer. Answer ONLY with one word from: "
+              "interested, question, declined, hostile, other.\n\nReply:\n" + (text or "")[:2000])
+    try:
+        raw = (router.run("classify", prompt) or "").strip().lower()
+    except Exception:
+        return "other"
+    for k in ("interested", "question", "declined", "hostile"):
+        if k in raw:
+            return k
+    return "other"
+
+
+def _reply_text(domain, intent):
+    """Ответ по шаблону из фактов — без обещаний и выдумок. Локальная модель текст не пишет."""
+    brand = domain.split(".")[0]
+    base = (f"Thanks for replying. Concretely, here is what I can give you and what it costs:\n\n"
+            f"- A ranked read of your category — every competing x402 service with 30-day calls, "
+            f"unique paying wallets and price, with a receipt naming the data snapshot: "
+            f"`{SERVICE_URL}/search?q={brand}` — $0.01 per query, settled by x402 (USDC on Base).\n"
+            f"- No x402 client? Send $0.01 or more in USDC/USDT/DAI on Base to the address at "
+            f"{SERVICE_URL}/pay and open the same URL with `?tx=<hash>`; BTC, ETH, SOL and TRX are "
+            f"accepted too (addresses at {SERVICE_URL}/).\n"
+            f"- Check first for free: {SERVICE_URL}/sample returns three ranked results with the same "
+            f"receipt, {SERVICE_URL}/health shows the current snapshot hash.\n\n")
+    if intent == "question":
+        base += ("If your question is about how a number was measured, the receipt fields (snapshot hash, "
+                 "30-day window, scoring revision) are the answer; if it is about something else, I will "
+                 "answer it in this thread within the day.")
+    else:
+        base += "If you want the comparison narrowed to a specific capability or network, name it here and I will post the exact query."
+    return base
+
+
+def answer_replies(limit=3):
+    """ОТВЕТ ЛИДУ БЕЗ ОЖИДАНИЯ СЕАНСА (владелец 16.09: «it shouldn't be delayed»).
+
+    Раньше каждый ответ лида уходил в очередь суждений и ждал сеанса владельца — измерено 17 ч 37 мин
+    на agent402. Теперь закрывающий действует сам: закрытое обсуждение → сделка закрыта; комментарий
+    не от участника репозитория → шум; отказ → закрыто; интерес или вопрос → ответ по шаблону из
+    фактов публикуется сразу, сделка → NEGOTIATING. Очередь суждений по-прежнему получает копию —
+    сильная модель может дополнить, но никто её не ждёт.
+    """
+    guard.check_action("research", "GREEN")
+    c = connect()
+    _replies_schema(c)
+    pending = c.execute("SELECT comment_id, domain, url, author, body FROM outreach_replies "
+                        "WHERE answered_at IS NULL ORDER BY created_at LIMIT ?", (limit,)).fetchall()
+    tid_of = dict(c.execute("SELECT domain, task_id FROM outreach WHERE task_id IS NOT NULL").fetchall())
+    c.close()
+    if not pending:
+        return "ответов лидов без нашей реакции нет"
+    from core import execution
+    out = []
+    for comment_id, domain, url, author, body in pending:
+        repo = "/".join(url.split("github.com/")[-1].split("/")[:2]) if "github.com/" in url else ""
+        num = url.split("#")[0].rstrip("/").split("/")[-1]
+        if not repo or not num.isdigit():
+            out.append(f"{domain}: ссылка не разобрана")
+            continue
+        raw = _gh(["api", f"repos/{repo}/issues/{num}", "--jq", "{state: .state, pr: (.pull_request != null)}"])
+        try:
+            issue = json.loads(raw or "{}")
+        except ValueError:
+            issue = {}
+        craw = _gh(["api", f"repos/{repo}/issues/{num}/comments?per_page=100",
+                    "--jq", f"[.[] | select(.id == {int(comment_id)})][0] | {{assoc: .author_association, user: .user.login}}"])
+        try:
+            cinfo = json.loads(craw or "{}") or {}
+        except ValueError:
+            cinfo = {}
+        assoc = str(cinfo.get("assoc") or "").upper()
+        tid = tid_of.get(domain)
+        decision, posted = None, False
+        if issue.get("state") == "closed" and not issue.get("pr"):
+            decision = "обсуждение закрыто — сделка закрыта, повторно не пишем"
+            if tid:
+                try: execution.advance(tid, "REJECTED", f"issue закрыт другой стороной: {url}")
+                except Exception: pass
+        elif assoc and assoc not in REAL_ASSOC:
+            decision = f"комментарий от {author} ({assoc}) — не участник репозитория, шум"
+        else:
+            intent = _classify_reply(body)
+            if intent in ("declined", "hostile"):
+                decision = f"ответ «{intent}» — сделка закрыта без реплики"
+                if tid:
+                    try: execution.advance(tid, "REJECTED", f"лид отказался: {url}")
+                    except Exception: pass
+            else:
+                guard.check_action("lead_reply", "YELLOW")
+                text = _reply_text(domain, intent)
+                res = _gh(["api", "-X", "POST", f"repos/{repo}/issues/{num}/comments", "-f", f"body={text}", "--jq", ".id"])
+                posted = bool((res or "").strip())
+                decision = f"ответ «{intent}» — {'реплика опубликована' if posted else 'публикация не удалась'}"
+                if posted and tid:
+                    try: execution.advance(tid, "NEGOTIATING", f"наш ответ с предложением и ценой: {url}")
+                    except Exception: pass
+        c = connect()
+        c.execute("UPDATE outreach_replies SET answered_at=? WHERE comment_id=?", (now(), comment_id))
+        c.commit(); c.close()
+        bus.broadcast("closer", f"{domain}: {decision}.")
+        out.append(f"{domain}: {decision}")
+    return "; ".join(out)
 
 
 def _replies_schema(c):

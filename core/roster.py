@@ -643,6 +643,15 @@ def _services_catalog():
     return services.report()
 
 
+@tool("answer_replies", "YELLOW",
+      "ответить лиду сразу: закрытое обсуждение или отказ — закрыть сделку; интерес или вопрос — "
+      "реплика по шаблону с предложением, ценой и способом оплаты",
+      needs=("сеть", "gh", "модель"))
+def _answer_replies():
+    from agents import closer
+    return closer.answer_replies()
+
+
 @tool("check_replies", "GREEN",
       "ответил ли кто-нибудь на наши обращения; молчание API не считать "
       "молчанием адресата",
@@ -1400,7 +1409,7 @@ register(Agent(
     # Без reach_out: первое обращение пишет продавец, а закрывающий второй раз не
     # пишет никогда. Инструмент YELLOW без постоянного разрешения был мёртвой
     # записью — модель выбрала бы его и получила отказ.
-    tools=("check_replies", "open_deals"),
+    tools=("check_replies", "open_deals", "answer_replies"),
     system=COMMON + """
 ТЫ — ЗАКРЫВАЮЩИЙ.
 

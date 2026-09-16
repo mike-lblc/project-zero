@@ -966,6 +966,12 @@ def pursue(dry_run=True):
         gm = re.search(r"github\.com/([^/]+/[^/]+)/issues/\d+", url or "")
         if gm:
             repo = gm.group(1)
+        if not gm:
+            # ПЛОЩАДКА, НЕ РЕПОЗИТОРИЙ. Taskmarket, AIBTC, Dework ведутся своими шагами
+            # (taskmarket_work, deliver_aibtc); снимать их отсюда как «репозиторий не найден»
+            # значило вычёркивать живые эскроу-задачи из общей очереди.
+            tried.append(f"{repo}: не GitHub — ведётся своим шагом")
+            continue
         if not (_gh(["api", f"repos/{repo}", "--jq", ".id"]) or "").strip():   # пусто/None = репозитория нет
             tried.append(f"{repo}: репозиторий не найден")
             try:                                   # ссылка мёртвая — награда стухла

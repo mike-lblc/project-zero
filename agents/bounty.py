@@ -933,13 +933,39 @@ def taskmarket_sync():
     usdc = 0.0
     if bal.get("ok"):
         d = bal.get("data") or {}
-        for k in ("usdc", "balance", "usdcBalance", "formatted"):
+        # CLI отдаёт balanceUsdc и balanceBaseUnits — прежние ключи (usdc, balance…) не
+        # существовали, баланс читался нулём, и вывод выигрыша не сработал бы никогда.
+        for k in ("balanceUsdc", "usdc", "balance", "usdcBalance", "formatted"):
+            if d.get(k) in (None, ""):
+                continue
             try:
                 usdc = float(str(d.get(k)).replace(",", "")); break
             except (TypeError, ValueError):
                 continue
+        if not usdc and d.get("balanceBaseUnits") not in (None, ""):
+            try:
+                usdc = int(str(d["balanceBaseUnits"])) / 1e6
+            except (TypeError, ValueError):
+                pass
     lines.append(f"баланс USDC {usdc:.4f}")
     if usdc >= 0.01:
+        # ОТКУДА ДЕНЬГИ — фиксируем до вывода: входящий перевод на кошелёк-исполнитель
+        # (эскроу площадки → мы) с хэшем и отправителем. Иначе первый платёж выглядел бы
+        # как перевод с нашего же кошелька на кошелёк владельца.
+        try:
+            import urllib.request as _u2
+            me = (bal.get("data") or {}).get("address") or ""
+            raw = _u2.urlopen(_u2.Request(f"https://base.blockscout.com/api/v2/addresses/{me}/token-transfers?type=ERC-20",
+                                          headers={"User-Agent": "P0-agent"}), timeout=25).read()
+            for tr in (json.loads(raw).get("items") or [])[:10]:
+                if ((tr.get("to") or {}).get("hash") or "").lower() != me.lower():
+                    continue
+                amt = int((tr.get("total") or {}).get("value") or 0) / 10 ** int((tr.get("token") or {}).get("decimals") or 6)
+                _note("bounty", f"TASKMARKET AWARD: {amt:.4f} {(tr.get('token') or {}).get('symbol')} received by worker wallet "
+                                f"from {(tr.get('from') or {}).get('hash')} tx {tr.get('transaction_hash')} at {tr.get('timestamp')}", conf=1.0)
+                break
+        except Exception:
+            pass
         guard.check_action("taskmarket_withdraw", "YELLOW")
         w = _tm(["withdraw", f"{usdc:.6f}".rstrip("0").rstrip(".")], timeout=180)
         if w.get("ok"):
@@ -965,8 +991,13 @@ def taskmarket_sync():
         # Наш класс: текстовые и табличные результаты. Плакаты, иллюстрации, ручное тестирование —
         # не наше, даже если в описании есть слово «document». Истекающие раньше чем через два
         # часа не берём: сделать и подать не успеть.
-        FORMATS = ("markdown", ".md", "csv", "html file", "dataset", "documentation", "readme", "guide", "json file")
-        NOT_OURS = ("poster", "illustration", "artwork", "design", "testing", "macos", "windows", "video", "audio", "image")
+        # Kai (0xCb1836D7…): задачи $0.01–$0.15, побеждает ПЕРВАЯ годная подача, 2–20 соперников,
+        # 14 разных победителей за 10 дней — самый быстрый доказанный плательщик площадки. Его
+        # брифы — «text report» с источниками; слова «testing»/«design» в них встречаются как
+        # категории допустимой работы, а не как вид результата — они больше не отсекают.
+        FORMATS = ("markdown", ".md", "csv", "html file", "dataset", "documentation", "readme", "guide", "json file",
+                   "text report", "report", "english text")
+        NOT_OURS = ("poster", "illustration", "artwork", "macos", "windows", "video", "audio", "image", "photo")
         soon = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
         found, packages = [], []
         for t in opened:
