@@ -90,6 +90,19 @@ def check_replies():
             continue
         theirs = [x for x in comments if x.get("user") != OUR_LOGIN]
         n = len(theirs)
+        # ЗАКРЫТО МОЛЧА. Обсуждение, закрытое другой стороной без единого слова (blockrun 15.09),
+        # — это ответ «нет», а не ожидание. Без этой проверки сделка висела «ждём ответа» сутками.
+        if not theirs and task_id:
+            st = (_gh(["api", f"repos/{channel}/issues/{num}", "--jq", ".state"]) or "").strip()
+            if st == "closed":
+                try:
+                    from core import execution
+                    execution.advance(task_id, "REJECTED", f"обсуждение закрыто другой стороной без ответа: {url}")
+                    bus.broadcast("closer", f"{domain}: обсуждение закрыто без ответа — сделка #{task_id} закрыта.")
+                except Exception:
+                    pass
+                silent.append(f"{domain} (закрыто)")
+                continue
         (replied if n > 0 else silent).append(f"{domain} ({n})")
         if not theirs:
             continue
@@ -114,11 +127,12 @@ def check_replies():
                       (now(), url))
             c.commit(); c.close()
             continue
-        known = c.execute("SELECT 1 FROM outreach_replies WHERE comment_id=?",
+        known = c.execute("SELECT answered_at FROM outreach_replies WHERE comment_id=?",
                           (last["id"],)).fetchone()
         if known:
             c.close()
-            awaiting.append(domain)          # уже в очереди суждений, ждём ответа с нашей стороны
+            if not known[0]:                 # разобран answer_replies — больше не «ждёт нас»
+                awaiting.append(domain)
             continue
         c.execute("INSERT OR IGNORE INTO outreach_replies(comment_id,domain,url,author,created_at,"
                   "body,escalated_at) VALUES (?,?,?,?,?,?,?)",

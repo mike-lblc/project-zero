@@ -186,6 +186,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 /* ═══════════════════════════════════════════ АГЕНТЫ СЦЕНЫ
    Список совпадает с реестром на сервере — расхождение ловится аудитом. */
 const BOARD_URL = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev";
+let boardCache = null, boardFetchedAt = 0;
 const AGENTS = [
   {id:"orchestrator", label:"ОРКЕСТРАТОР",      color:0x4d9fff, form:"core"},
   {id:"scout",        label:"РАЗВЕДЧИК",        color:0x35d6a4, form:"probe"},
@@ -533,10 +534,15 @@ async function tick(){
      должен быть живым: лента берётся с воркера, куда локальный сторож кладёт снимок
      доски каждые несколько минут. Не ответил — остаётся снимок из api/chat.json. */
   if (dataSource !== 'live') {
-    try {
-      const r = await fetch(BOARD_URL + '/board.json', {cache:'no-store', signal:AbortSignal.timeout(6000)});
-      if (r.ok) { const b = await r.json(); if ((b.messages||[]).length) values[3] = b; }
-    } catch {}
+    // Лента с воркера — не чаще раза в 30 с: снимок меняется раз в несколько минут, а каждый
+    // запрос — это чтение KV из бесплатного суточного лимита.
+    if (Date.now() - boardFetchedAt > 30000 || !boardCache) {
+      try {
+        const r = await fetch(BOARD_URL + '/board.json', {cache:'no-store', signal:AbortSignal.timeout(6000)});
+        if (r.ok) { const b = await r.json(); if ((b.messages||[]).length) { boardCache = b; boardFetchedAt = Date.now(); } }
+      } catch {}
+    }
+    if (boardCache) values[3] = boardCache;
   }
   const [st, ex, q, chat, pulse] = values;
   if (!st) { liveLabel = "данных нет: ни живого сервера, ни снимка"; return; }

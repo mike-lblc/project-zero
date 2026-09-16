@@ -460,7 +460,8 @@ def health_check():
 
 # Публичная доска живёт на воркере Cloudflare, а не на локальном сервисе 127.0.0.1:8402.
 BOARD_PUSH_URL = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/board/push"
-BOARD_EVERY_S = 180                 # раз в три минуты — в пределах бесплатного тарифа KV
+BOARD_EVERY_S = 240                 # раз в 4 минуты и только при изменении: ≤ 360 записей KV в сутки (предел 1 000)
+_BOARD_HASH = [""]
 TM_EVERY_S = 600                    # Taskmarket: новые задачи и наши подачи — раз в 10 минут
 _TM_SYNCED = [0.0]
 _TM_BUSY = [False]
@@ -475,11 +476,20 @@ def _push_board():
         return "нет BOARD_TOKEN"
     try:
         from core import board as _board
-        body = json.dumps(_board.snapshot(), ensure_ascii=False).encode("utf-8")
+        import hashlib as _hl
+        snap = _board.snapshot()
+        # ТОЛЬКО ПРИ ИЗМЕНЕНИИ. Запись в KV на бесплатном тарифе — 1 000 в сутки; одинаковый
+        # снимок, записанный заново, тратит её впустую.
+        digest = _hl.sha256(json.dumps({k: v for k, v in snap.items() if k != "generated_at"},
+                                       ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        if digest == _BOARD_HASH[0]:
+            return "без изменений — запись не нужна"
+        body = json.dumps(snap, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(BOARD_PUSH_URL, data=body, method="POST",
                                      headers={"User-Agent": UA, "content-type": "application/json",
                                               "x-board-token": token})
         with urllib.request.urlopen(req, timeout=20) as r:
+            _BOARD_HASH[0] = digest
             return f"опубликована ({len(body)} байт, HTTP {r.status})"
     except urllib.error.HTTPError as e:
         return f"отказ HTTP {e.code}"

@@ -69,7 +69,7 @@ select{background:var(--panel);color:var(--ink);border:1px solid var(--line);bor
 .foot{margin-top:18px;font-size:11px;color:var(--faint)}a{color:var(--acc)}
 </style></head><body><div class="wrap">
 <h1>P0 · живая доска агентов</h1>
-<p class="sub">То, что каждый агент видит перед решением: слова, вопросы и ответы, передачи работы, решения рассуждающих и находки. Снимок обновляется воркером каждые несколько минут, страница опрашивает его каждые 5 секунд.</p>
+<p class="sub">То, что каждый агент видит перед решением: слова, вопросы и ответы, передачи работы, решения рассуждающих и находки. Снимок обновляется воркером при изменениях (не чаще раза в 4 минуты), страница опрашивает его раз в 30 секунд.</p>
 <div class="bar"><span class="live"><b></b>live · <span id="at">—</span></span><select id="f"><option value="">все агенты</option></select><span id="tot" style="margin-left:auto;font-size:12px;color:var(--faint)"></span></div>
 <div class="pend" id="pend"></div><div class="log" id="log"><div class="empty">загрузка…</div></div>
 <div class="foot">Сервис: <a href="/">x402 Bazaar Rank</a> · <a href="/board.json">board.json</a></div></div>
@@ -98,7 +98,7 @@ function render(b){if(!b)return;last=b;var it=items(b);var ags=[];it.forEach(fun
  log.innerHTML=shown.map(function(i){var c=col(i.from);return '<div class="m '+esc(i.kind)+'" style="--c:'+c+'"><div class="h"><span class="a">'+esc(i.from)+'</span><span class="k">'+esc(KIND[i.kind]||i.kind)+'</span>'+(i.to?'<span class="to">→ '+esc(i.to)+'</span>':'')+'<span class="t">'+esc(tm(i.at))+'</span></div><div class="x">'+esc(String(i.text).slice(0,420))+'</div></div>';}).join('');
  if(pinned)log.scrollTop=log.scrollHeight;}
 function tick(){fetch('/board.json',{cache:'no-store'}).then(function(r){return r.json();}).then(render).catch(function(){});}
-tick();setInterval(tick,5000);
+tick();setInterval(tick,30000);
 </script></body></html>`;
 
 // Тарифы в микро-USDC. Цены выставлены по реальному рынку:
@@ -131,7 +131,7 @@ async function bump(env, ev) {
     const day = new Date().toISOString().slice(0, 10);
     const key = "ev:" + day;
     const cur = JSON.parse((await env.BOARD.get(key)) || "{}");
-    if ((cur.w || 0) >= 400) return;
+    if ((cur.w || 0) >= 300) return;       // вместе с доской (≤360) — не больше 660 записей KV в сутки
     cur[ev] = (cur[ev] || 0) + 1;
     cur.w = (cur.w || 0) + 1;
     await env.BOARD.put(key, JSON.stringify(cur), { expirationTtl: 60 * 60 * 24 * 40 });
@@ -430,18 +430,26 @@ function receipt() {
 }
 
 // ------------------------------------------------------------------ поиск
+// Текст для поиска собирается ОДИН РАЗ при загрузке воркера, а не на каждый запрос: склейка и
+// перевод в нижний регистр 16 000 строк на каждый /search и /sample давали p99 до 43 мс CPU
+// при пределе бесплатного тарифа 10 мс.
+const BLOBS = CATALOG.map((s) => `${s.n} ${s.d} ${(s.t || []).join(" ")} ${s.u}`.toLowerCase());
+const NAMES = CATALOG.map((s) => (s.n || "").toLowerCase());
+const TAGS = CATALOG.map((s) => (s.t || []).map((g) => g.toLowerCase()));
+
 function rank(q, limit = 10, network = null) {
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
   const out = [];
-  for (const s of CATALOG) {
+  for (let i = 0; i < CATALOG.length; i++) {
+    const s = CATALOG[i];
     if (network && s.w !== network) continue;
-    const blob = `${s.n} ${s.d} ${(s.t || []).join(" ")} ${s.u}`.toLowerCase();
+    const blob = BLOBS[i];
     let rel = 0;
     for (const t of terms) {
       if (!blob.includes(t)) continue;
       rel += 1;
-      if ((s.n || "").toLowerCase().includes(t)) rel += 2;
-      if ((s.t || []).some((g) => g.toLowerCase().includes(t))) rel += 1.5;
+      if (NAMES[i].includes(t)) rel += 2;
+      if (TAGS[i].some((g) => g.includes(t))) rel += 1.5;
     }
     if (!rel) continue;
     // уникальные плательщики весомее сырых вызовов: один бот, долбящий эндпоинт,
@@ -727,7 +735,7 @@ export default {
         const day = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
         try { out[day] = JSON.parse((await env.BOARD.get("ev:" + day)) || "{}"); } catch { out[day] = {}; }
       }
-      return json({ note: "counts of payment-path events per UTC day: 402 (price shown), paid, pay_failed, direct_paid, direct_failed; w = KV writes used (cap 400)", days: out }, 200, { "cache-control": "no-store" });
+      return json({ note: "counts of payment-path events per UTC day: 402 (price shown to a non-internal client), paid, pay_failed, direct_paid, direct_failed; w = KV writes used (cap 300)", days: out }, 200, { "cache-control": "no-store" });
     }
 
     // ---- бесплатное: агент должен уметь оценить сервис ДО оплаты
