@@ -36,6 +36,20 @@ MAX_ROUNDS = 3
 
 
 # ───────────────────────────────────────────────── ворота из брифа
+PACKAGE_MARKERS = ("submission package", "preview url", "source archive", "educator_guide", "test_report",
+                   "working educational website", "public repository", "screenshots", "walkthrough video",
+                   "automated tests", "deployment")
+
+
+def is_package_brief(desc: str) -> bool:
+    """Бриф требует ПАКЕТ, а не один файл: сайт с живым превью, архив исходников, тесты,
+    скриншоты. Упоминание README.md в таком брифе — не «задача на Markdown». Без этой
+    проверки локальная модель сдала бы один .md-файл на задачу «построить сайт» — это
+    нарушение брифа и порча репутации кошелька. Два и больше признака — пакет."""
+    low = (desc or "").lower()
+    return sum(1 for m in PACKAGE_MARKERS if m in low) >= 2
+
+
 def gates_from_brief(desc: str) -> dict:
     """Снимает измеримые требования из текста задачи. Чего в брифе нет — не выдумывается."""
     d = desc or ""
@@ -206,6 +220,9 @@ def produce_and_submit(task: dict) -> dict:
     from agents import bounty
     tid = str(task["id"])
     desc = task.get("description") or ""
+    if is_package_brief(desc):
+        return {"ok": False, "why": "бриф требует пакет (сайт/превью/архив/тесты) — локальная модель такое не делает, "
+                                    "передано на сборку сильной моделью"}
     g = gates_from_brief(desc)
     if not g.get("kind"):
         return {"ok": False, "why": "бриф не называет вид файла (md/csv/html/json) — не наш класс"}

@@ -952,17 +952,23 @@ def taskmarket_sync():
             lines.append(f"вывод не прошёл: {str(w.get('error'))[:80]}")
     # 4) открытые задачи нашего класса без нашей подачи — на доску, один раз на задачу
     try:
-        import urllib.request as _u
-        raw = _u.urlopen(_u.Request("https://taskmarket.dev/api/tasks", headers={"User-Agent": "P0-agent"}), timeout=30).read()
-        data = json.loads(raw)
-        opened = data if isinstance(data, list) else (data.get("tasks") or data.get("items") or data.get("data") or [])
+        # ЧЕРЕЗ CLI, А НЕ ВЕБ-ВЫДАЧУ. Публичная выдача taskmarket.dev/api/tasks отдавала 20 старых
+        # задач и 15.09 не показала пять новых на 19 USDC; CLI отдаёт все открытые задачи всех режимов.
+        listed = _tm(["task", "list", "--status", "open", "--limit", "100"], timeout=120)
+        ldata = listed.get("data") if listed.get("ok") else None
+        opened = (ldata.get("tasks") if isinstance(ldata, dict) else ldata) or []
+        if not opened:
+            import urllib.request as _u
+            raw = _u.urlopen(_u.Request("https://taskmarket.dev/api/tasks", headers={"User-Agent": "P0-agent"}), timeout=30).read()
+            data = json.loads(raw)
+            opened = data if isinstance(data, list) else (data.get("tasks") or data.get("items") or data.get("data") or [])
         # Наш класс: текстовые и табличные результаты. Плакаты, иллюстрации, ручное тестирование —
         # не наше, даже если в описании есть слово «document». Истекающие раньше чем через два
         # часа не берём: сделать и подать не успеть.
         FORMATS = ("markdown", ".md", "csv", "html file", "dataset", "documentation", "readme", "guide", "json file")
         NOT_OURS = ("poster", "illustration", "artwork", "design", "testing", "macos", "windows", "video", "audio", "image")
         soon = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
-        found = []
+        found, packages = [], []
         for t in opened:
             if t.get("status") != "open" or t.get("mode") not in ("bounty", "claim"):
                 continue
@@ -972,6 +978,20 @@ def taskmarket_sync():
             tags = " ".join(str(x) for x in (t.get("tags") or [])).lower()
             if not any(k in desc for k in FORMATS) or any(k in desc or k in tags for k in NOT_OURS):
                 continue
+            try:
+                from agents.taskmarket_work import is_package_brief as _pkg
+                if _pkg(t.get("description") or ""):
+                    # ПАКЕТ (сайт/превью/тесты) — не для локального черновика, но и не молчим:
+                    # запись один раз и объявление на доске, чтобы сборку взяла сильная модель.
+                    tid_p = str(t.get("id"))
+                    if not c.execute("SELECT 1 FROM taskmarket_state WHERE task_id=?", (tid_p,)).fetchone():
+                        c.execute("INSERT OR IGNORE INTO taskmarket_state(task_id,title,status,our_role,submitted,detail,updated_at) "
+                                  "VALUES (?,?,?,?,0,?,?)", (tid_p, (t.get("description") or "").strip().split(chr(10))[0][:120],
+                                  "open", "package", "нужна сборка пакета сильной моделью", now()))
+                        packages.append(t)
+                    continue
+            except Exception:
+                pass
             tid = str(t.get("id"))
             if c.execute("SELECT 1 FROM taskmarket_state WHERE task_id=?", (tid,)).fetchone():
                 continue
@@ -994,6 +1014,13 @@ def taskmarket_sync():
                         f"Taskmarket: открыта задача нашего класса «{(t.get('description') or '')[:60]}» за {reward:.2f} USDC, "
                         f"срок {str(t.get('expiryTime'))[:16]} — сделать и подать через ops/taskmarket (task submit)",
                         "подача бесплатна, выплата идёт на кошелёк владельца; текст работы — суждение, его пишет сильная модель")
+        if packages:
+            lines.append(f"новых задач-пакетов {len(packages)}")
+            bus.broadcast("bounty", "Taskmarket: новые задачи-пакеты (сайт + превью + архив + тесты) — "
+                          + "; ".join(f"«{(p.get('description') or '').strip().split(chr(10))[0][:60]}» "
+                                      f"{float(p.get('reward') or 0) / 1e6:.2f} USDC до {str(p.get('expiryTime'))[:16]}"
+                                      for p in packages[:5])
+                          + ". Локальная модель такое не собирает — нужна сборка сильной моделью.")
         if found:
             lines.append(f"новых задач класса {len(found)}")
             # НЕ ЖДАТЬ. Событие поднимает мастерового вне очереди; первую задачу делаем сразу.

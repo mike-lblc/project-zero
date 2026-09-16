@@ -461,6 +461,9 @@ def health_check():
 # Публичная доска живёт на воркере Cloudflare, а не на локальном сервисе 127.0.0.1:8402.
 BOARD_PUSH_URL = "https://x402-bazaar-rank.x402-bazaar-rank-worker.workers.dev/board/push"
 BOARD_EVERY_S = 180                 # раз в три минуты — в пределах бесплатного тарифа KV
+TM_EVERY_S = 600                    # Taskmarket: новые задачи и наши подачи — раз в 10 минут
+_TM_SYNCED = [0.0]
+_TM_BUSY = [False]
 _BOARD_PUSHED = [0.0]
 
 
@@ -1473,6 +1476,25 @@ def run_forever(interval=90):
                 print(f"[worker] доска: {_push_board()}", flush=True)
             except Exception as e:
                 print(f"[worker] доска не опубликована: {type(e).__name__}", flush=True)
+        # TASKMARKET — ПО ЧАСАМ, В ФОНЕ. Шаг стоял в очереди редких шагов и не ходил с 15:32:
+        # новые задачи на 19 USDC появились и остались незамеченными. Теперь раз в 10 минут,
+        # в отдельном потоке, чтобы черновик локальной модели не останавливал цикл.
+        if time.time() - _TM_SYNCED[0] > TM_EVERY_S and not _TM_BUSY[0]:
+            _TM_SYNCED[0] = time.time()
+            def _tm_bg():
+                _TM_BUSY[0] = True
+                started = now()
+                try:
+                    from agents import bounty as _b
+                    out = _b.taskmarket_sync()
+                    record_run("taskmarket_sync", "bounty", True, str(out), started, now())
+                    print(f"[worker] taskmarket: {out}", flush=True)
+                except Exception as e:
+                    record_run("taskmarket_sync", "bounty", False, f"{type(e).__name__}: {e}", started, now())
+                finally:
+                    _TM_BUSY[0] = False
+            import threading as _th
+            _th.Thread(target=_tm_bg, daemon=True).start()
         # каждые SLOW_EVERY шагов — один редкий вместо быстрого
         if i and i % SLOW_EVERY == 0:
             name, fn = SLOW_CYCLE[slow_at % len(SLOW_CYCLE)]
