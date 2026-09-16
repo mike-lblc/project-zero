@@ -112,6 +112,8 @@ const TIERS = {
   "/report":  { amount: "20000",  usd: 0.02, what: "market report: top 40 categories by paying wallets (providers, calls, payers, median price) and top 25 services by 30-day calls" },
   "/alpha":   { amount: "50000",  usd: 0.05, what: "underserved niches: categories ranked by paying wallets per provider, with median price" },
   "/dataset": { amount: "250000", usd: 0.25, what: "complete dataset export: every listed service with 30-day calls, unique payers, price, network (compact keys, legend included)" },
+  "/price":   { amount: "20000",  usd: 0.02, what: "price benchmark: what comparable x402 services actually charge — p10/median/p90 per capability, with how many charge nothing" },
+  "/networks":{ amount: "10000",  usd: 0.01, what: "chain breakdown: providers, 30-day calls, unique paying wallets and median price per network — where the paying demand actually is" },
 };
 
 // Стейблкоины Base, принимаемые прямым переводом (1 токен = $1). Контракты проверены по
@@ -218,11 +220,20 @@ const INPUTS = {
       limit: { type: "integer", minimum: 1, maximum: 50, default: 10 },
       network: { type: "string", description: "chain filter, e.g. eip155:8453" },
     },
-    required: ["q"],
+    // q БОЛЬШЕ НЕ ОБЯЗАТЕЛЕН. Покупатель, уже заплативший за вызов, обязан получить
+    // данные, даже если не прислал ни одного параметра: без q отдаём топ по спросу.
+    required: [],
   },
   "/report": { method: "GET", queryParams: {}, params: {}, required: [] },
   "/alpha": { method: "GET", queryParams: {}, params: {}, required: [] },
   "/dataset": { method: "GET", queryParams: {}, params: {}, required: [] },
+  "/price": {
+    method: "GET",
+    queryParams: { q: "weather" },
+    params: { q: { type: "string", description: "capability to price against; omit for the whole market" } },
+    required: [],
+  },
+  "/networks": { method: "GET", queryParams: {}, params: {}, required: [] },
 };
 
 // СХЕМА ОПИСЫВАЕТ ВЕСЬ ОБЪЕКТ input, а не только параметры запроса.
@@ -463,6 +474,25 @@ function rank(q, limit = 10, network = null) {
   return out.slice(0, limit);
 }
 
+// Топ по спросу без поискового запроса: тот же формат, что и rank(), чтобы клиент
+// разбирал ответ одинаково независимо от того, прислал он q или нет.
+function topByDemand(limit = 10, network = null) {
+  const out = [];
+  for (const s of CATALOG) {
+    if (network && s.w !== network) continue;
+    out.push({ resource: s.u, name: s.n || null, description: s.d, tags: s.t,
+               priceUsd: s.p, network: s.w, calls30d: s.c, payers30d: s.y,
+               score: +(Math.log10(1 + (s.y || 0)) * 2 + Math.log10(1 + (s.c || 0))).toFixed(3) });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, Math.min(limit, 50));
+}
+
+// Одна цена в каталоге объявлена как 10 000 000 000 долларов за вызов. Это не рынок,
+// это опечатка чужого продавца, и в max она превращала весь ответ в мусор. Всё выше
+// потолка считаем отдельно и говорим об этом вслух, а не прячем.
+const PRICE_CEILING = 1000;
+
 function categories() {
   const stat = {};
   for (const s of CATALOG)
@@ -476,18 +506,42 @@ function categories() {
 
 const median = (a) => (a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] : null);
 
+// СЧИТАЕМ ОДИН РАЗ ПРИ ЗАГРУЗКЕ, А НЕ НА КАЖДЫЙ ЗАПРОС.
+// categories() обходит весь каталог и раскладывает цены по тегам: 15 758 записей,
+// около 20 мс процессора. На бесплатном тарифе на вызов даётся 10 мс, и /report,
+// /alpha и /price платили эту цену каждый по отдельности. Снимок каталога внутри
+// одного развёртывания неизменен, поэтому пересчитывать его нечего.
+const CATEGORY_STAT = categories();
+const PRICES_ALL = CATALOG.map((s) => s.p)
+  .filter((p) => typeof p === "number" && p > 0 && p <= PRICE_CEILING).sort((a, b) => a - b);
+const PRICE_ZERO = CATALOG.filter((s) => s.p === 0).length;
+const PRICE_OUTLIERS = CATALOG.filter((s) => typeof s.p === "number" && s.p > PRICE_CEILING).length;
+
+// Процентиль по УЖЕ отсортированному массиву: вызывающая сторона сортирует один раз,
+// а не по разу на каждый процентиль.
+const pct = (sorted, p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : null);
+
 // ------------------------------------------------------------------ ответы тарифов
 function payload(path, url) {
   if (path === "/search") {
     const q = (url.searchParams.get("q") || "").trim();
-    if (!q) return { error: "нужен параметр q" };
+    const limit = Math.min(+url.searchParams.get("limit") || 10, 50);
+    const network = url.searchParams.get("network");
+    // Платящий клиент, не приславший q, обязан получить данные, а не ошибку: за вызов
+    // уже заплачено. Отдаём топ по спросу — осмысленный ответ на «покажи, что есть».
+    if (!q) return { query: null,
+                     mode: "top_by_demand",
+                     note: "no q supplied: returning the highest-demand services in the catalogue",
+                     hint: "narrow it with /search?q=<capability>, e.g. /search?q=weather",
+                     receipt: receipt(),
+                     results: topByDemand(limit, network) };
     return { query: q,
+             mode: "relevance",
              receipt: receipt(),
-             results: rank(q, Math.min(+url.searchParams.get("limit") || 10, 50),
-                           url.searchParams.get("network")) };
+             results: rank(q, limit, network) };
   }
   if (path === "/report") {
-    const stat = categories();
+    const stat = CATEGORY_STAT;
     const cats = Object.entries(stat).filter(([, d]) => d.n >= 3)
       .map(([tag, d]) => ({ tag, providers: d.n, payers30d: d.payers, calls30d: d.calls,
                             medianPriceUsd: median(d.prices) }))
@@ -498,7 +552,7 @@ function payload(path, url) {
              categories: cats, topServices: top };
   }
   if (path === "/alpha") {
-    const stat = categories();
+    const stat = CATEGORY_STAT;
     const gaps = Object.entries(stat).filter(([, d]) => d.n >= 3 && d.payers >= 10)
       .map(([tag, d]) => ({ tag, providers: d.n, payers30d: d.payers,
                             demandPerProvider: +(d.payers / d.n).toFixed(2),
@@ -507,6 +561,57 @@ function payload(path, url) {
     return { generatedAt: new Date().toISOString(), receipt: receipt(),
              method: "unique payers per provider, 30d window; min 3 providers, 10 payers",
              opportunities: gaps };
+  }
+  if (path === "/price") {
+    const q = (url.searchParams.get("q") || "").trim();
+    // Цены берём только у тех, кто цену объявил. Ноль — это не «дёшево», это
+    // «не берёт денег»: смешав их с платными, мы занизили бы медиану вдвое.
+    let priced, considered, free, outliers;
+    if (q) {
+      const pick = rank(q, 50);
+      considered = pick.length;
+      free = pick.filter((r) => r.priceUsd === 0).length;
+      outliers = pick.filter((r) => typeof r.priceUsd === "number" && r.priceUsd > PRICE_CEILING).length;
+      priced = pick.map((r) => r.priceUsd)
+        .filter((x) => typeof x === "number" && x > 0 && x <= PRICE_CEILING).sort((a, b) => a - b);
+    } else {
+      considered = CATALOG.length; free = PRICE_ZERO; outliers = PRICE_OUTLIERS; priced = PRICES_ALL;
+    }
+    const band = {
+      considered, charging: priced.length, chargingNothing: free,
+      excludedAbove: PRICE_CEILING, excludedAsOutliers: outliers,
+      p10: pct(priced, 0.10), median: pct(priced, 0.50), p90: pct(priced, 0.90),
+      min: priced[0] ?? null, max: priced[priced.length - 1] ?? null,
+    };
+    const byCategory = Object.entries(CATEGORY_STAT).filter(([, d]) => d.prices.filter((p) => p > 0 && p <= PRICE_CEILING).length >= 3)
+      .map(([tag, d]) => { const ps = d.prices.filter((p) => p > 0 && p <= PRICE_CEILING).sort((a, b) => a - b);
+                           return { tag, charging: ps.length, p10: pct(ps, 0.10), median: pct(ps, 0.50),
+                                    p90: pct(ps, 0.90), payers30d: d.payers }; })
+      .sort((a, b) => b.payers30d - a.payers30d).slice(0, 25);
+    return { generatedAt: new Date().toISOString(), receipt: receipt(),
+             query: q || null, mode: q ? "capability" : "whole_market",
+             note: q ? "prices among the 50 services most relevant to q"
+                     : "no q supplied: prices across the whole catalogue",
+             method: "percentiles over services that declare a price above zero and at or below $" + PRICE_CEILING + "/call; zero-price services and outliers counted separately",
+             benchmark: band, byCategory };
+  }
+  if (path === "/networks") {
+    const byNet = {};
+    for (const s of CATALOG) {
+      const k = s.w || "unknown";
+      const d = byNet[k] || (byNet[k] = { providers: 0, calls30d: 0, payers30d: 0, prices: [] });
+      d.providers++; d.calls30d += s.c || 0; d.payers30d += s.y || 0;
+      if (typeof s.p === "number" && s.p > 0) d.prices.push(s.p);
+    }
+    const nets = Object.entries(byNet).map(([network, d]) => ({
+      network, providers: d.providers, calls30d: d.calls30d, payers30d: d.payers30d,
+      medianPriceUsd: median(d.prices),
+      payersPerProvider: +(d.payers30d / d.providers).toFixed(2),
+      shareOfProviders: +(d.providers / CATALOG.length).toFixed(4),
+    })).sort((a, b) => b.payers30d - a.payers30d);
+    return { generatedAt: new Date().toISOString(), receipt: receipt(),
+             method: "every listed service grouped by its declared CAIP-2 network; 30-day window as published per resource",
+             catalogSize: CATALOG.length, networks: nets };
   }
   return { generatedAt: new Date().toISOString(), receipt: receipt(), count: CATALOG.length,
            fields: { u: "resource URL", n: "service name", d: "description", t: "tags", p: "price in USD per call",
