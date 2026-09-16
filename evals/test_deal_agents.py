@@ -170,8 +170,10 @@ class Closer(TempDB):
         seen = {}
 
         def fake_gh(args, timeout=60):
-            seen["jq"] = args[-1]
-            return "[]"                                   # после нашего сообщения — тишина
+            if any("/comments" in str(a) for a in args):   # запрос состояния обсуждения — отдельный вызов
+                seen["jq"] = args[-1]
+                return "[]"                               # после нашего сообщения — тишина
+            return "open"
         saved = closer._gh
         closer._gh = fake_gh
         try:

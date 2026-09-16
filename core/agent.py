@@ -38,7 +38,7 @@ import inspect
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -119,6 +119,22 @@ def _parameters(tool_def):
     if tool_def.actor_context and params:
         params = params[1:]
     return [p for p in params if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)]
+
+
+def _ran_recently(agent, tool, minutes=30):
+    """Запускал ли агент этот инструмент (шагом цикла или своим решением) за последние N минут."""
+    try:
+        c = _con()
+        since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+        hit = c.execute("SELECT 1 FROM runs WHERE agent=? AND started_at > ? AND (notes LIKE ? OR notes LIKE ?) LIMIT 1",
+                        (agent, since, f"{tool}:%", f"act:{tool}:%")).fetchone()
+        if not hit:
+            hit = c.execute("SELECT 1 FROM agent_decisions WHERE agent=? AND chose=? AND decided_at > ? LIMIT 1",
+                            (agent, tool, since)).fetchone()
+        c.close()
+        return bool(hit)
+    except Exception:
+        return False
 
 
 def _parse_decision(raw):
@@ -331,11 +347,55 @@ class Agent:
             n += 1
         return n
 
+    # ---------------------------------------------------------- передачи работы
+    def take_handoffs(self, limit=5):
+        """ПЕРЕДАННОЕ — ДЕЛАЕТСЯ. Аудит 16.09: 27 передач за неделю, ни одна не взята — функции
+        «взять» никто не вызывал, и передача была объявлением в пустоту. Теперь передача
+        «сделать <инструмент>: …» исполняется владельцем инструмента в начале его хода (один раз
+        на инструмент, сколько бы одинаковых просьб ни пришло); прочие остаются на доске, а старше
+        48 часов снимаются как устаревшие."""
+        from core import bus
+        try:
+            items = bus.my_work(self.name)
+        except Exception:
+            return 0
+        if not items:
+            return 0
+        done, ran = 0, {}
+        now_ts = datetime.now(timezone.utc)
+        for w in items[:limit]:
+            m = re.match(r"сделать (\w+):", str(w.get("task") or ""))
+            tool = m.group(1) if m else None
+            if tool and tool in self.tools and tool in TOOLS and not _parameters(TOOLS[tool]):
+                if tool not in ran:
+                    t = TOOLS[tool]
+                    try:
+                        guard.check_action(tool, t.action_class)
+                        out = t.fn(self.name) if t.actor_context else t.fn()
+                        ok = True
+                    except Exception as e:
+                        out, ok = f"{type(e).__name__}: {str(e)[:120]}", False
+                    ran[tool] = ok
+                    self._record({"tool": tool, "why": f"передача #{w.get('id')} от {w.get('from')}",
+                                  "allowed": True, "state": {}}, str(out)[:300], ok=ok)
+                bus.take(self.name, w["id"])
+                done += 1
+        # устаревшие (старше 48 ч) — снять, чтобы доска не копила мёртвые просьбы
+        try:
+            c = _con()
+            c.execute("UPDATE messages SET consumed_at=? WHERE recipient=? AND topic='handoff' AND consumed_at IS NULL "
+                      "AND created_at < ?", (now(), self.name, (now_ts - timedelta(hours=48)).isoformat()))
+            c.commit(); c.close()
+        except Exception:
+            pass
+        return done
+
     # ---------------------------------------------------------- действие
     def act(self, dry_run=False):
         """Полный оборот агента: сначала ответить тем, кто спросил, потом посмотреть,
         решить, проверить права, сделать."""
         answered = 0 if dry_run else self.answer_pending()
+        taken = 0 if dry_run else self.take_handoffs()
         d = self.decide()
         chose, why, args = d.get("tool"), d.get("why", ""), d.get("args", {})
         if not d.get("allowed"):
@@ -347,6 +407,11 @@ class Agent:
             owner = None
             if chose and chose in TOOLS and chose not in self.tools:
                 owner = next((n for n, a in sorted(REGISTRY.items()) if chose in a.tools and n != self.name), None)
+            if owner and _ran_recently(owner, chose, minutes=30):
+                self._record(dict(d, tool="handoff_to", allowed=True),
+                             f"не передано: {owner} запускал {chose} в последние 30 минут", ok=True)
+                return {"agent": self.name, "chose": "handoff_to", "ok": True, "why": why,
+                        "detail": f"{owner} уже делал {chose} недавно — передача не нужна", "answered": answered}
             if owner:
                 try:
                     from core import bus
@@ -373,7 +438,7 @@ class Agent:
             out, ok = f"{type(e).__name__}: {str(e)[:120]}", False
         self._record(d, str(out)[:300], ok=ok)
         return {"agent": self.name, "chose": chose, "ok": ok,
-                "detail": str(out)[:200], "why": why, "answered": answered}
+                "detail": str(out)[:200], "why": why, "answered": answered, "handoffs_taken": taken}
 
     def _record(self, d, outcome, ok, _retry=3):
         """Запись решения НЕ ИМЕЕТ ПРАВА уронить оборот агента.

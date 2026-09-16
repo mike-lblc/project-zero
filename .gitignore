@@ -50,3 +50,4 @@ data/MOLTBOOK_TRUSTED
 ops/aibtc/node_modules/
 data/improver_backup/
 ops/taskmarket/node_modules/
+worker/.wrangler/

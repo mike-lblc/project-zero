@@ -104,6 +104,38 @@ class AnswerFirst(TempDB):
         self.assertEqual(chose[0], "answer_agent")
 
 
+class Handoffs(TempDB):
+    """Передача «сделать <инструмент>» исполняется владельцем и помечается взятой; одинаковые
+    просьбы исполняются один раз; чужой инструмент, который владелец только что запускал, не
+    превращается в новую передачу."""
+
+    def test_tool_handoffs_are_executed_once_and_taken(self):
+        from core import bus, roster, agent as agent_core
+        roster.wire()
+        calls = []
+        tool = agent_core.TOOLS["hunt_bounties"]
+        saved = tool.fn
+        tool.fn = (lambda name=None: calls.append(1) or "задач 3") if tool.actor_context else (lambda: calls.append(1) or "задач 3")
+        try:
+            bus.handoff("optimizer", "bounty", "сделать hunt_bounties: проверить свежие", "у тебя есть инструмент")
+            bus.handoff("critic", "bounty", "сделать hunt_bounties: ещё раз", "у тебя есть инструмент")
+            n = agent_core.get("bounty").take_handoffs()
+        finally:
+            tool.fn = saved
+        self.assertEqual(n, 2)
+        self.assertEqual(len(calls), 1, "одинаковые передачи — один запуск")
+        self.assertEqual(bus.my_work("bounty"), [])
+
+    def test_recent_owner_run_blocks_redundant_handoff(self):
+        from core import agent as agent_core
+        c = self.db.connect()
+        c.execute("INSERT INTO runs(agent,started_at,ended_at,status,notes) VALUES (?,?,?,?,?)",
+                  ("bounty", agent_core.now(), agent_core.now(), "ok", "hunt_bounties: задач 3"))
+        c.commit(); c.close()
+        self.assertTrue(agent_core._ran_recently("bounty", "hunt_bounties", minutes=30))
+        self.assertFalse(agent_core._ran_recently("bounty", "fresh_bounties", minutes=30))
+
+
 class Snapshot(TempDB):
     def test_snapshot_carries_words_questions_thoughts_and_findings(self):
         from core import board, bus, roster
