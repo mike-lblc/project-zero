@@ -20,6 +20,7 @@ MODELS = {
     "heavy": "qwen3-coder:30b",   # 18.6 ГБ — разбор кода и рассуждение агента
 }
 LOCAL_MODEL = MODELS["standard"]          # значение по умолчанию
+NUM_CTX = 8192                           # окно контекста локальной модели (см. _local)
 
 # Какой задаче какая модель.
 #
@@ -123,9 +124,12 @@ def _local(prompt, timeout=300, model=None):
     backend = os.environ.get("P0_MODEL_BACKEND", "ollama")
     if backend not in ("ollama", "cloudflare"):
         raise RuntimeError("Unknown model backend; refusing local fallback")
+    # ОКНО КОНТЕКСТА — ЯВНО. Ollama резал запрос до 2050 токенов («truncating input prompt
+    # limit=2050 prompt=5366»): рассуждающий агент с общей доской не помещался, и модель
+    # видела обрывок вместо правил и состояния. 8192 хватает на доску и меню инструментов.
     req = urllib.request.Request(OLLAMA,
         data=json.dumps({"model": model or LOCAL_MODEL, "prompt": prompt,
-                         "stream": False}).encode(),
+                         "stream": False, "options": {"num_ctx": NUM_CTX}}).encode(),
         headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode()).get("response", "")

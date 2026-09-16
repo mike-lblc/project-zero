@@ -895,8 +895,11 @@ export default {
                                  description: t.what },
                      accepts: [reqs],
                      extensions: bazaarExtension(path) };
-        console.log(JSON.stringify({ ev: "402", path, ua: (request.headers.get("user-agent") || "").slice(0, 80) }));
-        await bump(env, "402");
+        const ua402 = request.headers.get("user-agent") || "";
+        console.log(JSON.stringify({ ev: "402", path, ua: ua402.slice(0, 80) }));
+        // Свои проверки (сторож, аудиты) в счётчик спроса не идут — иначе 402 «от покупателей»
+        // окажутся нашими же health_check каждые несколько минут.
+        if (!/P0-worker|P0-audit|MTBX-audit|P0-agent/i.test(ua402)) await bump(env, "402");
         const body402 = { ...pr, error: "Payment Required",
                           free_alternative: "/sample", pay_without_x402: SELF + "/pay", weekly_report: JOIN_URL };
         return json(body402, 402, { "payment-required": b64utf8(JSON.stringify(pr)) });
