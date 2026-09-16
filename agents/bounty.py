@@ -881,6 +881,86 @@ def _note(agent, claim, conf=None):
 def _tm_table(c):
     c.execute("CREATE TABLE IF NOT EXISTS taskmarket_state (task_id TEXT PRIMARY KEY, title TEXT, "
               "status TEXT, our_role TEXT, submitted INTEGER DEFAULT 0, detail TEXT, updated_at TEXT)")
+    # Репутация заказчика: площадка публикует её по адресу, и это единственный признак,
+    # который отличает того, кто платит, от того, кто собирает работы и молчит.
+    c.execute("CREATE TABLE IF NOT EXISTS taskmarket_requester (address TEXT PRIMARY KEY, created INTEGER, "
+              "completed INTEGER, expired_no_action INTEGER, self_award INTEGER, cancelled INTEGER, "
+              "submissions INTEGER, workers INTEGER, checked_at TEXT)")
+
+
+# Отбор по заказчику. Мы соперничаем с сотней подач за $2, и единственное, чем можно
+# распорядиться, — на чью задачу тратить ход. Заказчик, закрывший 30 задач из 33 и ни
+# разу не давший задаче истечь, — это другой класс риска, чем тот, у кого закрытых нет.
+REP_TTL_HOURS = 12
+
+
+def _requester_rep(c, address, cache=None):
+    """Репутация заказчика Taskmarket: из таблицы, если свежая, иначе из CLI. None — не узнали."""
+    addr = (address or "").strip().lower()
+    if not addr:
+        return None
+    if cache is not None and addr in cache:
+        return cache[addr]
+    row = c.execute("SELECT created, completed, expired_no_action, self_award, cancelled, submissions, "
+                    "workers, checked_at FROM taskmarket_requester WHERE address=?", (addr,)).fetchone()
+    fresh = None
+    if row and row[7]:
+        try:
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(row[7])
+            if age < timedelta(hours=REP_TTL_HOURS):
+                fresh = {"created": row[0], "completed": row[1], "expired_no_action": row[2],
+                         "self_award": row[3], "cancelled": row[4], "submissions": row[5], "workers": row[6]}
+        except (TypeError, ValueError):
+            fresh = None
+    if fresh is None:
+        r = _tm(["requester", "stats", address], timeout=90)
+        d = r.get("data") if r.get("ok") and isinstance(r.get("data"), dict) else None
+        if not d:
+            return None
+        fresh = {"created": int(d.get("totalTasksCreated") or 0),
+                 "completed": int(d.get("completedCount") or 0),
+                 "expired_no_action": int(d.get("expiredNoActionCount") or 0),
+                 "self_award": int(d.get("selfAwardCount") or 0),
+                 "cancelled": int(d.get("cancelledAfterSubmissionsCount") or 0),
+                 "submissions": int(d.get("totalSubmissionAttempts") or 0),
+                 "workers": int(d.get("totalUniqueWorkers") or 0)}
+        c.execute("INSERT INTO taskmarket_requester(address,created,completed,expired_no_action,self_award,"
+                  "cancelled,submissions,workers,checked_at) VALUES (?,?,?,?,?,?,?,?,?) "
+                  "ON CONFLICT(address) DO UPDATE SET created=excluded.created, completed=excluded.completed, "
+                  "expired_no_action=excluded.expired_no_action, self_award=excluded.self_award, "
+                  "cancelled=excluded.cancelled, submissions=excluded.submissions, workers=excluded.workers, "
+                  "checked_at=excluded.checked_at",
+                  (addr, fresh["created"], fresh["completed"], fresh["expired_no_action"], fresh["self_award"],
+                   fresh["cancelled"], fresh["submissions"], fresh["workers"], now()))
+    if cache is not None:
+        cache[addr] = fresh
+    return fresh
+
+
+def rep_verdict(rep):
+    """(берём ли, во сколько ходов обходится одна выплата, словами) — по репутации заказчика.
+
+    Новый заказчик не отвергается: у каждого доказанного плательщика когда-то было ноль
+    закрытых задач. Отвергается тот, кто УЖЕ показал, что не платит.
+    """
+    if not rep:
+        return True, None, "репутация неизвестна"
+    created, done = rep["created"], rep["completed"]
+    if created < 3:
+        return True, None, f"новый заказчик ({created} задач), судить не по чему"
+    rate = done / created
+    dead = rep["expired_no_action"] + rep["cancelled"]
+    per_task = (rep["submissions"] / created) if created else 0
+    odds = (rate / per_task) if per_task else 0        # доля наших подач, кончающихся выплатой
+    words = (f"закрыл {done} из {created} ({rate:.0%}), истекло без решения {rep['expired_no_action']}, "
+             f"соперников на задачу ~{per_task:.0f}")
+    if done == 0:
+        return False, odds, "НЕ ПЛАТИТ: " + words
+    if rate < 0.34 or dead > done:
+        return False, odds, "платит редко: " + words
+    if rep["self_award"] > max(1, done * 0.34):
+        return False, odds, "награждает себя: " + words
+    return True, odds, words
 
 
 def taskmarket_sync():
@@ -999,7 +1079,7 @@ def taskmarket_sync():
                    "text report", "report", "english text")
         NOT_OURS = ("poster", "illustration", "artwork", "macos", "windows", "video", "audio", "image", "photo")
         soon = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
-        found, packages = [], []
+        found, packages, skipped, reps = [], [], [], {}
         for t in opened:
             if t.get("status") != "open" or t.get("mode") not in ("bounty", "claim"):
                 continue
@@ -1026,9 +1106,25 @@ def taskmarket_sync():
             tid = str(t.get("id"))
             if c.execute("SELECT 1 FROM taskmarket_state WHERE task_id=?", (tid,)).fetchone():
                 continue
-            c.execute("INSERT OR IGNORE INTO taskmarket_state(task_id,title,status,our_role,submitted,updated_at) "
-                      "VALUES (?,?,?,?,0,?)", (tid, (t.get("description") or "").split(chr(10))[0][:120], "open", "candidate", now()))
+            # ЧЬЯ ЭТО ЗАДАЧА. Ход мастерового — самый дорогой наш ресурс, и тратить его на
+            # заказчика с нулём выплат незачем: работа будет сделана и не оплачена.
+            rep = _requester_rep(c, t.get("requester"), reps)
+            take, odds, words = rep_verdict(rep)
+            t["_rep_words"], t["_rep_odds"] = words, odds
+            if not take:
+                c.execute("INSERT OR IGNORE INTO taskmarket_state(task_id,title,status,our_role,submitted,detail,updated_at) "
+                          "VALUES (?,?,?,?,0,?,?)", (tid, (t.get("description") or "").split(chr(10))[0][:120],
+                          "open", "skipped_requester", words, now()))
+                skipped.append((t, words))
+                continue
+            c.execute("INSERT OR IGNORE INTO taskmarket_state(task_id,title,status,our_role,submitted,detail,updated_at) "
+                      "VALUES (?,?,?,?,0,?,?)", (tid, (t.get("description") or "").split(chr(10))[0][:120],
+                      "open", "candidate", words, now()))
             found.append(t)
+        # Сильный плательщик вперёд: при равной репутации — задача с меньшим числом соперников,
+        # затем с большей наградой. Мастеровой берёт первую и чаще всего успевает только её.
+        found.sort(key=lambda x: (-(x.get("_rep_odds") or 0), x.get("submissionCount") or 0,
+                                  -float(x.get("reward") or 0)))
         c.commit()
         # Передачи — ПОСЛЕ фиксации и закрытия нашей записи: у шины своё соединение, и
         # открытая транзакция здесь держала бы её до «database is locked».
@@ -1044,6 +1140,7 @@ def taskmarket_sync():
             bus.handoff("bounty", "craftsman",
                         f"Taskmarket: открыта задача нашего класса «{(t.get('description') or '')[:60]}» за {reward:.2f} USDC, "
                         f"срок {str(t.get('expiryTime'))[:16]} — сделать и подать через ops/taskmarket (task submit)",
+                        f"заказчик: {t.get('_rep_words') or 'репутация неизвестна'}. "
                         "подача бесплатна, выплата идёт на кошелёк владельца; текст работы — суждение, его пишет сильная модель")
         if packages:
             lines.append(f"новых задач-пакетов {len(packages)}")
@@ -1052,6 +1149,11 @@ def taskmarket_sync():
                                       f"{float(p.get('reward') or 0) / 1e6:.2f} USDC до {str(p.get('expiryTime'))[:16]}"
                                       for p in packages[:5])
                           + ". Локальная модель такое не собирает — нужна сборка сильной моделью.")
+        if skipped:
+            lines.append(f"пропущено по заказчику {len(skipped)}")
+            bus.broadcast("bounty", "Taskmarket: не берём — "
+                          + "; ".join(f"«{(t.get('description') or '').strip().split(chr(10))[0][:44]}» ({w})"
+                                      for t, w in skipped[:4]))
         if found:
             lines.append(f"новых задач класса {len(found)}")
             # НЕ ЖДАТЬ. Событие поднимает мастерового вне очереди; первую задачу делаем сразу.
