@@ -83,7 +83,7 @@ const app = express();
 // ---- FREE: lets an agent inspect capability and price before paying ----
 app.get('/', (_req, res) => res.json({
   service: 'x402 Bazaar Rank',
-  description: 'Search 14k+ x402 services ranked by REAL 30-day usage and unique payers. '
+  description: 'Search 16k+ x402 services ranked by REAL 30-day usage and unique payers. '
              + 'The official index is unranked; this returns the ones agents actually pay for.',
   paid_endpoint: '/search?q=<capability>&limit=10&network=eip155:8453',
   price_usdc: Number(PRICE) / 1e6,
@@ -108,7 +108,7 @@ const pay = createPaymentMiddleware({
     maxAmountRequired: PRICE,
     asset: USDC_BASE,
     payTo: PAY_TO,
-    description: 'Ranked x402 service discovery: search 14k+ services by capability, '
+    description: 'Ranked x402 service discovery: search 16k+ services by capability, '
                + 'ranked by verified 30-day call volume and unique payer count.',
     mimeType: 'application/json'
   })
@@ -253,7 +253,7 @@ app.get('/confirm', (req, res) => {
      { status: 'subscribed' }).catch(() => {});
   res.send(`<body style="font:16px system-ui;background:#05070d;color:#dfe8fb;padding:48px">
     <h2 style="color:#37d99a">Confirmed.</h2><p>${row.email} is on the list.</p>
-    <p style="color:#7d8db0">Weekly x402 market intelligence, from a full crawl of 14,231 services.</p></body>`);
+    <p style="color:#7d8db0">Weekly x402 market intelligence, from a full re-fetch of 16,000+ listed services.</p></body>`);
 });
 
 // ---------------- LIVE AGENT DASHBOARD ----------------
