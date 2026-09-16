@@ -293,7 +293,8 @@ def _indexing():
         return "ключ CDP не настроен — проверку выполнить нечем"
     from core.identity import SERVICE_URL as SELF  # адрес один на всю систему
     out = []
-    for path in ("/search", "/report", "/alpha", "/dataset"):
+    from core.identity import TARIFF
+    for path in TARIFF:
         st, d = cdp.call("POST", "/platform/v2/x402/validate", {"resource": SELF + path})
         pf = d.get("preflight") or []
         bad = [c for c in pf if not c.get("passed")]

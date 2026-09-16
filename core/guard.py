@@ -30,13 +30,19 @@ CLASSES = {"GREEN","YELLOW","RED","BLACK"}
 # Что мы ПРОДАЁМ. Если это оказалось в открытом доступе — мы раздаём собственный товар.
 # Проверки на это не было, и полный датасет за $1.25 пролежал бесплатно, пока владелец
 # не заметил сам. Ни один агент не поймал: никто и не смотрел.
+from core.identity import TIERS as _TIERS   # цены объявлены один раз, см. core/identity.py
+
 PAID_PRODUCTS = {
     "полный датасет": {"paths": ["docs/x402-market.json", "docs/x402-market.csv"],
-                       "price": 1.25, "endpoint": "/dataset"},
+                       "price": _TIERS["/dataset"], "endpoint": "/dataset"},
     "отчёт по рынку": {"paths": ["docs/report.json", "docs/market-report.json"],
-                       "price": 0.10, "endpoint": "/report"},
+                       "price": _TIERS["/report"], "endpoint": "/report"},
     "анализ ниш":     {"paths": ["docs/alpha.json", "docs/opportunities.json"],
-                       "price": 0.50, "endpoint": "/alpha"},
+                       "price": _TIERS["/alpha"], "endpoint": "/alpha"},
+    "бенчмарк цен":   {"paths": ["docs/price-benchmark.json"],
+                       "price": _TIERS["/price"], "endpoint": "/price"},
+    "разрез по сетям": {"paths": ["docs/networks.json"],
+                       "price": _TIERS["/networks"], "endpoint": "/networks"},
 }
 PUBLIC_DIRS = ["docs"]
 MAX_FREE_SAMPLE_ROWS = 150          # больше — это уже не образец, а продукт

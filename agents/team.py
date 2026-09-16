@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 IDX = ROOT / "data" / "bazaar_index.json"
 SERVICE = "http://127.0.0.1:8402"
 
-OUR_TIERS = {"/search": 0.01, "/report": 0.10, "/alpha": 0.50, "/dataset": 1.25}
+from core.identity import TIERS as OUR_TIERS   # цены объявлены один раз, см. core/identity.py
+# (было вписано руками и разошлось с живой службой после переоценки)
 
 
 def now():

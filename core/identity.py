@@ -37,3 +37,25 @@ def mentions_us(text):
     """
     t = str(text or "")
     return host() in t or MCP_NAME in t or "x402-bazaar-rank" in t
+
+
+# ЧТО МЫ ПРОДАЁМ И ПОЧЁМ — ОДНО МЕСТО, ПО ТОЙ ЖЕ ПРИЧИНЕ, ЧТО И АДРЕС.
+#
+# Цены были вписаны руками в трёх файлах и разошлись с живой службой после
+# переоценки: сторож охранял «датасет за $1.25», который продаётся за $0.25, а
+# советчик по ценам считал выводы от /report $0.10 при живых $0.02. Никто не
+# соврал — просто никто не пересчитал все три места.
+#
+# Источник истины — worker/src/index.js (TIERS). Здесь его зеркало, и тест
+# evals/test_tariff.py падает, как только они разойдутся.
+TARIFF = {
+    "/search":   {"usd": 0.01, "what": "ranked service search by capability"},
+    "/report":   {"usd": 0.02, "what": "market report: categories by paying wallets, top services"},
+    "/alpha":    {"usd": 0.05, "what": "underserved niches: paying wallets per provider"},
+    "/dataset":  {"usd": 0.25, "what": "complete dataset export"},
+    "/price":    {"usd": 0.02, "what": "price benchmark: p10/median/p90 per capability"},
+    "/networks": {"usd": 0.01, "what": "chain breakdown: where the paying demand is"},
+}
+
+# Цены только, для мест, которым нужен простой словарь.
+TIERS = {p: t["usd"] for p, t in TARIFF.items()}
