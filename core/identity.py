@@ -54,7 +54,10 @@ TARIFF = {
     "/alpha":    {"usd": 0.05, "what": "underserved niches: paying wallets per provider"},
     "/dataset":  {"usd": 0.25, "what": "complete dataset export"},
     "/price":    {"usd": 0.02, "what": "price benchmark: p10/median/p90 per capability"},
-    "/networks": {"usd": 0.01, "what": "chain breakdown: where the paying demand is"},
+    # Нижний дециль рынка по нашему же /price (p10 = $0.001, медиана $0.01). Самый простой
+    # продукт стоит столько, сколько за такое платят внизу рынка: покупатель с бюджетом
+    # в полцента должен иметь возможность купить у нас хоть что-то.
+    "/networks": {"usd": 0.001, "what": "chain breakdown: where the paying demand is"},
 }
 
 # Цены только, для мест, которым нужен простой словарь.

@@ -113,7 +113,7 @@ const TIERS = {
   "/alpha":   { amount: "50000",  usd: 0.05, what: "underserved niches: categories ranked by paying wallets per provider, with median price" },
   "/dataset": { amount: "250000", usd: 0.25, what: "complete dataset export: every listed service with 30-day calls, unique payers, price, network (compact keys, legend included)" },
   "/price":   { amount: "20000",  usd: 0.02, what: "price benchmark: what comparable x402 services actually charge — p10/median/p90 per capability, with how many charge nothing" },
-  "/networks":{ amount: "10000",  usd: 0.01, what: "chain breakdown: providers, 30-day calls, unique paying wallets and median price per network — where the paying demand actually is" },
+  "/networks":{ amount: "1000",   usd: 0.001, what: "chain breakdown: providers, 30-day calls, unique paying wallets and median price per network — where the paying demand actually is" },
 };
 
 // Стейблкоины Base, принимаемые прямым переводом (1 токен = $1). Контракты проверены по
