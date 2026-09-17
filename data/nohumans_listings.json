@@ -11,6 +11,10 @@
     "tags": "5daadf67-f90",
     "top": "1a118b19-c34",
     "service": "e3dab56a-b96",
-    "token": "dfe400cd-dac"
+    "token": "dfe400cd-dac",
+    "in-agents": "646f091c-a12",
+    "in-crypto": "8ed53edb-d8e",
+    "in-token": "26e47b37-49c",
+    "in-verdict": "fb8fa872-5f4"
   }
 }

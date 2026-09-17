@@ -55,7 +55,7 @@ EXPECTED = {
     "owner sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
     "owner stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
 }
-MIN_PY_TESTS = 273   # текущий набор — 277; падение ниже = сбор сломался
+MIN_PY_TESTS = 274   # текущий набор — 278; падение ниже = сбор сломался
 OWNER_EVM_TAIL = "c55354"          # хвост адреса владельца: сверяется в живом 402
 
 
@@ -307,12 +307,20 @@ def _verify_settled(attempts=3, first_wait=12, gap=6):
 
 
 def _bundle_hash():
-    """Хеш исходника воркера — по нему видно, менялся ли он с прошлого деплоя."""
+    """Хеш того, что уезжает в сеть: исходник воркера И объявленные маршруты.
+
+    routes.json тоже едет в бандл (воркер запекает его при загрузке), поэтому
+    новый платный маршрут, записанный туда при исчерпанном KV, обязан считаться
+    изменением — иначе деплой его не заметит и маршрут не появится в сети никогда.
+    """
     import hashlib
-    try:
-        return hashlib.sha256(BUNDLE.read_bytes()).hexdigest()[:16]
-    except OSError:
-        return ""
+    h = hashlib.sha256()
+    for f in (BUNDLE, WORKER_DIR / "routes.json"):
+        try:
+            h.update(f.read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:16]
 
 
 def deploy_if_changed():

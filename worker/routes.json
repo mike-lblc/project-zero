@@ -1,0 +1,61 @@
+{
+ "_note": "Маршруты, объявленные агентом ДАННЫМИ и запечённые в бандл. Нужны потому, что бесплатный предел KV (1000 записей в сутки) исчерпывается, а платный маршрут терять нельзя: именно число маршрутов определяет, сколько оплаченных проверок пришлёт скаут каталога. Проверяются тем же validateRouteSpec, что и маршруты из KV.",
+ "routes": [
+  {
+   "path": "/in-agents",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'agents': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 359 providers and 2713 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "agents"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-crypto",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'crypto': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 830 providers and 1968 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "crypto"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-token",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'token': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 72 providers and 2308 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "token"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-verdict",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'verdict': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 7 providers and 2197 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "verdict"
+    },
+    "limit": 25
+   }
+  }
+ ]
+}

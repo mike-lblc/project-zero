@@ -12,6 +12,7 @@
  */
 import CATALOG from "../catalog.slim.json";
 import SNAPSHOT from "../snapshot.json";
+import BAKED_ROUTES from "../routes.json";
 
 // РЕВИЗИЯ ПРАВИЛА ОЦЕНКИ. Меняется при любом изменении формулы или смысла полей.
 // 2026-09-14.2: плательщики продавца больше не суммируются по эндпоинтам
@@ -338,9 +339,33 @@ function validateRouteSpec(r) {
   return [true, null];
 }
 
+// ОБЪЯВЛЕННЫЙ МАРШРУТ НЕ ДОЛЖЕН ЗАВИСЕТЬ ТОЛЬКО ОТ KV.
+//
+// Бесплатный предел KV — 1000 записей в сутки на аккаунт, и он исчерпывается:
+// 17.09 он выбился нашей же правкой, и объявить новый платный маршрут стало
+// невозможно до полуночи UTC («route store unavailable: KV put() limit exceeded»).
+// Цена этого прямая: сколько у нас платных маршрутов, столько оплаченных проверок
+// присылает скаут каталога (его предел — 28 за волну, мы занимали 11).
+//
+// Поэтому источников два: запечённый в бандл routes.json (переживает исчерпание KV
+// и едет в сеть вместе с деплоем, который агенты умеют делать сами) и KV (быстрый
+// путь без деплоя). KV имеет приоритет — им можно поправить запечённое, не пересобирая.
+// Проверка у обоих ОДНА И ТА ЖЕ: validateRouteSpec, никакого кода извне.
+function bakedRoutes() {
+  const map = {};
+  for (const r of (BAKED_ROUTES && BAKED_ROUTES.routes) || []) {
+    const [ok] = validateRouteSpec(r);
+    if (!ok) continue;
+    const usd = Number(r.usd);
+    map[String(r.path)] = { amount: String(Math.round(usd * 1e6)), usd, what: String(r.what),
+                            spec: r.spec, dynamic: true, baked: true };
+  }
+  return map;
+}
+
 async function loadRoutes(env) {
   if (Date.now() - DYN.at < 60 * 1000) return DYN.map;
-  let map = {};
+  let map = bakedRoutes();
   try {
     if (env && env.BOARD) {
       const raw = await env.BOARD.get(ROUTES_KEY);
@@ -352,7 +377,7 @@ async function loadRoutes(env) {
                                 spec: r.spec, dynamic: true };
       }
     }
-  } catch { map = DYN.map; }
+  } catch { map = Object.keys(DYN.map).length ? DYN.map : bakedRoutes(); }
   DYN = { at: Date.now(), map };
   return map;
 }
@@ -918,6 +943,24 @@ const EXAMPLES = {
                              w: "eip155:8453", c: 310, y: 42 }] },
 };
 
+// Пример ответа для маршрута, объявленного данными — из его спецификации.
+function declaredExample(path) {
+  const d = DYN.map[path] || bakedRoutes()[path];
+  if (!d || !d.spec) return null;
+  const spec = d.spec;
+  const where = spec.where || {};
+  return {
+    generatedAt: "2026-09-17T12:00:00.000Z",
+    route: path,
+    declaredBy: "agent",
+    query: { op: spec.op, by: spec.by ?? null, where, limit: spec.limit ?? 25 },
+    matched: 359,
+    count: 25,
+    services: [{ resource: "https://api.example.com/forecast", name: "forecast api",
+                 priceUsd: 0.01, network: "eip155:8453", calls30d: 310, payers30d: 42 }],
+  };
+}
+
 function bazaarExtension(path) {
   const i = INPUTS[path] || { method: "GET", queryParams: {}, schema: {} };
   return {
@@ -930,8 +973,13 @@ function bazaarExtension(path) {
         },
         output: {
           type: "json",
-          example: EXAMPLES[path] || { generatedAt: "2026-09-17T12:00:00.000Z",
-                                       data: "see the route description" },
+          // У маршрута, ОБЪЯВЛЕННОГО ДАННЫМИ, рукописного примера быть не может:
+          // его никто не писал руками. Но покупающему агенту пример нужен ДО оплаты,
+          // а заглушка «см. описание» — это пустая полка. Поэтому для объявленных
+          // маршрутов пример собирается из их же спецификации и реальной формы
+          // ответа интерпретатора: те же поля, что он действительно отдаёт.
+          example: EXAMPLES[path] || declaredExample(path)
+                   || { generatedAt: "2026-09-17T12:00:00.000Z", data: "see the route description" },
         },
       },
       schema: {
@@ -1415,10 +1463,29 @@ async function payload(path, url) {
              method: "every listed service grouped by its declared CAIP-2 network; 30-day window as published per resource",
              catalogSize: CATALOG.length, networks: nets };
   }
-  return { generatedAt: new Date().toISOString(), receipt: receipt(), count: CATALOG.length,
-           fields: { u: "resource URL", n: "service name", d: "description", t: "tags", p: "price in USD per call",
-                     w: "network (CAIP-2)", c: "calls in the trailing 30 days", y: "unique paying wallets in the trailing 30 days" },
-           services: CATALOG };
+  // ПОЛНЫЙ ДАТАСЕТ ОТДАЁТСЯ ТОЛЬКО ПО СВОЕМУ АДРЕСУ, И ЭТО НЕ ПРИДИРКА.
+  //
+  // Здесь стоял безусловный возврат всего каталога — то есть ЛЮБОЙ путь, не
+  // совпавший ни с одной веткой выше, получал товар за $0.25. Пока веток хватало
+  // на все пути, это было незаметно; стоило агенту объявить новый маршрут за
+  // $0.001, и промах по спецификации отдал бы дорогой товар за одну десятую цента.
+  // Замер на харнессе: четыре свежих маршрута вернули ровно этот датасет, 15 746
+  // строк, — потому что спецификация не была прочитана.
+  //
+  // Закрываем структурно: датасет — только по /dataset. Всё прочее получает
+  // дешёвую сводку по спросу (настоящие данные, не ошибка: за вызов уже заплатили),
+  // и расхождение названо в ответе, а не спрятано.
+  if (path === "/dataset") {
+    return { generatedAt: new Date().toISOString(), receipt: receipt(), count: CATALOG.length,
+             fields: { u: "resource URL", n: "service name", d: "description", t: "tags", p: "price in USD per call",
+                       w: "network (CAIP-2)", c: "calls in the trailing 30 days", y: "unique paying wallets in the trailing 30 days" },
+             services: CATALOG };
+  }
+  return { generatedAt: new Date().toISOString(), receipt: receipt(), route: path,
+           mode: "top_by_demand",
+           note: "this route did not resolve to a declared specification on this request; "
+                 + "returning the highest-demand services so a paid call is never wasted",
+           results: topByDemand(25, null) };
 }
 
 const JOIN_HTML = `<!doctype html><html lang="ru"><head><meta charset="utf-8">

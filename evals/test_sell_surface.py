@@ -253,10 +253,29 @@ class Boundaries(unittest.TestCase):
         src = _code_only(raw)
         for forbidden in ("wrangler", "subprocess", "deploy", "write_text", "os.system"):
             if forbidden == "write_text":
-                # разрешено ровно одно: список публичных id объявлений
-                self.assertEqual(src.count("write_text"), 1, "агент пишет файлы шире, чем список объявлений")
+                # РАЗРЕШЕНЫ РОВНО ДВА ФАЙЛА, И ОБА — ДАННЫЕ, НЕ КОД:
+                #   CONFIG — список публичных идентификаторов объявлений;
+                #   BAKED  — worker/routes.json, маршруты, объявленные ДАННЫМИ.
+                # Второй появился потому, что бесплатный предел KV исчерпывается, а
+                # платный маршрут терять нельзя: число маршрутов определяет, сколько
+                # оплаченных проверок пришлёт скаут каталога. Запрет на правку КОДА
+                # от этого не ослабевает — он проверяется ниже по именам файлов.
+                self.assertLessEqual(src.count("write_text"), 2,
+                                     "агент пишет файлы шире, чем объявления и маршруты")
                 continue
             self.assertNotIn(forbidden, src, f"в шаге есть {forbidden}")
+
+    def test_the_agent_writes_only_data_files_never_source(self):
+        """Что именно разрешено писать: два файла данных и ничего с кодом."""
+        from agents import sell_surface
+        targets = {sell_surface.CONFIG.name, sell_surface.BAKED.name}
+        self.assertEqual(targets, {"nohumans_listings.json", "routes.json"})
+        for t in targets:
+            self.assertTrue(t.endswith(".json"), f"агент пишет не-данные: {t}")
+        raw = (ROOT / "agents" / "sell_surface.py").read_text(encoding="utf-8")
+        src = _code_only(raw)
+        for source_ext in (".py", ".js", ".mjs", ".sh", ".yml"):
+            self.assertNotIn(f'"{source_ext}"', src, f"в шаге появилась запись в {source_ext}")
 
     def test_it_is_owned_by_an_agent_and_runs_in_the_cycle(self):
         from agents import worker

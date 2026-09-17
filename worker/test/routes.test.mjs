@@ -19,12 +19,14 @@ let src = readFileSync(join(root, "src", "index.js"), "utf-8");
 src = src.replace('import CATALOG from "../catalog.slim.json";',
                   'import CATALOG from "./catalog.slim.json" with { type: "json" };')
          .replace('import SNAPSHOT from "../snapshot.json";',
-                  'import SNAPSHOT from "./snapshot.json" with { type: "json" };');
+                  'import SNAPSHOT from "./snapshot.json" with { type: "json" };')
+         .replace('import BAKED_ROUTES from "../routes.json";',
+                  'import BAKED_ROUTES from "./routes.json" with { type: "json" };');
 src = src.slice(0, src.lastIndexOf("export default")) +
       "export { validateRouteSpec, runSpec, tiersNow, TIERS, PRICE_FLOOR, PRICE_CAP, ROUTE_CAP };\n";
 const dir = mkdtempSync(join(tmpdir(), "p0-routes-"));
 writeFileSync(join(dir, "index.mjs"), src);
-for (const f of ["catalog.slim.json", "snapshot.json"])
+for (const f of ["catalog.slim.json", "snapshot.json", "routes.json"])
   writeFileSync(join(dir, f), readFileSync(join(root, f)));
 const M = await import(pathToFileURL(join(dir, "index.mjs")).href);
 

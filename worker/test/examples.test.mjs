@@ -23,12 +23,14 @@ let src = readFileSync(join(root, "src", "index.js"), "utf-8");
 src = src.replace('import CATALOG from "../catalog.slim.json";',
                   'import CATALOG from "./catalog.slim.json" with { type: "json" };')
          .replace('import SNAPSHOT from "../snapshot.json";',
-                  'import SNAPSHOT from "./snapshot.json" with { type: "json" };');
+                  'import SNAPSHOT from "./snapshot.json" with { type: "json" };')
+         .replace('import BAKED_ROUTES from "../routes.json";',
+                  'import BAKED_ROUTES from "./routes.json" with { type: "json" };');
 src = src.slice(0, src.lastIndexOf("export default")) +
-      "export { payload, tiersNow, EXAMPLES, bazaarExtension };\n";
+      "export { payload, tiersNow, EXAMPLES, bazaarExtension, bakedRoutes, loadRoutes };\n";
 const dir = mkdtempSync(join(tmpdir(), "p0-examples-"));
 writeFileSync(join(dir, "index.mjs"), src);
-for (const f of ["catalog.slim.json", "snapshot.json"])
+for (const f of ["catalog.slim.json", "snapshot.json", "routes.json"])
   writeFileSync(join(dir, f), readFileSync(join(root, f)));
 const M = await import(pathToFileURL(join(dir, "index.mjs")).href);
 
@@ -82,5 +84,33 @@ test("пример попадает в расширение bazaar, а не ле
     const ext = M.bazaarExtension(path);
     assert.deepEqual(ext.bazaar.info.output.example, M.EXAMPLES[path],
       `${path}: расширение отдаёт не тот пример`);
+  }
+});
+
+// МАРШРУТ, ОБЪЯВЛЕННЫЙ ДАННЫМИ, ТОЖЕ ОБЯЗАН ПОКАЗАТЬ ПРИМЕР.
+//
+// Здесь была дыра в покрытии, и её стоит назвать: `paidRoutes` берётся из
+// tiersNow(), а он в тесте пуст на объявленные маршруты, потому что loadRoutes не
+// вызывался. То есть проверка «у каждого платного маршрута есть пример» четыре
+// свежих маршрута просто НЕ ВИДЕЛА. Рукописного примера у них быть не может —
+// их никто не писал руками, — поэтому пример собирается из спецификации, и это
+// проверяется отдельно.
+test("у маршрута, объявленного данными, пример собран из спецификации", async () => {
+  const baked = Object.keys(M.bakedRoutes());
+  if (!baked.length) return;                 // нечего проверять — маршрутов не объявляли
+  await M.loadRoutes(null);                  // как в облаке при недоступном KV
+  for (const path of baked) {
+    const ext = M.bazaarExtension(path);
+    const ex = ext.bazaar.info.output.example;
+    assert.ok(ex && ex.declaredBy === "agent",
+      `${path}: покупатель увидит заглушку вместо примера`);
+    assert.ok(ex.query && ex.query.op, `${path}: в примере нет запроса из спецификации`);
+    // и пример не обещает полей, которых настоящий ответ не отдаёт
+    const real = await M.payload(path, new URL("https://x" + path));
+    for (const key of Object.keys(ex)) {
+      assert.ok(key in real, `${path}: пример обещает "${key}", которого в ответе нет`);
+    }
+    assert.ok(!("services" in real) || real.services.length <= (real.count ?? 25),
+      `${path}: маршрут за $0.001 отдаёт больше строк, чем обещал`);
   }
 });
