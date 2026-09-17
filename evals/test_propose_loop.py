@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 from core import roster, agent as A  # noqa: E402
 
 roster.wire()
+from agents import worker  # noqa: E402
 
 
 def _log_decision(agent, chose, outcome, ok=1):
@@ -84,6 +85,53 @@ class SpentToolSuppression(unittest.TestCase):
         _log_decision("dealer", "note_finding", "замечаний нет")
         after = other._spent_tools()
         self.assertEqual(before, after, "чужой пустой исход просочился в набор агента")
+
+
+class SkipTheQuestionNobodyCanAnswer(unittest.TestCase):
+    """Самая дорогая трата системы — вопрос модели агенту, которому нечем ходить.
+
+    Замер аудита: шаг reason_and_act держал 88% всего времени модели, и значительная
+    часть уходила на агентов, у которых каждый инструмент только что отработал
+    вхолостую. Модель звали на 30-90 секунд, она выбирала единственное, что видела,
+    и получала тот же пустой исход.
+    """
+
+    def setUp(self):
+        _clear()
+        self.saved_run = A.router.run
+        self.saved_next = worker.next_reasoner
+
+    def tearDown(self):
+        _clear()
+        A.router.run = self.saved_run
+        worker.next_reasoner = self.saved_next
+
+    def _spend(self, agent_name, tools):
+        for t in tools:
+            _log_decision(agent_name, t, "замечаний нет")
+
+    def test_an_agent_with_nothing_to_do_costs_no_model_call(self):
+        a = A.get("closer")
+        self._spend("closer", a.tools)
+        calls = []
+        A.router.run = lambda k, p: calls.append(1) or "{}"
+        worker.next_reasoner = lambda names: "closer"
+        out = worker.reason_and_act()
+        self.assertEqual(calls, [], "модель звали агенту, которому нечем ходить")
+        self.assertIn("пропуск", out)
+
+    def test_an_agent_with_one_tool_left_still_gets_its_turn(self):
+        """Пропуск не имеет права превращаться в голодание."""
+        a = A.get("closer")
+        self._spend("closer", list(a.tools)[:-1])
+        left = [t for t in a.tools if t not in a._spent_tools()]
+        self.assertTrue(left, "подготовка теста неверна: не осталось инструментов")
+        calls = []
+        A.router.run = lambda k, p: calls.append(1) or json.dumps(
+            {"tool": left[0], "args": {}, "why": "w"})
+        worker.next_reasoner = lambda names: "closer"
+        worker.reason_and_act()
+        self.assertGreater(len(calls), 0, "агента с работой лишили хода")
 
 
 class ListingScoreHonesty(unittest.TestCase):
