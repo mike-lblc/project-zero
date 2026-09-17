@@ -142,6 +142,13 @@ const TIERS = {
   "/tags":     { amount: "1000",   usd: 0.001, what: "tag vocabulary: every capability tag with its provider count, 30-day paying wallets and median price" },
   "/top":      { amount: "1000",   usd: 0.001, what: "highest-demand services: ranked by 30-day unique paying wallets, with calls, price and calls-per-payer" },
   "/service":  { amount: "1000",   usd: 0.001, what: "one service by resource URL: its 30-day calls, unique paying wallets, price, network and tags" },
+  // СПРОС, КОТОРЫЙ УЖЕ ДОКАЗАН ЧУЖИМИ ДЕНЬГАМИ. Замер по нашему каталогу: AX1 Console
+  // берёт $0.02 за «пришли адрес токена Base — получи разбор», и у него 2 168 платящих
+  // при 30.9 вызова на каждого — единственный в топ-40 сервис с настоящим повторным
+  // пользованием. Наши десять маршрутов — срезы одного узкого датасета, и покупают их
+  // свипы, а не клиенты. Этот маршрут бьёт в ту же потребность на бесплатных данных
+  // обозревателя и по той же цене. Только факты из сети: никаких советов.
+  "/token":    { amount: "20000",  usd: 0.02, what: "Base token report: identity, supply, holders, transfer count, contract verification and proxy status — on-chain facts, not investment advice" },
 };
 
 // Стейблкоины Base, принимаемые прямым переводом (1 токен = $1). Контракты проверены по
@@ -340,6 +347,12 @@ const INPUTS = {
     required: [],
   },
   "/networks": { method: "GET", queryParams: {}, params: {}, required: [] },
+  "/token": {
+    method: "GET",
+    queryParams: { a: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+    params: { a: { type: "string", description: "Base token contract address (0x...); omit for a worked example on USDC" } },
+    required: [],
+  },
   "/count": { method: "GET", queryParams: {}, params: {}, required: [] },
   "/tags": { method: "GET", queryParams: {}, params: {}, required: [] },
   "/top": {
@@ -708,7 +721,7 @@ const PRICE_OUTLIERS = CATALOG.filter((s) => typeof s.p === "number" && s.p > PR
 const pct = (sorted, p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : null);
 
 // ------------------------------------------------------------------ ответы тарифов
-function payload(path, url) {
+async function payload(path, url) {
   if (path === "/search") {
     const q = (url.searchParams.get("q") || "").trim();
     const limit = Math.min(+url.searchParams.get("limit") || 10, 50);
@@ -780,6 +793,73 @@ function payload(path, url) {
                      : "no q supplied: prices across the whole catalogue",
              method: "percentiles over services that declare a price above zero and at or below $" + PRICE_CEILING + "/call; zero-price services and outliers counted separately",
              benchmark: band, byCategory };
+  }
+  if (path === "/token") {
+    const raw = (url.searchParams.get("a") || "").trim();
+    const valid = /^0x[0-9a-fA-F]{40}$/.test(raw);
+    // Без адреса (или с мусором) платный вызов всё равно обязан отдать данные:
+    // разбираем USDC на Base как рабочий пример и говорим об этом прямо.
+    const addr = valid ? raw : USDC_BASE;
+    const ex = "https://base.blockscout.com/api/v2";
+    const get = async (u) => {
+      try {
+        const r = await fetch(u, { headers: { accept: "application/json" } });
+        return r.ok ? await r.json() : null;
+      } catch { return null; }
+    };
+    const [tok, acct, cnt] = await Promise.all([
+      get(`${ex}/tokens/${addr}`), get(`${ex}/addresses/${addr}`), get(`${ex}/tokens/${addr}/counters`),
+    ]);
+    if (!tok && !acct) return { generatedAt: new Date().toISOString(), receipt: receipt(),
+      token: addr, explorer_unavailable: true,
+      note: "the public Base explorer did not answer just now; nothing about this token could be established",
+      free_alternative: SELF + "/sample" };
+    const dec = Number((tok || {}).decimals);
+    const supplyRaw = (tok || {}).total_supply;
+    const supply = supplyRaw != null && Number.isFinite(dec) ? Number(supplyRaw) / 10 ** dec : null;
+    const holders = Number((tok || {}).holders_count ?? (cnt || {}).token_holders_count) || null;
+    const transfers = Number((cnt || {}).transfers_count) || null;
+    const impls = ((acct || {}).implementations || []).map((i) => i.address_hash).filter(Boolean);
+    return {
+      generatedAt: new Date().toISOString(),
+      receipt: receipt(),
+      query: valid ? raw : null,
+      mode: valid ? "lookup" : "worked_example",
+      note: valid ? undefined
+                  : "no valid ?a=0x… supplied, so this is the same report for USDC on Base as a worked example",
+      network: "eip155:8453",
+      token: {
+        address: addr,
+        name: (tok || {}).name ?? null,
+        symbol: (tok || {}).symbol ?? null,
+        decimals: Number.isFinite(dec) ? dec : null,
+        standard: (tok || {}).type ?? null,
+        totalSupply: supply,
+        holders,
+        transfers,
+        marketCapUsd: Number((tok || {}).circulating_market_cap) || null,
+        volume24hUsd: Number((tok || {}).volume_24h) || null,
+        priceUsd: Number((tok || {}).exchange_rate) || null,
+      },
+      contract: {
+        isContract: (acct || {}).is_contract ?? null,
+        sourceVerified: (acct || {}).is_verified ?? null,
+        proxyType: (acct || {}).proxy_type ?? null,
+        implementations: impls,
+        creationTx: (acct || {}).creation_transaction_hash ?? null,
+      },
+      // Проверки — это ФАКТЫ с порогом, а не совет. «Купить/не купить» здесь нет и не будет.
+      checks: {
+        sourceVerified: (acct || {}).is_verified === true,
+        upgradeable: Boolean((acct || {}).proxy_type),
+        hasHolders: Boolean(holders),
+        holdersOver1000: Boolean(holders && holders > 1000),
+        hasMarketData: Boolean(Number((tok || {}).circulating_market_cap)),
+        notAContract: (acct || {}).is_contract === false,
+      },
+      method: "every field is read live from the public Base explorer at call time; upgradeable means a proxy whose implementation can be replaced",
+      disclaimer: "On-chain facts only. This is not investment advice and carries no opinion on the token.",
+    };
   }
   if (path === "/count") {
     return { generatedAt: new Date().toISOString(), receipt: receipt(),
@@ -1227,7 +1307,7 @@ export default {
         console.log(JSON.stringify({ ev: d.ok ? "direct_paid" : "direct_failed", path, tx: txParam, why: d.ok ? null : d.why }));
         await bump(env, d.ok ? "direct_paid" : "direct_failed");
         if (!d.ok) return json({ error: "direct payment not verified", reason: d.why, how_to_pay: SELF + "/pay", accepts }, 402);
-        return json({ ...payload(path, url), paid_via: "direct-transfer", tx: d.tx, asset: d.asset, amount: d.amount }, 200);
+        return json({ ...(await payload(path, url)), paid_via: "direct-transfer", tx: d.tx, asset: d.asset, amount: d.amount }, 200);
       }
       // ЧИТАЕМ ОБА ЗАГОЛОВКА — И ЭТО НЕ ПЕРЕСТРАХОВКА.
       //
@@ -1254,7 +1334,7 @@ export default {
           if (pre.ok) {
             console.log(JSON.stringify({ ev: "prepaid", path, tx: pre.tx, amount: pre.amount, from: pre.from }));
             await bump(env, "prepaid");
-            return json({ ...payload(path, url), paid_via: "prepaid-transfer", tx: pre.tx,
+            return json({ ...(await payload(path, url)), paid_via: "prepaid-transfer", tx: pre.tx,
                           asset: pre.asset, amount: pre.amount }, 200);
           }
         }
@@ -1308,7 +1388,7 @@ export default {
         ? { "payment-response": JSON.stringify({ transaction: r.tx }),
             "x-payment-response": JSON.stringify({ transaction: r.tx }) }
         : {};
-      return json(payload(path, url), 200, confirm);
+      return json(await payload(path, url), 200, confirm);
     }
 
     return json({ error: "not found", try: ["/", "/health", "/sample", "/join", "/openapi.json", "/.well-known/x402", ...Object.keys(TIERS)],

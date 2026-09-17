@@ -66,6 +66,10 @@ TARIFF = {
     "/tags": {"usd": 0.001, "what": "tag vocabulary with providers, payers and median price"},
     "/top": {"usd": 0.001, "what": "highest-demand services with calls-per-payer"},
     "/service": {"usd": 0.001, "what": "one service by resource URL"},
+    # Спрос доказан чужими деньгами: AX1 Console берёт $0.02 за разбор адреса токена
+    # Base и держит 2168 платящих при 30.9 вызова на каждого. Бьём в ту же потребность
+    # на бесплатных данных обозревателя. Только факты из сети, без советов.
+    "/token": {"usd": 0.02, "what": "Base token report: identity, supply, holders, contract verification"},
 }
 
 # Цены только, для мест, которым нужен простой словарь.
