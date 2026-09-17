@@ -571,18 +571,88 @@ def _time_goes():
     return out
 
 
+@tool("produce_doc", "GREEN",
+      "выполнить ЗАКАЗАННУЮ документацию из очереди заявок и передать её на доставку "
+      "PR-ом; заявку придумать нельзя — берётся только та, что уже поставлена",
+      needs=("сеть", "gh"))
+def _produce_doc():
+    from agents import executor
+    return str(executor.produce_requested())[:300]
+
+
 @tool("produce_work", "GREEN",
       "СДЕЛАТЬ работу: извлечь интерфейс проекта разбором кода, изложить и "
       "сверить каждое утверждение обратно с исходником",
       needs=("сеть", "gh"))
 def _produce():
+    """Сделать работу И ПЕРЕДАТЬ ЕЁ НА ДОСТАВКУ.
+
+    РАЗОРВАННАЯ ЦЕПЬ, замеренная 17.09. Этот шаг исправно делал документацию —
+    в 14:21 выдал work/BasedHardware_omi_ru.md на 6865 байт — и никому о ней не
+    сообщал. А доставщик (`craftsman.deliver_ready`) ждёт сообщения
+    `documentation_ready` и честно отвечал «готовой к доставке документации нет».
+    Итог: за сутки НОЛЬ подач куда-либо при 126 внешних действиях, из которых 125 —
+    проверки нашего же сервиса.
+
+    Сообщение о передаче отправляется ровно как в `executor.produce_requested`,
+    единственном месте, где эта передача работала: тот же адресат, тот же topic,
+    то же тело. Без request_id: заказа не было, работа взята по своей инициативе.
+    """
     from agents import executor
-    r = executor.produce("BasedHardware/omi", "sdks/python-cli")
-    if r.get("ok"):
-        return (f"работа готова и сверена: команд {r['facts']}, "
-                f"файл {r['path'].split(chr(92))[-1]}")
-    return f"работа НЕ выдана: {r.get('why')}" + (
-        f"; расхождения: {r['problems'][:2]}" if r.get("problems") else "")
+    # УЖЕ СДЕЛАННОЕ НЕ ДЕЛАЕМ ЗАНОВО, И ЭТО НЕ ЭКОНОМИЯ, А ЗАЩИТА.
+    #
+    # Цель этого шага задана в коде: BasedHardware/omi. Работа по ней УЖЕ СДАНА И
+    # ВМЕРЖЕНА — PR BasedHardware/omi#13455 «docs(cli): add Russian quickstart for
+    # omi-cli», а награда за неё помечена lost (не выплачена). То есть шаг раз за
+    # разом заново производил тот же файл на 6865 байт, который давно лежит в их
+    # репозитории.
+    #
+    # Если бы я просто дотянул цепочку до доставки, она отправила бы ПОВТОРНЫЙ PR
+    # с уже вмерженной работой в чужой репозиторий. Это спам, и цена ошибки —
+    # аккаунт mike-lblc, единственный канал ко всем лидам. Поэтому сначала
+    # проверяем, не сдано ли уже, и честно просим новую цель.
+    target = "BasedHardware/omi"
+    try:
+        from core.db import connect as _conn
+        c = _conn()
+        done = c.execute("SELECT number, state FROM pull_requests WHERE repo=? "
+                         "AND UPPER(COALESCE(state,'')) IN ('MERGED','OPEN') LIMIT 1",
+                         (target,)).fetchone()
+        c.close()
+        if done:
+            return (f"работа по {target} уже сдана (PR #{done[0]} {done[1]}) — "
+                    f"заново не делаем; шагу нужна НОВАЯ цель, жёстко заданная в коде "
+                    f"цель исчерпана")
+    except Exception:
+        pass          # не смогли проверить — лучше произвести, чем встать
+    r = executor.produce(target, "sdks/python-cli")
+    if not r.get("ok"):
+        return f"работа НЕ выдана: {r.get('why')}" + (
+            f"; расхождения: {r['problems'][:2]}" if r.get("problems") else "")
+    handed = ""
+    try:
+        import json as _json
+        from core import bus as _bus
+        from core.db import connect as _conn
+        c = _conn()
+        # Дубликат не плодим: непотреблённая передача того же файла уже ждёт.
+        dup = c.execute("SELECT 1 FROM messages WHERE recipient='craftsman' "
+                        "AND topic='documentation_ready' AND consumed_at IS NULL "
+                        "AND body LIKE ? LIMIT 1", (f"%{r.get('path','')[-40:]}%",)).fetchone()
+        if not dup:
+            c.execute("INSERT INTO messages(sender,recipient,topic,body,created_at) "
+                      "VALUES (?,?,?,?,?)",
+                      ("executor", "craftsman", "documentation_ready",
+                       _json.dumps({"repo": target, **r}), _bus.now()))
+            c.commit()
+            handed = "; передано на доставку"
+        else:
+            handed = "; передача уже в очереди"
+        c.close()
+    except Exception as e:
+        handed = f"; ПЕРЕДАТЬ НЕ УДАЛОСЬ ({type(e).__name__}) — доставщик её не увидит"
+    return (f"работа готова и сверена: команд {r['facts']}, "
+            f"файл {r['path'].split(chr(92))[-1]}{handed}")
 
 
 @tool("check_work", "GREEN",
@@ -1360,7 +1430,7 @@ register(Agent(
     role="Исполнитель: делает работу, а не доводит её до порога",
     kpi="число работ, ПРОШЕДШИХ сверку с исходниками; работа, выданная без "
         "сверки, засчитывается как минус, а не как ноль",
-    tools=("produce_work", "check_work", "produce_requested_documentation",
+    tools=("produce_work", "produce_doc", "check_work", "produce_requested_documentation",
            "package_docs"),
     system=COMMON + """
 ТЫ — ИСПОЛНИТЕЛЬ.
