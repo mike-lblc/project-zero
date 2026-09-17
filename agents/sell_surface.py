@@ -562,6 +562,59 @@ def delivery_gap():
 
 BUYER_TARGET = 5          # цель владельца: платежи от пяти РАЗНЫХ покупателей
 
+CDP_VALIDATE = "https://api.cdp.coinbase.com/platform/v2/x402/validate"
+
+
+def validate_surface(limit=11):
+    """Проверить витрину ЧУЖИМИ воротами, а не своими.
+
+    Своя проверка здоровья отвечает на вопрос «работает ли по-нашему». Этот
+    эндпоинт Coinbase отвечает на вопрос, который решает деньги: примет ли нас
+    сторона ПОКУПАТЕЛЯ. Он бесплатен, не требует ни ключа, ни аккаунта, и
+    прогоняет 25 обязательных проверок — от формата 402 до разбора расширения
+    bazaar — плюс симуляцию платежа.
+
+    Поле `index` в ответе — это отдельный и самый важный факт: null значит, что
+    нас нет в ленте обнаружения. Замер 17.09: все 11 маршрутов valid=true,
+    simulation=accepted, index=null. То есть с витриной всё в порядке, а в
+    каталог не пускает ровно одно — у нас ни разу не было платежа, проведённого
+    ЧЕРЕЗ фасилитатор. Оба наших покупателя платят переводом без заголовка,
+    поэтому расчёт не проходил никогда (счётчики воркера: 402 — сотни, paid — 0).
+
+    Шаг НЕ пытается это обойти: платёж делает покупатель, а не продавец.
+    Он лишь отличает «мы сломаны» от «мы в порядке и ждём первого расчёта»,
+    чтобы агенты не чинили исправное.
+    """
+    guard.check_action("research", "GREEN")
+    tariff = live_tariff()
+    routes = sorted(tariff)[:limit]
+    broken, indexed, checked = [], 0, 0
+    for path in routes:
+        st, d = _http(CDP_VALIDATE, method="POST", body={"resource": SELF + path}, timeout=60)
+        if st != 200 or not isinstance(d, dict):
+            broken.append(f"{path}: проверка не ответила ({st})")
+            continue
+        checked += 1
+        if not d.get("valid"):
+            failed = [c.get("check") for c in (d.get("preflight") or [])
+                      if not c.get("passed") and c.get("severity") == "required"]
+            broken.append(f"{path}: НЕ ПРИНЯТ ({', '.join(failed[:3]) or 'без деталей'})")
+        elif (d.get("simulation") or {}).get("outcome") != "accepted":
+            broken.append(f"{path}: симуляция платежа {(d.get('simulation') or {}).get('outcome')}")
+        if d.get("index"):
+            indexed += 1
+    if broken:
+        _note("dealer", "ВИТРИНУ НЕ ПРИНИМАЕТ СТОРОНА ПОКУПАТЕЛЯ: " + "; ".join(broken[:6])
+                        + ". Это чинить раньше всего остального: пока проверка Coinbase не "
+                          "проходит, платёж физически не сможет пройти.", conf=1.0)
+        bus.broadcast("dealer", "Проверка Coinbase не принимает маршруты: " + "; ".join(broken[:3]))
+        return "НЕ ПРИНЯТО: " + "; ".join(broken[:6])
+    if not indexed and checked:
+        return (f"все {checked} маршрутов приняты (valid, платёж симулируется), но в ленте "
+                f"обнаружения нас нет: нужен ОДИН платёж, проведённый через фасилитатор — "
+                f"его делает покупатель, не мы")
+    return f"все {checked} маршрутов приняты, в ленте обнаружения {indexed}"
+
 
 def buyers():
     """Сколько РАЗНЫХ покупателей заплатило — по нашей же книге поступлений.
@@ -619,6 +672,7 @@ def cycle():
     """Полный оборот: поверхность жива, объявлена, цены совпадают, аудит дёрнут."""
     parts = [f"покупатели: {buyers()}",
              f"здоровье: {health()}",
+             f"ворота покупателя: {validate_surface()}",
              f"новые маршруты: {declare_routes()}",
              f"доставка: {delivery_gap()}",
              f"объявления: {ensure_listings()}",

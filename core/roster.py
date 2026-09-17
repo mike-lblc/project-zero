@@ -311,6 +311,16 @@ def _buyers():
     return sell_surface.buyers()
 
 
+@tool("validate_surface", "GREEN",
+      "проверить витрину ВОРОТАМИ ПОКУПАТЕЛЯ: бесплатная проверка Coinbase прогоняет "
+      "25 обязательных проверок и симуляцию платежа, и отдельно говорит, есть ли мы "
+      "в ленте обнаружения",
+      needs=("сеть",))
+def _validate_surface():
+    from agents import sell_surface
+    return sell_surface.validate_surface()
+
+
 @tool("sell_surface", "YELLOW",
       "поддержать продающую поверхность самостоятельно: у каждого платного маршрута есть "
       "объявление в каталоге, который платит; цена в объявлении совпадает с живой; индексы "
@@ -1142,7 +1152,7 @@ register(Agent(
         "каналов и контрагентов с известным способом оплаты, обращений с шестью элементами "
         "протокола и ответов на них; обещание, счёт и заявка не засчитываются",
     tools=("dealer_cycle", "dealer_state", "dealer_report", "moltbook_address_survey",
-           "directory_watch", "sell_surface", "buyers"),
+           "directory_watch", "sell_surface", "buyers", "validate_surface"),
     max_class="YELLOW",
     system=COMMON + """
 ТЫ — ДИЛЕР. Спецификация — MTBX.txt (протокол последней транзакции) с решениями

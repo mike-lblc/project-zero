@@ -37,17 +37,40 @@ class Base(unittest.TestCase):
 
 class Deadline(Base):
     def test_run_stops_at_the_deadline(self):
-        """Прогон обязан остановиться сам: иначе его убьёт таймаут раньше публикации."""
+        """Прогон обязан остановиться сам: иначе его убьёт таймаут раньше публикации.
+
+        Пауза повторов здесь отключена НАРОЧНО. Первая версия теста считала вызовы
+        шага и падала: цикл честно сделал 15 оборотов, но сам шаг не вызвался ни
+        разу — его увела на паузу защита от повторов, потому что предыдущий прогон
+        теста записал те же результаты. Это правильное поведение системы, и мерить
+        им предел по времени нельзя.
+        """
         calls = []
         worker.CYCLE = [("t", lambda: calls.append(1) or "ok")]
         worker.SLOW_CYCLE = []
         worker.MONEY_CYCLE = []
-        t0 = time.time()
-        worker.run_forever(interval=1, deadline_minutes=0.05, only={"t"})
-        spent = time.time() - t0
+        saved_should = worker.should_run
+        worker.should_run = lambda name: True
+        try:
+            t0 = time.time()
+            worker.run_forever(interval=1, deadline_minutes=0.05, only={"t"})
+            spent = time.time() - t0
+        finally:
+            worker.should_run = saved_should
         self.assertGreater(len(calls), 0, "цикл не выполнил ни одного оборота")
         # 3 секунды предела плюс один последний шаг — но не минуты.
         self.assertLess(spent, 60, f"цикл не остановился по пределу: {spent:.0f}с")
+
+    def test_repeat_backoff_still_pauses_a_useless_step(self):
+        """Пауза повторов — это и есть встроенная защита от траты; она обязана работать.
+
+        Замечена в бою на этом же тесте: шаг, возвращающий одно и то же, перестаёт
+        вызываться, хотя обороты продолжаются. Владелец просил убрать трату — вот
+        механизм, который её убирает, и он не должен тихо отключиться.
+        """
+        import inspect
+        self.assertIn("should_run", inspect.getsource(worker._turn),
+                      "оборот больше не спрашивает разрешения — пауза повторов обойдена")
 
     def test_without_deadline_it_is_still_endless(self):
         """Локальная работа не должна получить предел случайно."""
