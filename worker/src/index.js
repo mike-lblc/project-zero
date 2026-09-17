@@ -1149,6 +1149,8 @@ export default {
                   + "one service up by URL, /report and /alpha are the category report and the underserved "
                   + "niches, /dataset is the full export. EVERY paid route answers a call with no parameters "
                   + "at all with real data rather than an error, so a blind purchase is never wasted. "
+                  + "If you transferred the price to payTo without a payment header, just call the route "
+                  + "again within 30 minutes and it serves the data (one transfer, one response). "
                   + "/sample and /health are free. Payment is x402 v2, scheme exact, network eip155:8453, "
                   + "native USDC; a plain USDC/USDT/DAI transfer on Base also works via ?tx=<hash>." },
         servers: [{ url: SELF }],
@@ -1278,8 +1280,16 @@ export default {
         // Свои проверки (сторож, аудиты) в счётчик спроса не идут — иначе 402 «от покупателей»
         // окажутся нашими же health_check каждые несколько минут.
         if (!/P0-worker|P0-audit|MTBX-audit|P0-agent/i.test(ua402)) await bump(env, "402");
+        // СКАЗАТЬ ВСЛУХ, ЧТО «СНАЧАЛА ПЛАТЁЖ» У НАС РАБОТАЕТ. Проверяющие покупатели
+        // переводят цену на payTo и зовут маршрут без заголовка; у 146 эндпоинтов
+        // каталога это кончается 402 на уже оплаченном вызове. У нас — нет, но узнать
+        // об этом покупателю было негде.
         const body402 = { ...pr, error: "Payment Required",
-                          free_alternative: "/sample", pay_without_x402: SELF + "/pay", weekly_report: JOIN_URL };
+                          free_alternative: "/sample", pay_without_x402: SELF + "/pay", weekly_report: JOIN_URL,
+                          already_paid: "Already transferred the price to payTo without a payment header? "
+                                      + "Call this same route again within 30 minutes and it serves the data "
+                                      + "(one transfer, one response). USDC, USDT or DAI on Base all count.",
+                          pay_with_tx_hash: SELF + path + "?tx=<your transaction hash>" };
         return json(body402, 402, { "payment-required": b64utf8(JSON.stringify(pr)) });
       }
 
