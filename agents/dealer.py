@@ -477,21 +477,42 @@ def _register_x402scan():
     return {k: d.get(k) for k in ("success", "registered", "publicCount", "apiKeyCount", "failed", "skipped", "total", "originId")}
 
 
-def _in_feed(url, pages=8, limit=100):
-    """Есть ли наш хост в ленте обнаружения (Bazaar-подобной): листаем до pages страниц."""
+def _in_feed(url, limit=1000, max_pages=40):
+    """Есть ли наш хост в ленте обнаружения (Bazaar-подобной).
+
+    Раньше проверка читала восемь страниц по сто записей — 800 из 15 885, то есть
+    двадцатую часть ленты, и уверенно докладывала «нас нет». Отсутствие, измеренное
+    на пяти процентах, ничем не отличается от догадки; при этом ровно на этом ответе
+    строится вывод «в каталог не пускают». Читаем ленту целиком и, если дочитать не
+    удалось, говорим СКОЛЬКО прочитано, а не «нас нет».
+    """
     import urllib.request
-    for page in range(pages):
+    seen, total = 0, None
+    for page in range(max_pages):
         try:
             r = urllib.request.urlopen(urllib.request.Request(
-                f"{url}?limit={limit}&offset={page * limit}", headers={"User-Agent": "P0-dealer/1.0"}), timeout=30)
+                f"{url}?limit={limit}&offset={page * limit}",
+                headers={"User-Agent": "P0-dealer/1.0"}), timeout=60)
             raw = r.read().decode("utf-8", "ignore")
         except Exception as e:
+            if seen:
+                return None, f"{type(e).__name__} после {seen} записей"
             return None, f"{type(e).__name__}"
         if OUR_HOST in raw:
-            return True, f"страница {page}"
-        if len(raw) < 200 or '"items":[]' in raw.replace(" ", ""):
+            return True, f"запись в пределах {seen + limit}"
+        try:
+            d = json.loads(raw)
+            items = d.get("items") or d.get("resources") or []
+            total = ((d.get("pagination") or {}).get("total")) or total
+        except Exception:
+            items = []
+        seen += len(items)
+        if not items or (total and seen >= total):
             break
-    return False, f"не найден в {pages} страницах"
+    scope = f"{seen} записей" + (f" из {total}" if total else "")
+    if total and seen >= total:
+        return False, f"нас нет во всей ленте ({scope})"
+    return False, f"не найден, прочитано {scope} — лента дочитана не до конца"
 
 
 def seek_indexes(discover=True):
