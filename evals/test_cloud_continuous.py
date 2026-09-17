@@ -120,6 +120,52 @@ class StrictFilter(Base):
         worker.run_forever(interval=1, deadline_minutes=0.08, only={"t"})   # не должно бросить
 
 
+class MoneyStepsOnAClock(Base):
+    """Шаг, от которого зависит выручка, не ждёт очереди наравне с летописью.
+
+    Аудит замерил перекос: `directory_watch` — единственный канал, который когда-либо
+    приносил платёж, — отработал 5 раз за 7 дней, потому что лежит в очереди редких
+    шагов (один слот на 20 быстрых при 35 шагах в очереди). На это же наткнулся
+    `deploy_if_changed`: в пятичасовом облачном прогоне он мог не подняться ни разу,
+    и автономность деплоя осталась бы бумажной.
+    """
+
+    def test_critical_steps_run_on_their_own_clock(self):
+        fired = []
+        worker.CYCLE = [("t", lambda: "ok")]
+        worker.SLOW_CYCLE = [
+            ("watch_payments", lambda: fired.append("watch_payments") or "нет платежей"),
+            ("deploy_if_changed", lambda: fired.append("deploy_if_changed") or "не менялся"),
+        ]
+        worker.MONEY_CYCLE = []
+        saved_every = dict(worker.CRITICAL_EVERY)
+        worker.CRITICAL_EVERY.clear()
+        worker.CRITICAL_EVERY.update({"watch_payments": 0.01, "deploy_if_changed": 0.01})
+        worker._CRITICAL_AT.clear()
+        clock = [1000.0]
+        s_time, s_sleep, s_should = worker.time.time, worker.time.sleep, worker.should_run
+        worker.time.time = lambda: clock[0]
+        worker.time.sleep = lambda s: clock.__setitem__(0, clock[0] + max(s, 1.0))
+        worker.should_run = lambda name: True
+        try:
+            worker.run_forever(interval=1, deadline_minutes=0.1,
+                               only={"t", "watch_payments", "deploy_if_changed"})
+        finally:
+            worker.time.time, worker.time.sleep, worker.should_run = s_time, s_sleep, s_should
+            worker.CRITICAL_EVERY.clear(); worker.CRITICAL_EVERY.update(saved_every)
+            worker._CRITICAL_AT.clear()
+        self.assertEqual(set(fired), {"watch_payments", "deploy_if_changed"},
+                         "денежные шаги не отработали по своим часам")
+
+    def test_the_paying_channel_and_the_deploy_are_both_on_the_clock(self):
+        """Состав списка — не декоративный: в нём обязаны быть платящий канал и выкат."""
+        for step in ("watch_payments", "directory_watch", "sell_surface", "deploy_if_changed"):
+            self.assertIn(step, worker.CRITICAL_EVERY, f"{step} снова ждёт очереди")
+        # интервалы разумны: проверить платёж чаще, чем разворачивать
+        self.assertLess(worker.CRITICAL_EVERY["watch_payments"],
+                        worker.CRITICAL_EVERY["sell_surface"])
+
+
 class Wiring(unittest.TestCase):
     def test_cloud_workflow_runs_the_continuous_loop(self):
         """Облачный файл обязан звать тот же цикл, а не второй его вариант."""

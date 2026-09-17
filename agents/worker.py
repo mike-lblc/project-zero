@@ -479,6 +479,29 @@ BOARD_EVERY_S = 240                 # раз в 4 минуты и только �
 _BOARD_HASH = [""]
 TM_EVERY_S = 600                    # Taskmarket: новые задачи и наши подачи — раз в 10 минут
 _TM_SYNCED = [0.0]
+
+# ДЕНЕЖНЫЕ ШАГИ ИДУТ ПО ЧАСАМ, А НЕ ПО МЕСТУ В ОЧЕРЕДИ.
+#
+# Аудит замерил перекос прямо: `directory_watch` — единственный канал, который
+# когда-либо приносил платёж, — отработал 5 раз за 7 дней (раз в 33.6 ч), потому
+# что лежит в очереди редких шагов (один слот на 20 быстрых, а в очереди их 35).
+# Шаг, от которого зависит выручка, не должен ждать своей очереди наравне с
+# «переписать летопись».
+#
+# Я упёрся в это сам: `deploy_if_changed` встал в ту же очередь, и в пятичасовом
+# облачном прогоне он мог не подняться НИ РАЗУ — то есть автономность деплоя
+# существовала бы только на бумаге.
+#
+# Механизм взят тот же, что уже проверен здесь для доски и Taskmarket: свои часы
+# на шаг. Числа — по цене промаха: проверить платёж дёшево и важно, развернуть —
+# дорого и редко.
+CRITICAL_EVERY = {
+    "watch_payments": 600,        # не пришёл ли платёж — раз в 10 минут
+    "directory_watch": 1800,      # единственный платящий каталог — раз в 30 минут
+    "sell_surface": 3600,         # объявления, цены, индексы, ворота покупателя — раз в час
+    "deploy_if_changed": 1800,    # изменился исходник — выкатить; не менялся — no-op
+}
+_CRITICAL_AT = {}
 _TM_BUSY = [False]
 _BOARD_PUSHED = [0.0]
 
@@ -1627,6 +1650,26 @@ def run_forever(interval=90, deadline_minutes=None, only=None):
                     _TM_BUSY[0] = False
             import threading as _th
             _th.Thread(target=_tm_bg, daemon=True).start()
+        # ДЕНЕЖНЫЕ ШАГИ — ПО СВОИМ ЧАСАМ, ВНЕ ОЧЕРЕДИ (см. CRITICAL_EVERY).
+        # Шаг, от которого зависит выручка, не ждёт своей очереди наравне с летописью.
+        _steps_now = dict(CYCLE + SLOW_CYCLE)
+        for _cname, _csec in CRITICAL_EVERY.items():
+            if only is not None and _cname not in only:
+                continue
+            _cfn = _steps_now.get(_cname)
+            if not _cfn or time.time() - _CRITICAL_AT.get(_cname, 0.0) <= _csec:
+                continue
+            _CRITICAL_AT[_cname] = time.time()
+            _cstarted = now()
+            try:
+                _cout = _cfn()
+                record_run(_cname, AGENT_OF.get(_cname, "orchestrator"), True,
+                           str(_cout)[:300], _cstarted, now())
+                print(f"[worker] по часам {_cname}: {str(_cout)[:140]}", flush=True)
+            except Exception as _ce:
+                record_run(_cname, AGENT_OF.get(_cname, "orchestrator"), False,
+                           f"{type(_ce).__name__}: {_ce}", _cstarted, now())
+                print(f"[worker] по часам {_cname} упал: {type(_ce).__name__}", flush=True)
         # каждые SLOW_EVERY шагов — один редкий вместо быстрого
         if i and i % SLOW_EVERY == 0 and SLOW_CYCLE:
             # Пустая очередь редких шагов роняла цикл делением на ноль: это
