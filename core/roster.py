@@ -321,6 +321,25 @@ def _buyers():
     return sell_surface.buyers()
 
 
+@tool("declare_routes", "YELLOW",
+      "объявить НОВЫЙ платный маршрут данными, без правки кода: путь, цена и запрос к "
+      "нашему каталогу из закрытого списка операций; воркер спецификацию интерпретирует, "
+      "прислать код нельзя",
+      needs=("сеть",))
+def _declare_routes():
+    from agents import sell_surface
+    return sell_surface.declare_routes()
+
+
+@tool("register_indexes", "GREEN",
+      "разместить наши маршруты в индексах, куда пускают без аккаунта (x402scan, agent402): "
+      "сами они не платят, но приводят платящих агентов",
+      needs=("сеть",))
+def _register_indexes():
+    from agents import sell_surface
+    return sell_surface.register_indexes()
+
+
 @tool("validate_surface", "GREEN",
       "проверить витрину ВОРОТАМИ ПОКУПАТЕЛЯ: бесплатная проверка Coinbase прогоняет "
       "25 обязательных проверок и симуляцию платежа, и отдельно говорит, есть ли мы "
@@ -1162,7 +1181,11 @@ register(Agent(
         "каналов и контрагентов с известным способом оплаты, обращений с шестью элементами "
         "протокола и ответов на них; обещание, счёт и заявка не засчитываются",
     tools=("dealer_cycle", "dealer_state", "dealer_report", "moltbook_address_survey",
-           "directory_watch", "sell_surface", "buyers", "validate_surface"),
+           "directory_watch", "sell_surface", "buyers", "validate_surface",
+           # Исполнитель гипотез — у дельца: он же отвечает за деньги, и именно
+           # ему нужно превращать план во внешнее действие, не дожидаясь, пока
+           # шаг поднимется в общей очереди редких шагов.
+           "declare_routes", "register_indexes", "strategist_think"),
     max_class="YELLOW",
     system=COMMON + """
 ТЫ — ДИЛЕР. Спецификация — MTBX.txt (протокол последней транзакции) с решениями

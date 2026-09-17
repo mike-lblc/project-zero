@@ -134,7 +134,11 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "improve_code":"improver", "reach_out":"salesman",
             "dealer_cycle":"dealer", "dealer_state":"dealer", "deliver_aibtc":"bounty",
             "revalidate_channels":"leads",
-            "strategist_think":"orchestrator", "strategist_report":"orchestrator",
+            # Исполнитель гипотез записан на ДЕЛЬЦА, а не на оркестратора: инструмент
+            # теперь у него, а ведомость активности обязана кредитовать того, кто
+            # действительно держит инструмент, — иначе внешние действия приписываются
+            # агенту, который их не делал (инвариант test_agent_fairness).
+            "strategist_think":"dealer", "strategist_report":"orchestrator",
             "deploy_if_changed":"improver",
             "scout_registrations":"browser_scout", "hunt_offsite":"browser_scout",
             "moltbook_address_survey":"dealer"}
