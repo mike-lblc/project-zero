@@ -211,6 +211,111 @@ async function bump(env, ev) {
 // использованным и отдаём данные. Строго: наш payTo, признанный стейблкоин,
 // не старше 30 минут, один перевод — один ответ. Из подходящих берём САМЫЙ
 // ДЕШЁВЫЙ, чтобы вызов за цент не съедал перевод за пять.
+// НЕ ТОЛЬКО USDC (владелец 17.09). Адреса у нас есть на нескольких сетях, и до сих
+// пор автоматически проверялся только стейблкоин на Base — остальное страница /pay
+// обещала «разобрать руками в течение дня». Теперь проверяются и они, и мгновенно.
+// Все три источника бесплатны и работают без ключа (проверено живыми вызовами):
+// mempool.space для биткойна, api.trongrid.io для TRON, Blockscout для Base,
+// курс — спот Coinbase.
+const OWNER = {
+  btc: "bc1qqwgyyqv6raq2jnghals2n2aujgwd4e9p64g4hr",
+  tron: "TB9rHqT8yLxwdsWCb3zN2nvjc8wLhsUdaQ",
+};
+const TRON_USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+
+// Курс держим в памяти изолята пять минут: иначе каждый платёж стоил бы лишнего
+// запроса, а цена монеты за пять минут не меняет сути проверки «хватило ли суммы».
+const SPOT = new Map();
+async function spotUsd(sym) {
+  const hit = SPOT.get(sym);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.usd;
+  try {
+    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`, { headers: { accept: "application/json" } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const usd = Number(((d || {}).data || {}).amount);
+    if (!Number.isFinite(usd) || usd <= 0) return null;
+    SPOT.set(sym, { at: Date.now(), usd });
+    return usd;
+  } catch { return null; }
+}
+
+// Один и тот же перевод не открывает два ответа, в какой бы сети он ни пришёл.
+async function claimOnce(env, key, meta) {
+  if (SPENT.has(key)) return false;
+  try { if (env.BOARD && (await env.BOARD.get("used:" + key))) return false; } catch {}
+  try { if (env.BOARD) await env.BOARD.put("used:" + key, JSON.stringify(meta), { expirationTtl: 60 * 60 * 24 * 400 }); } catch {}
+  SPENT.add(key);
+  return true;
+}
+
+// БИТКОЙН. mempool.space отдаёт выходы транзакции с адресом и суммой в сатоши.
+async function btcPaid(txid, tier, env) {
+  let d;
+  try {
+    const r = await fetch(`https://mempool.space/api/tx/${txid}`, { headers: { accept: "application/json" } });
+    if (!r.ok) return { ok: false, why: `bitcoin transaction not found (${r.status})` };
+    d = await r.json();
+  } catch { return { ok: false, why: "bitcoin explorer unavailable" } }
+  const sats = (d.vout || [])
+    .filter((o) => (o.scriptpubkey_address || "") === OWNER.btc)
+    .reduce((n, o) => n + Number(o.value || 0), 0);
+  if (!sats) return { ok: false, why: `no output to ${OWNER.btc} in this transaction` };
+  const px = await spotUsd("BTC");
+  if (!px) return { ok: false, why: "bitcoin price unavailable, cannot price the payment" };
+  const usd = (sats / 1e8) * px;
+  if (usd + 1e-9 < tier.usd) return { ok: false, why: `output is $${usd.toFixed(4)}, the route costs $${tier.usd}` };
+  const confirmed = Boolean(((d.status || {}).confirmed));
+  if (!(await claimOnce(env, "btc:" + txid, { at: new Date().toISOString(), amount: sats / 1e8, asset: "BTC", usd })))
+    return { ok: false, why: "this transaction was already used for a purchase" };
+  return { ok: true, tx: txid, asset: "BTC", amount: sats / 1e8, usd, confirmed };
+}
+
+// TRON. Смотрим наши входящие: TRC20 (USDT) и родной TRX, и ищем среди них этот перевод.
+async function tronPaid(txid, tier, env) {
+  const get = async (u) => {
+    try {
+      const r = await fetch(u, { headers: { accept: "application/json" } });
+      return r.ok ? await r.json() : null;
+    } catch { return null; }
+  };
+  const base = "https://api.trongrid.io/v1/accounts/" + OWNER.tron;
+  const [trc, nat] = await Promise.all([
+    get(`${base}/transactions/trc20?limit=50&only_to=true`),
+    get(`${base}/transactions?limit=50&only_to=true`),
+  ]);
+  if (!trc && !nat) return { ok: false, why: "tron explorer unavailable" };
+  let usd = null, amount = null, asset = null;
+  for (const t of ((trc || {}).data || [])) {
+    if (String(t.transaction_id) !== txid) continue;
+    if (String(t.to) !== OWNER.tron) continue;
+    const info = t.token_info || {};
+    if (String(info.address) !== TRON_USDT) return { ok: false, why: `token ${info.symbol || "?"} is not accepted on TRON (USDT TRC20 only)` };
+    amount = Number(t.value || 0) / 10 ** Number(info.decimals || 6);
+    usd = amount; asset = "USDT";
+    break;
+  }
+  if (usd == null) {
+    for (const t of ((nat || {}).data || [])) {
+      if (String(t.txID) !== txid) continue;
+      const c = ((t.raw_data || {}).contract || [])[0] || {};
+      const v = (((c.parameter || {}).value) || {});
+      if (String(v.to_address_base58 || v.to_address || "") && Number(v.amount)) {
+        amount = Number(v.amount) / 1e6;
+        const px = await spotUsd("TRX");
+        if (!px) return { ok: false, why: "tron price unavailable, cannot price the payment" };
+        usd = amount * px; asset = "TRX";
+      }
+      break;
+    }
+  }
+  if (usd == null) return { ok: false, why: `no incoming transfer to ${OWNER.tron} found for that transaction id` };
+  if (usd + 1e-9 < tier.usd) return { ok: false, why: `transfer is $${usd.toFixed(4)}, the route costs $${tier.usd}` };
+  if (!(await claimOnce(env, "tron:" + txid, { at: new Date().toISOString(), amount, asset, usd })))
+    return { ok: false, why: "this transaction was already used for a purchase" };
+  return { ok: true, tx: txid, asset, amount, usd };
+}
+
 // Память изолята: кэш входящих переводов и отметки уже отработанных переводов.
 // Живёт, пока жив изолят, и не стоит ни одной записи в KV.
 const INBOX_CACHE = new Map();
@@ -320,7 +425,24 @@ async function directPaid(tx, tier, payTo, env) {
     const usd = Number(raw) / 10 ** tok.decimals;
     return usd + 1e-9 >= tier.usd;
   });
-  if (!hit) return { ok: false, why: "no stablecoin transfer to " + payTo + " of at least $" + tier.usd + " found in this transaction (USDC, USDT or DAI on Base)" };
+  if (!hit) {
+    // РОДНОЙ ETH ТОЖЕ ДЕНЬГИ. Стейблкоина в транзакции нет — значит могли заплатить
+    // самим эфиром: у него нет token_transfers, сумма лежит в value транзакции.
+    const to = ((d.to || {}).hash || "").toLowerCase();
+    const wei = Number(d.value || 0);
+    if (to === payTo.toLowerCase() && wei > 0) {
+      const px = await spotUsd("ETH");
+      if (!px) return { ok: false, why: "ether price unavailable, cannot price the payment" };
+      const eth = wei / 1e18;
+      const usd = eth * px;
+      if (usd + 1e-9 < tier.usd)
+        return { ok: false, why: `transfer is $${usd.toFixed(4)} of ETH, the route costs $${tier.usd}` };
+      if (!(await claimOnce(env, tx.toLowerCase(), { at: new Date().toISOString(), amount: eth, asset: "ETH", usd })))
+        return { ok: false, why: "this transaction was already used for a purchase" };
+      return { ok: true, tx, asset: "ETH", amount: eth, usd };
+    }
+    return { ok: false, why: "no payment to " + payTo + " of at least $" + tier.usd + " found in this transaction (USDC, USDT, DAI or native ETH on Base)" };
+  }
   const tok = BASE_STABLES[((hit.token || {}).address_hash || (hit.token || {}).address || "").toLowerCase()];
   const amount = Number(((hit.total || {}).value || hit.value || "0")) / 10 ** tok.decimals;
   try { await env.BOARD.put(usedKey, JSON.stringify({ at: new Date().toISOString(), amount, asset: tok.symbol }), { expirationTtl: 60 * 60 * 24 * 400 }); } catch {}
@@ -1343,6 +1465,27 @@ export default {
       const accepts = acceptsFor(path, payTo, t.what);
       const reqs = accepts[0];   // Base — способ по умолчанию, для прямого перевода и текстов
       // ПРЯМОЙ ПЕРЕВОД: ?tx=<hash> — проверяем перевод на Base и отдаём ответ без x402.
+      // НЕ ТОЛЬКО BASE. Явные параметры на каждую сеть: один и тот же 64-символьный
+      // идентификатор бывает и биткойновым, и тронским, и угадывать сеть по форме —
+      // это ошибаться на чужих деньгах.
+      const btcParam = (url.searchParams.get("btc") || "").trim();
+      if (/^[0-9a-fA-F]{64}$/.test(btcParam)) {
+        const b = await btcPaid(btcParam, t, env);
+        console.log(JSON.stringify({ ev: b.ok ? "btc_paid" : "btc_failed", path, tx: btcParam, why: b.ok ? null : b.why }));
+        await bump(env, b.ok ? "btc_paid" : "btc_failed");
+        if (!b.ok) return json({ error: "bitcoin payment not verified", reason: b.why, how_to_pay: SELF + "/pay", accepts }, 402);
+        return json({ ...(await payload(path, url)), paid_via: "bitcoin-transfer", tx: b.tx, asset: "BTC",
+                      amount: b.amount, usd: b.usd, confirmed: b.confirmed }, 200);
+      }
+      const tronParam = (url.searchParams.get("tron") || "").trim();
+      if (/^[0-9a-fA-F]{64}$/.test(tronParam)) {
+        const tr = await tronPaid(tronParam, t, env);
+        console.log(JSON.stringify({ ev: tr.ok ? "tron_paid" : "tron_failed", path, tx: tronParam, why: tr.ok ? null : tr.why }));
+        await bump(env, tr.ok ? "tron_paid" : "tron_failed");
+        if (!tr.ok) return json({ error: "tron payment not verified", reason: tr.why, how_to_pay: SELF + "/pay", accepts }, 402);
+        return json({ ...(await payload(path, url)), paid_via: "tron-transfer", tx: tr.tx, asset: tr.asset,
+                      amount: tr.amount, usd: tr.usd }, 200);
+      }
       const txParam = url.searchParams.get("tx") || "";
       if (/^0x[0-9a-fA-F]{64}$/.test(txParam)) {
         const d = await directPaid(txParam, t, payTo, env);
@@ -1411,7 +1554,11 @@ export default {
                           already_paid: "Already transferred the price to payTo without a payment header? "
                                       + "Call this same route again within 30 minutes and it serves the data "
                                       + "(one transfer, one response). USDC, USDT or DAI on Base all count.",
-                          pay_with_tx_hash: SELF + path + "?tx=<your transaction hash>" };
+                          pay_with_tx_hash: SELF + path + "?tx=<your transaction hash>",
+                          other_assets: { base_evm: SELF + path + "?tx=<0x hash>  (USDC, USDT, DAI or native ETH)",
+                                          bitcoin: SELF + path + "?btc=<txid>  (to " + OWNER.btc + ")",
+                                          tron: SELF + path + "?tron=<txid>  (USDT TRC20 or TRX, to " + OWNER.tron + ")",
+                                          note: "non-stablecoin amounts are priced at Coinbase spot at the moment of the call" } };
         return json(body402, 402, { "payment-required": b64utf8(JSON.stringify(pr)) });
       }
 
