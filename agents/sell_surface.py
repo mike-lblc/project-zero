@@ -31,7 +31,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -250,9 +250,24 @@ def register_indexes():
 def health():
     """Каждый платный маршрут обязан отдавать 402 с нашим адресом, а бесплатный — 200."""
     guard.check_action("research", "GREEN")
-    bad = []
+    # СТАТУС 0 — ЭТО НАША СЕТЬ, А НЕ СЛОМАННЫЙ МАРШРУТ.
+    # Первый прогон закричал «СЛОМАНО: /count отдал 0», хотя curl на тот же адрес
+    # отдавал 402. Ноль возвращает наш же urllib при сетевом сбое, и выдавать это
+    # за поломку продающей поверхности — значит научить агента кричать зря.
+    # Поэтому: одна повторная попытка, и недостижимое числится НЕПРОВЕРЕННЫМ.
+    def probe(path, want):
+        for _ in range(2):
+            st, d = _http(SELF + path, timeout=30)
+            if st:
+                return st, d
+        return 0, {}
+
+    bad, unreachable = [], []
     for path in sorted(TARIFF):
-        st, d = _http(SELF + path, timeout=30)
+        st, d = probe(path, 402)
+        if st == 0:
+            unreachable.append(path)
+            continue
         if st != 402:
             bad.append(f"{path} отдал {st}, а должен 402")
             continue
@@ -260,19 +275,70 @@ def health():
         if not str(acc.get("payTo", "")).lower().endswith("c55354"):
             bad.append(f"{path}: чужой payTo {acc.get('payTo')}")
     for path in ("/health", "/sample"):
-        st, _ = _http(SELF + path, timeout=30)
-        if st != 200:
+        st, _ = probe(path, 200)
+        if st == 0:
+            unreachable.append(path)
+        elif st != 200:
             bad.append(f"{path} отдал {st}, а должен 200")
     if bad:
         _note("dealer", "ПРОДАЮЩАЯ ПОВЕРХНОСТЬ СЛОМАНА: " + "; ".join(bad), conf=1.0)
         bus.broadcast("dealer", "Маршруты отвечают не так, как продаются: " + "; ".join(bad[:4]))
         return "СЛОМАНО: " + "; ".join(bad)
+    if unreachable:
+        return (f"проверено {len(TARIFF) - len([p for p in unreachable if p in TARIFF])} платных из {len(TARIFF)}; "
+                f"не дозвонились до {len(unreachable)} ({', '.join(unreachable[:4])}) — это наша сеть, не поломка")
     return f"все {len(TARIFF)} платных отдают 402 с нашим адресом, бесплатные — 200"
+
+
+def delivery_gap():
+    """Взяли деньги — отдали ли товар?
+
+    Именно на этом мы потеряли первого покупателя: 17.09 пришло 12 переводов, а
+    воркер не записал ни одного обслуженного вызова — платёжного заголовка не
+    присылали, и мы отвечали 402 на уже оплаченный вызов. Каталог nohumans держит
+    для этого отдельный класс отказа (paid_but_status_402, 146 эндпоинтов), и
+    повторных покупок в нём не бывает. Считаем разрыв вслух, чтобы он не жил молча.
+    """
+    guard.check_action("research", "GREEN")
+    from core.payment import OWNER_DESTINATIONS as DEST
+    evm = DEST.get("evm")
+    st, d = _http(f"https://base.blockscout.com/api/v2/addresses/{evm}/token-transfers?filter=to", timeout=40)
+    if st != 200:
+        return f"обозреватель Base не ответил ({st}) — разрыв не посчитан"
+    items = d.get("items") or []
+    # ОКНО, А НЕ ВСЯ ИСТОРИЯ. Двенадцать переводов 17.09 пришли ДО того, как маршрут
+    # научился отдавать товар за уже сделанный платёж, и доставить их назад нельзя.
+    # Вечная тревога о непоправимом — это шум, поэтому считаем сутки: так виден
+    # НОВЫЙ разрыв, а старый долг называется отдельно и один раз.
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    recent = [t for t in items if str(t.get("timestamp") or "") >= since]
+    st2, stats = _http(SELF + "/stats.json", timeout=30)
+    days = (stats.get("days") or {}) if st2 == 200 else {}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    yday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    served = 0
+    for key in (today, yday):
+        for k in ("paid", "prepaid", "direct_paid", "btc_paid", "tron_paid", "sol_paid", "stx_paid"):
+            served += int((days.get(key) or {}).get(k) or 0)
+    paid_in = len(recent)
+    gap = paid_in - served
+    if gap > 0:
+        _note("dealer",
+              f"РАЗРЫВ ДОСТАВКИ: получено {paid_in} переводов, обслужено {served} вызовов. "
+              f"{gap} платежей не превратились в отданный товар. Это класс paid_but_status_402: "
+              f"деньги взяли, данные не отдали, повторной покупки не будет. Проверить, что на "
+              f"платном маршруте без заголовка ищется уже пришедший перевод.", conf=0.9)
+        bus.broadcast("dealer",
+                      f"Взяли {paid_in} платежей, обслужили {served} вызовов — разрыв {gap}. "
+                      f"Платёж без заголовка обязан открывать маршрут, иначе покупатель не вернётся.")
+        return f"РАЗРЫВ {gap} за сутки: платежей {paid_in}, обслужено {served} (всего платежей {len(items)})"
+    return f"разрыва нет за сутки: платежей {paid_in}, обслужено {served} (всего платежей {len(items)})"
 
 
 def cycle():
     """Полный оборот: поверхность жива, объявлена, цены совпадают, аудит дёрнут."""
     parts = [f"здоровье: {health()}",
+             f"доставка: {delivery_gap()}",
              f"объявления: {ensure_listings()}",
              f"цены: {fix_price_drift()}",
              f"индексы: {register_indexes()}",
