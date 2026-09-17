@@ -65,7 +65,7 @@ LINKS = [
      "secret": None, "live": True,
      "why": "проверка Coinbase: 25 обязательных проверок + симуляция платежа"},
     {"name": "развернуть платный сервис", "tool": "deploy_if_changed", "step": "deploy_if_changed",
-     "secret": "CLOUDFLARE_API_TOKEN", "live": False,
+     "secret": "CLOUDFLARE_API_TOKEN", "live": False, "needs_runtime": "node",
      "why": "ЭТО человек делал сам: npx wrangler deploy"},
     {"name": "исполнить гипотезу наружу", "tool": "strategist_think", "step": "strategist_think",
      "secret": "MOLTBOOK_API_KEY", "live": False,
@@ -92,16 +92,62 @@ CLOUD_ENV = {
 }
 
 
+LOOP_STEP = "- name: Непрерывный облачный цикл"
+
+
+def _loop_step_at(wf):
+    """Где в файле НАЧИНАЕТСЯ шаг непрерывного цикла.
+
+    Искать голую фразу нельзя: она встречается и в шапке файла, и в комментариях.
+    Однажды это уже дало ложные провалы — ведомость прочитала блок из шапки и
+    доложила, что секреты облаку не переданы, хотя они переданы. Ведомость,
+    которая врёт, хуже отсутствующей, поэтому привязываемся к объявлению шага.
+    """
+    return wf.find(LOOP_STEP)
+
+
 def _cloud_env_names():
     """Какие переменные окружения облако реально передаёт шагу цикла."""
     try:
         import re
         wf = (ROOT / ".github" / "workflows" / "agents.yml").read_text(encoding="utf-8")
-        block = wf[wf.find("Непрерывный облачный цикл"):]
+        at = _loop_step_at(wf)
+        if at < 0:
+            return set()
+        block = wf[at:]
         block = block[:block.find("run: |")]
         return set(re.findall(r"^\s{10}([A-Z0-9_]+):", block, re.M))
     except Exception:
         return set()
+
+
+def _runtime_ready_in_cloud(need):
+    """Есть ли в облаке БИНАРНИК, без которого звено мертво, и ДО шага цикла.
+
+    Урок, купленный дорого. `deploy_if_changed` был в облаке, с секретом и по
+    часам — то есть по всем признакам «автономен». А развернуть не мог ни разу:
+    `actions/setup-node` стоял ПОСЛЕ непрерывного цикла, а worker/node_modules
+    в репозиторий не коммитится. Собственные ворота деплоя (`node --check` и
+    тесты воркера) падали на отсутствующем node.
+
+    Поэтому ведомость смотрит не только на проводку, но и на ПОРЯДОК ШАГОВ: нужный
+    инструмент обязан ставиться раньше того шага, который им пользуется.
+    """
+    try:
+        wf = (ROOT / ".github" / "workflows" / "agents.yml").read_text(encoding="utf-8")
+    except Exception:
+        return False, "workflow не прочитан"
+    loop_at = _loop_step_at(wf)
+    if loop_at < 0:
+        return False, "шаг непрерывного цикла не найден"
+    before = wf[:loop_at]
+    if need == "node":
+        if "setup-node" not in before:
+            return False, "setup-node стоит ПОСЛЕ цикла — node в цикле недоступен"
+        if "--prefix worker" not in before:
+            return False, "зависимости воркера не ставятся до цикла (нет wrangler)"
+        return True, "node и зависимости воркера ставятся до цикла"
+    return True, "особых бинарников не нужно"
 
 
 def _dispatchable(tool_name):
@@ -183,6 +229,16 @@ def audit(live=False):
         else:
             r["secret"] = "не нужен"
 
+        # 4б. БИНАРНИК В ОБЛАКЕ И ПОРЯДОК ШАГОВ.
+        need = link.get("needs_runtime")
+        if need:
+            ok, detail = _runtime_ready_in_cloud(need)
+            r["runtime"] = ("да" if ok else "НЕТ") + f" ({need})"
+            if not ok:
+                r["gaps"].append(f"в облаке нет {need}: {detail}")
+        else:
+            r["runtime"] = "—"
+
         # 5. живой вызов, где это безопасно
         r["live"] = "—"
         if live and link["live"] and link["tool"] in TOOLS:
@@ -207,12 +263,13 @@ def report(live=False):
     print("=" * 78)
     print("ВЕДОМОСТЬ АВТОНОМНОСТИ ДЕНЕЖНОЙ ЦЕПОЧКИ")
     print("=" * 78)
-    print(f"{'звено':<32} {'цикл':<5} {'облако':<7} {'ключи':<26} {'ход':<10} {'агент?'}")
+    print(f"{'звено':<30} {'цикл':<5} {'обл':<4} {'ключи':<24} {'ход':<10} {'node':<9} {'агент?'}")
     print("-" * 78)
     for r in rows:
         mark = "OK " if r["autonomous"] else "НЕТ"
-        print(f"{mark} {r['name'][:28]:<28} {r['cycle']:<5} "
-              f"{r['cloud']:<7} {r['secret'][:24]:<26} {r['clock']:<10} {r['choose']}")
+        print(f"{mark} {r['name'][:26]:<26} {r['cycle']:<5} "
+              f"{r['cloud']:<4} {r['secret'][:22]:<24} {r['clock']:<10} "
+              f"{r.get('runtime','—'):<9} {r['choose']}")
     print("-" * 78)
     print(f"АВТОНОМНО: {len(ok)} из {len(rows)}")
     if bad:

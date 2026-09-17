@@ -57,6 +57,40 @@ class Ledger(unittest.TestCase):
         missing = [r["name"] for r in self.rows if "НЕТ (" in r["secret"]]
         self.assertEqual(missing, [], f"облаку не переданы ключи: {missing}")
 
+    def test_the_runtime_a_link_needs_is_installed_before_the_step(self):
+        """Проводки мало: без бинарника звено мертво, даже будучи «настроенным».
+
+        Так и было: deploy_if_changed стоял в облаке, с секретом и по часам, а
+        `actions/setup-node` шёл ПОСЛЕ цикла и worker/node_modules в репозиторий
+        не коммитится — собственные ворота деплоя падали на отсутствующем node,
+        и развернуть не удалось бы ни разу.
+        """
+        broken = [r["name"] for r in self.rows if "НЕТ (" in r.get("runtime", "—")]
+        self.assertEqual(broken, [], f"в облаке нет нужного бинарника: {broken}")
+
+
+class LedgerHonesty(unittest.TestCase):
+    """Ведомость, которая врёт, хуже отсутствующей.
+
+    Разбор блока секретов искал ГОЛУЮ фразу «Непрерывный облачный цикл», а она
+    встречается ещё и в шапке файла. Стоило добавить комментарий выше — и ведомость
+    прочитала не тот блок и доложила «секреты облаку не переданы», хотя переданы.
+    """
+
+    def test_the_parser_anchors_on_the_step_declaration(self):
+        wf = (ROOT / ".github" / "workflows" / "agents.yml").read_text(encoding="utf-8")
+        at = led._loop_step_at(wf)
+        self.assertGreater(at, 0, "шаг непрерывного цикла не найден")
+        self.assertTrue(wf[at:].startswith(led.LOOP_STEP))
+        # якорь обязан быть ОБЪЯВЛЕНИЕМ шага, а не первым упоминанием в шапке
+        self.assertLess(wf.find("Непрерывный облачный цикл"), at,
+                        "фраза встречается выше — значит голый поиск дал бы не тот блок")
+
+    def test_it_finds_the_secrets_that_are_really_there(self):
+        names = led._cloud_env_names()
+        for must in ("CLOUDFLARE_API_TOKEN", "NOHUMANS_TOKENS", "BOARD_TOKEN"):
+            self.assertIn(must, names, f"разбор не увидел переданный секрет {must}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
