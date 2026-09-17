@@ -852,7 +852,11 @@ def _tm(args, timeout=120):
     import os as _os
     env = dict(_os.environ, TASKMARKET_API_URL="https://api.taskmarket.dev")
     try:
-        r = subprocess.run(["npx", "taskmarket"] + list(args), cwd=str(TM_DIR), env=env, shell=True,
+        # shell=True со списком ломается на POSIX (см. agents/self_deploy._wrangler):
+        # /bin/sh -c "npx" отбрасывает все аргументы. Шаг сейчас только локальный,
+        # но дефект тот же, и он сработал бы при первом же переносе в облако.
+        r = subprocess.run(["npx", "taskmarket"] + list(args), cwd=str(TM_DIR), env=env,
+                           shell=(os.name == "nt"),
                            capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=timeout, stdin=subprocess.DEVNULL)
     except Exception as e:

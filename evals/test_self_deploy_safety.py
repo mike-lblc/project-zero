@@ -201,6 +201,61 @@ def test_deploy_if_changed_deploys_when_bundle_changed(monkeypatch):
     assert latest == "newhash999", "новый хеш не записан после успешного деплоя"
 
 
+def test_wrangler_is_invoked_in_a_way_that_works_on_linux(monkeypatch):
+    """«Работает у меня» и «работает» — разные утверждения.
+
+    Здесь стояло shell=True со СПИСКОМ аргументов. На Windows список склеивается в
+    командную строку и всё идёт; на POSIX получается /bin/sh -c "npx", где
+    "wrangler" становится $0, "deploy" — $1, то есть все аргументы отбрасываются и
+    запускается голый npx.
+
+    Именно поэтому облако не развернуло воркер НИ РАЗУ, хотя шаг стоял в цикле,
+    секрет был передан, node с зависимостями поставлен и суточный предел не
+    исчерпан: мои деплои шли с Windows, а облачный ubuntu молча запускал npx без
+    команды. Хуже того, попытка пишется в actions ДО вызова, так что облако
+    сжигало бы предел 4/сутки на заведомо невозможных попытках.
+    """
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        seen["shell"] = kw.get("shell")
+        return _Done(0, "ok")
+
+    monkeypatch.setattr(sd, "_token", lambda: "fake-token")
+    monkeypatch.setattr(sd.subprocess, "run", fake_run)
+    sd._wrangler(["deploy"])
+    assert seen["cmd"] == ["npx", "wrangler", "deploy"], seen["cmd"]
+    # shell разрешён только там, где npx — это .cmd и без shell его не найти
+    assert seen["shell"] == (sd.os.name == "nt"), (
+        f"shell={seen['shell']} на {sd.os.name}: на POSIX это отбросит аргументы")
+
+
+def test_no_module_passes_a_list_with_shell_true(monkeypatch):
+    """Тот же дефект не должен вернуться в другом файле.
+
+    Он уже был в двух местах: развёртывание воркера и CLI Taskmarket.
+    """
+    import io
+    import re
+    import tokenize
+
+    root = sd.ROOT
+    offenders = []
+    for path in list((root / "agents").glob("*.py")) + list((root / "core").glob("*.py")):
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+        code = " ".join(t.string for t in tokenize.generate_tokens(io.StringIO(raw).readline)
+                        if t.type not in (tokenize.STRING, tokenize.COMMENT))
+        # subprocess.run([...], ..., shell=True) — список и безусловный shell
+        for m in re.finditer(r"subprocess\s*\.\s*run\s*\(\s*\[", code):
+            tail = code[m.end():m.end() + 400]
+            if re.search(r"shell\s*=\s*True", tail):
+                offenders.append(path.name)
+    assert not offenders, (
+        f"shell=True со списком аргументов вернулся в: {sorted(set(offenders))} — "
+        f"на POSIX это запустит только первый элемент")
+
+
 def test_stale_checkout_never_deploys_over_newer_code(monkeypatch):
     """Старым кодом поверх нового — никогда.
 

@@ -55,7 +55,7 @@ EXPECTED = {
     "owner sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
     "owner stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
 }
-MIN_PY_TESTS = 277   # текущий набор — 281; падение ниже = сбор сломался
+MIN_PY_TESTS = 279   # текущий набор — 283; падение ниже = сбор сломался
 OWNER_EVM_TAIL = "c55354"          # хвост адреса владельца: сверяется в живом 402
 
 
@@ -114,9 +114,24 @@ def _wrangler(args, timeout=300):
         return 1, "нет CLOUDFLARE_API_TOKEN"
     env = dict(os.environ, CLOUDFLARE_API_TOKEN=tok)
     try:
+        # shell=True ТОЛЬКО НА WINDOWS, И ЭТО НЕ КОСМЕТИКА.
+        #
+        # Здесь стояло shell=True со СПИСКОМ аргументов. На Windows это работает:
+        # список склеивается в командную строку. На POSIX — нет: получается
+        # /bin/sh -c "npx", где "wrangler" становится $0, а "deploy" — $1, то есть
+        # ВСЕ аргументы отбрасываются и запускается голый npx.
+        #
+        # Вот почему облако не развернуло воркер ни разу, хотя шаг стоял в цикле,
+        # секрет был передан, node с зависимостями поставлен и предел не исчерпан:
+        # мои деплои шли с Windows и проходили, а облачный ubuntu молча запускал
+        # npx без команды. Ровно тот случай, когда «работает у меня» и «работает»
+        # — разные утверждения.
+        #
+        # На Windows shell нужен: npx там .cmd, и без shell его не найти.
         r = subprocess.run(["npx", "wrangler"] + list(args), cwd=str(WORKER_DIR), env=env,
-                           shell=True, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=timeout, stdin=subprocess.DEVNULL)
+                           shell=(os.name == "nt"), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout,
+                           stdin=subprocess.DEVNULL)
     except Exception as e:
         return 1, f"{type(e).__name__}: {str(e)[:160]}"
     return r.returncode, ((r.stdout or "") + (r.stderr or ""))
