@@ -220,8 +220,21 @@ async function bump(env, ev) {
 const OWNER = {
   btc: "bc1qqwgyyqv6raq2jnghals2n2aujgwd4e9p64g4hr",
   tron: "TB9rHqT8yLxwdsWCb3zN2nvjc8wLhsUdaQ",
+  sol: "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
+  stx: "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
 };
 const TRON_USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+
+// SOLANA: РОДНОЙ SOL ДОХОДИТ ДО АДРЕСА, КОТОРОГО ЕЩЁ НЕТ.
+// Сначала я записал Solana в «нельзя»: у адреса владельца нет аккаунта в сети,
+// значит нет и токен-аккаунта под USDC. Для SPL-токена это правда, но для
+// РОДНОГО SOL — нет: перевод сам создаёт аккаунт, нужно лишь покрыть ренту.
+// Проверено живым RPC: getMinimumBalanceForRentExemption(0) = 650 240 лампортов
+// (~$0.065). То есть родным SOL заплатить можно, и обобщать один отказ на всю
+// сеть было ошибкой.
+const SOL_MIN_LAMPORTS = 650240;
+const SOL_RPC = "https://api.mainnet-beta.solana.com";
+const STACKS_API = "https://api.hiro.so";
 
 // Курс держим в памяти изолята пять минут: иначе каждый платёж стоил бы лишнего
 // запроса, а цена монеты за пять минут не меняет сути проверки «хватило ли суммы».
@@ -312,6 +325,79 @@ async function tronPaid(txid, tier, env) {
   if (usd == null) return { ok: false, why: `no incoming transfer to ${OWNER.tron} found for that transaction id` };
   if (usd + 1e-9 < tier.usd) return { ok: false, why: `transfer is $${usd.toFixed(4)}, the route costs $${tier.usd}` };
   if (!(await claimOnce(env, "tron:" + txid, { at: new Date().toISOString(), amount, asset, usd })))
+    return { ok: false, why: "this transaction was already used for a purchase" };
+  return { ok: true, tx: txid, asset, amount, usd };
+}
+
+// SOLANA. Смотрим баланс НАШЕГО ключа до и после транзакции: так учитывается и
+// простой перевод, и создание аккаунта тем же переводом.
+async function solPaid(sig, tier, env) {
+  let d;
+  try {
+    const r = await fetch(SOL_RPC, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getTransaction",
+        params: [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }] }),
+    });
+    if (!r.ok) return { ok: false, why: `solana rpc ${r.status}` };
+    d = (await r.json()).result;
+  } catch { return { ok: false, why: "solana rpc unavailable" }; }
+  if (!d) return { ok: false, why: "solana transaction not found (or not yet finalized)" };
+  if ((d.meta || {}).err) return { ok: false, why: "solana transaction failed on chain" };
+  const keys = (((d.transaction || {}).message || {}).accountKeys || [])
+    .map((k) => (typeof k === "string" ? k : k.pubkey));
+  const i = keys.indexOf(OWNER.sol);
+  if (i < 0) return { ok: false, why: `${OWNER.sol} is not an account in this transaction` };
+  const pre = Number(((d.meta || {}).preBalances || [])[i] || 0);
+  const post = Number(((d.meta || {}).postBalances || [])[i] || 0);
+  const lamports = post - pre;
+  if (lamports <= 0) return { ok: false, why: "our balance did not increase in this transaction" };
+  const px = await spotUsd("SOL");
+  if (!px) return { ok: false, why: "solana price unavailable, cannot price the payment" };
+  const sol = lamports / 1e9;
+  const usd = sol * px;
+  if (usd + 1e-9 < tier.usd) return { ok: false, why: `transfer is $${usd.toFixed(4)} of SOL, the route costs $${tier.usd}` };
+  if (!(await claimOnce(env, "sol:" + sig, { at: new Date().toISOString(), amount: sol, asset: "SOL", usd })))
+    return { ok: false, why: "this transaction was already used for a purchase" };
+  return { ok: true, tx: sig, asset: "SOL", amount: sol, usd };
+}
+
+// STACKS. Родной STX и любой фунгибельный токен (в том числе sBTC) видны в одной
+// транзакции у Hiro: сам перевод — в token_transfer, токены — в событиях.
+async function stxPaid(txid, tier, env) {
+  let d;
+  try {
+    const r = await fetch(`${STACKS_API}/extended/v1/tx/${txid}`, { headers: { accept: "application/json" } });
+    if (!r.ok) return { ok: false, why: `stacks transaction not found (${r.status})` };
+    d = await r.json();
+  } catch { return { ok: false, why: "stacks api unavailable" }; }
+  if (String(d.tx_status) !== "success") return { ok: false, why: `stacks transaction status ${d.tx_status}` };
+  let amount = null, asset = null, usd = null;
+  const tt = d.token_transfer || null;
+  if (tt && String(tt.recipient_address) === OWNER.stx) {
+    amount = Number(tt.amount || 0) / 1e6;          // микро-STX
+    const px = await spotUsd("STX");
+    if (!px) return { ok: false, why: "stacks price unavailable, cannot price the payment" };
+    asset = "STX"; usd = amount * px;
+  }
+  if (usd == null) {
+    // Фунгибельные токены: sBTC учитываем по цене биткойна, у него 8 знаков.
+    for (const ev of (d.events || [])) {
+      const a = ev.asset || {};
+      if (String(ev.event_type) !== "fungible_token_asset") continue;
+      if (String(a.recipient) !== OWNER.stx) continue;
+      const id = String(a.asset_id || "");
+      if (!/sbtc/i.test(id)) return { ok: false, why: `token ${id} is not accepted on Stacks (STX or sBTC only)` };
+      amount = Number(a.amount || 0) / 1e8;
+      const px = await spotUsd("BTC");
+      if (!px) return { ok: false, why: "bitcoin price unavailable, cannot price the payment" };
+      asset = "sBTC"; usd = amount * px;
+      break;
+    }
+  }
+  if (usd == null) return { ok: false, why: `no incoming STX or sBTC transfer to ${OWNER.stx} in this transaction` };
+  if (usd + 1e-9 < tier.usd) return { ok: false, why: `transfer is $${usd.toFixed(4)}, the route costs $${tier.usd}` };
+  if (!(await claimOnce(env, "stx:" + txid, { at: new Date().toISOString(), amount, asset, usd })))
     return { ok: false, why: "this transaction was already used for a purchase" };
   return { ok: true, tx: txid, asset, amount, usd };
 }
@@ -1486,6 +1572,24 @@ export default {
         return json({ ...(await payload(path, url)), paid_via: "tron-transfer", tx: tr.tx, asset: tr.asset,
                       amount: tr.amount, usd: tr.usd }, 200);
       }
+      const solParam = (url.searchParams.get("sol") || "").trim();
+      if (/^[1-9A-HJ-NP-Za-km-z]{60,100}$/.test(solParam)) {
+        const sp = await solPaid(solParam, t, env);
+        console.log(JSON.stringify({ ev: sp.ok ? "sol_paid" : "sol_failed", path, tx: solParam, why: sp.ok ? null : sp.why }));
+        await bump(env, sp.ok ? "sol_paid" : "sol_failed");
+        if (!sp.ok) return json({ error: "solana payment not verified", reason: sp.why, how_to_pay: SELF + "/pay", accepts }, 402);
+        return json({ ...(await payload(path, url)), paid_via: "solana-transfer", tx: sp.tx, asset: "SOL",
+                      amount: sp.amount, usd: sp.usd }, 200);
+      }
+      const stxParam = (url.searchParams.get("stx") || "").trim().replace(/^0x/, "");
+      if (/^[0-9a-fA-F]{64}$/.test(stxParam)) {
+        const sx = await stxPaid(stxParam, t, env);
+        console.log(JSON.stringify({ ev: sx.ok ? "stx_paid" : "stx_failed", path, tx: stxParam, why: sx.ok ? null : sx.why }));
+        await bump(env, sx.ok ? "stx_paid" : "stx_failed");
+        if (!sx.ok) return json({ error: "stacks payment not verified", reason: sx.why, how_to_pay: SELF + "/pay", accepts }, 402);
+        return json({ ...(await payload(path, url)), paid_via: "stacks-transfer", tx: sx.tx, asset: sx.asset,
+                      amount: sx.amount, usd: sx.usd }, 200);
+      }
       const txParam = url.searchParams.get("tx") || "";
       if (/^0x[0-9a-fA-F]{64}$/.test(txParam)) {
         const d = await directPaid(txParam, t, payTo, env);
@@ -1558,6 +1662,9 @@ export default {
                           other_assets: { base_evm: SELF + path + "?tx=<0x hash>  (USDC, USDT, DAI or native ETH)",
                                           bitcoin: SELF + path + "?btc=<txid>  (to " + OWNER.btc + ")",
                                           tron: SELF + path + "?tron=<txid>  (USDT TRC20 or TRX, to " + OWNER.tron + ")",
+                                          solana: SELF + path + "?sol=<signature>  (native SOL, to " + OWNER.sol + "; at least "
+                                                + (SOL_MIN_LAMPORTS / 1e9) + " SOL so the transfer creates the account)",
+                                          stacks: SELF + path + "?stx=<txid>  (STX or sBTC, to " + OWNER.stx + ")",
                                           note: "non-stablecoin amounts are priced at Coinbase spot at the moment of the call" } };
         return json(body402, 402, { "payment-required": b64utf8(JSON.stringify(pr)) });
       }

@@ -1,0 +1,142 @@
+"""ПРОДАЮЩУЮ ПОВЕРХНОСТЬ ДЕРЖИТ АГЕНТ, А НЕ ЧЕЛОВЕК (17.09.2026).
+
+Замечание владельца: первый платёж получился потому, что человек руками создал
+одиннадцать объявлений, переставил цены и привёл метаданные к чужой спецификации.
+Агенты в это время крутили цикл и не сделали ничего из этого. Здесь закреплено
+обратное: у каждого платного маршрута из тарифа появляется объявление САМО,
+расхождение цены правится САМО, ключ правки сохраняется, а дубликаты не создаются.
+
+Сеть здесь не трогается: и каталог, и база подменены.
+"""
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        from core import db, execution, guard
+        self.db, self.ex, self.guard = db, execution, guard
+        self.saved = (db.DB_PATH, set(db._SCHEMA_DONE), db._WAL_SET, execution._MIGRATED[0], guard.check_action)
+        self.tmp = tempfile.TemporaryDirectory()
+        db.DB_PATH = Path(self.tmp.name) / "s.db"
+        db._SCHEMA_DONE.clear(); db._WAL_SET = False; execution._MIGRATED[0] = False
+        guard.check_action = lambda *a, **k: None
+        db.init().close(); execution._con().close()
+
+        from agents import sell_surface as ss
+        self.ss = ss
+        self.saved_http, self.saved_cfg, self.saved_save = ss._http, ss.listings_config, ss._save_config
+        self.calls = []
+        self.cfg = {}
+        ss.listings_config = lambda: dict(self.cfg)
+        ss._save_config = lambda d: self.cfg.update(d)
+
+    def tearDown(self):
+        self.ss._http, self.ss.listings_config, self.ss._save_config = self.saved_http, self.saved_cfg, self.saved_save
+        (self.db.DB_PATH, done, self.db._WAL_SET, self.ex._MIGRATED[0], self.guard.check_action) = self.saved
+        self.db._SCHEMA_DONE.clear(); self.db._SCHEMA_DONE.update(done)
+        import gc; gc.collect()
+        self.tmp.cleanup()
+
+    def stub(self, handler):
+        def _h(url, method="GET", body=None, headers=None, timeout=60):
+            self.calls.append((method, url, body, headers))
+            return handler(method, url, body, headers)
+        self.ss._http = _h
+
+
+class Listings(Base):
+    def test_a_route_without_a_listing_gets_one_created(self):
+        n = [0]
+
+        def h(method, url, body, headers):
+            if method == "POST":
+                n[0] += 1
+                return 201, {"id": f"id-{n[0]}", "claim_token": f"tok-{n[0]}", "status": "unverified"}
+            return 200, {}
+        self.stub(h)
+        out = self.ss.ensure_listings(limit=2)
+        self.assertIn("создано", out)
+        self.assertEqual(n[0], 2, "предел создания за ход не соблюдён")
+        # ключ правки должен лечь в базу: без него агент не сможет починить цену
+        c = self.db.connect()
+        toks = c.execute("SELECT listing_id, claim_token FROM directory_claim").fetchall()
+        c.close()
+        self.assertEqual(len(toks), 2)
+        self.assertTrue(all(t[1] for t in toks))
+
+    def test_existing_listings_are_not_duplicated(self):
+        from core.identity import TARIFF
+        self.cfg = {p.lstrip("/"): f"have-{p}" for p in TARIFF}
+        self.stub(lambda m, u, b, h: (500, {"_err": "should not be called"}))
+        out = self.ss.ensure_listings()
+        self.assertIn("на месте", out)
+        self.assertEqual([c for c in self.calls if c[0] == "POST"], [], "созданы дубликаты")
+
+    def test_a_listing_without_a_route_is_named_not_deleted(self):
+        from core.identity import TARIFF
+        self.cfg = {p.lstrip("/"): f"have-{p}" for p in TARIFF}
+        self.cfg["ghost"] = "id-ghost"
+        self.stub(lambda m, u, b, h: (200, {}))
+        out = self.ss.ensure_listings()
+        self.assertIn("ghost", out, "лишнее объявление должно быть названо")
+        self.assertEqual([c for c in self.calls if c[0] == "DELETE"], [], "агент не удаляет объявления сам")
+
+
+class Prices(Base):
+    def test_drifted_price_is_patched_with_the_stored_token(self):
+        self.cfg = {"networks": "id-net"}
+        c = self.db.connect(); self.ss._table(c)
+        c.execute("INSERT INTO directory_claim(listing_id,route,claim_token,created_at) VALUES (?,?,?,?)",
+                  ("id-net", "networks", "tok-net", "now"))
+        c.commit(); c.close()
+        patched = {}
+
+        def h(method, url, body, headers):
+            if method == "GET":
+                return 200, {"price_amount": 0.05}          # каталог думает, что цена другая
+            if method == "PATCH":
+                patched["body"] = body; patched["hdr"] = headers
+                return 200, {}
+            return 200, {}
+        self.stub(h)
+        out = self.ss.fix_price_drift()
+        self.assertIn("подравнено", out)
+        from core.identity import TARIFF
+        self.assertEqual(patched["body"]["price_amount"], TARIFF["/networks"]["usd"])
+        self.assertEqual(patched["hdr"]["x-claim-token"], "tok-net")
+
+    def test_without_a_token_the_drift_is_reported_not_silently_ignored(self):
+        self.cfg = {"networks": "id-net"}
+        self.stub(lambda m, u, b, h: (200, {"price_amount": 0.05}) if m == "GET" else (200, {}))
+        out = self.ss.fix_price_drift()
+        self.assertIn("ключа правки нет", out)
+
+
+class Boundaries(unittest.TestCase):
+    def test_the_agent_never_edits_code_or_deploys(self):
+        """Агент, который сам себе правит платный сервис и деплоит его, — риск без надзора."""
+        src = (ROOT / "agents" / "sell_surface.py").read_text(encoding="utf-8")
+        for forbidden in ("wrangler", "subprocess", "deploy", "write_text(", "os.system"):
+            if forbidden == "write_text(":
+                # разрешено ровно одно: список публичных id объявлений
+                self.assertEqual(src.count("write_text("), 1, "агент пишет файлы шире, чем список объявлений")
+                continue
+            self.assertNotIn(forbidden, src, f"в шаге есть {forbidden}")
+
+    def test_it_is_owned_by_an_agent_and_runs_in_the_cycle(self):
+        from agents import worker
+        from core import roster
+        self.assertIn("sell_surface", dict(worker.CYCLE + worker.SLOW_CYCLE))
+        self.assertEqual(worker.AGENT_OF.get("sell_surface"), "dealer")
+        self.assertIn("sell_surface", roster.wire()["dealer"].tools)
+        self.assertIn("sell_surface", worker.CLOUD_STEPS)
+
+
+if __name__ == "__main__":
+    unittest.main()

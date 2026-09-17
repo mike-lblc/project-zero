@@ -127,7 +127,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             # улучшатель и снабженец выглядели молчащими при настоящей работе,
             # и сторож называл их в списке молчащих. Хозяин шага — владелец
             # инструмента, которым шаг исполняется.
-            "advance_tasks":"orchestrator", "hunt_contests":"bounty", "hunt_hn_jobs":"bounty", "taskmarket_sync":"bounty", "taskmarket_work":"craftsman", "directory_watch":"dealer",
+            "advance_tasks":"orchestrator", "hunt_contests":"bounty", "hunt_hn_jobs":"bounty", "taskmarket_sync":"bounty", "taskmarket_work":"craftsman", "directory_watch":"dealer", "sell_surface":"dealer",
             "market_demand":"explorer", "chain_economics":"collector", "rich_targets":"leads",
             "package_docs":"executor", "supply_check":"supplier", "where_time_goes":"optimizer",
             "produce_work":"executor", "check_work":"executor", "guard_knowledge":"verifier",
@@ -1101,6 +1101,7 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("hunt_contests", _src("hunt_contests")),    # конкурсы с призовым фондом
               ("hunt_hn_jobs", _src("hunt_hn_jobs")),      # вакансии без ключа
               ("hunt_offsite", _offsite_step),              # площадки вне GitHub — браузерный разведчик
+              ("sell_surface", _src("sell_surface")),   # продающая поверхность держится сама
               ("directory_watch", _src("directory_watch")),  # каталог, который платит сам: жив ли маршрут, не купили ли уже
               ("taskmarket_sync", _src("taskmarket_sync")),  # наши подачи и выплаты на Taskmarket
               ("taskmarket_work", _src("taskmarket_work")),  # сделать и подать работу — без ожидания сеанса
@@ -1189,6 +1190,7 @@ CLOUD_STEPS = [
     "moltbook_replies",    # чужие комментарии под нашими постами → очередь суждений (чтение)
     "moltbook_demand",     # посты с намерением платить (clawtasks/forhire/…) → очередь суждений (чтение)
     "watch_payments",      # миссия: не пришёл ли платёж
+    "sell_surface",        # держит объявления, цены и индексы сам; кода не правит
     "directory_watch",     # каталог, который платит сам: только чтение публичных объявлений,
                            # идентификаторы лежат в data/nohumans_listings.json — ключи не нужны
     "dealer_state",        # состояние сети путей к платежу — чтение и запись состояния
@@ -1328,6 +1330,9 @@ PAUSE_CAP_MIN = {
     "health_check": 30,       # здоровье сервиса — коммерческий показатель, не молчать по 160 минут
     # Скаут каталога платит волнами и заранее не предупреждает; час — чтобы платёж
     # не пролежал незамеченным полсуток, и чтобы это не стало шестью опросами в час.
+    # Раз в три часа: объявления и цены меняются редко, а аудит x402gle ограничен
+    # по частоте на origin (у них тратятся настоящие деньги на каждый вызов).
+    "sell_surface": 180,
     "directory_watch": 60,
     "taskmarket_sync": 60,
     "taskmarket_work": 30,

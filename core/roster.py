@@ -283,6 +283,16 @@ def _explore():
     return growth.explore()
 
 
+@tool("sell_surface", "YELLOW",
+      "поддержать продающую поверхность самостоятельно: у каждого платного маршрута есть "
+      "объявление в каталоге, который платит; цена в объявлении совпадает с живой; индексы "
+      "знают все маршруты; аудит x402gle (их реальный платный вызов) дёрнут. Кода не правит",
+      needs=("сеть",))
+def _sell_surface():
+    from agents import sell_surface
+    return sell_surface.cycle()
+
+
 @tool("directory_watch", "GREEN",
       "наши объявления в nohumans.directory: жив ли каждый платный маршрут и не купил ли "
       "уже скаут каталога — платёж записывается в доказательства вместе с хешем расчёта",
@@ -1104,7 +1114,7 @@ register(Agent(
         "каналов и контрагентов с известным способом оплаты, обращений с шестью элементами "
         "протокола и ответов на них; обещание, счёт и заявка не засчитываются",
     tools=("dealer_cycle", "dealer_state", "dealer_report", "moltbook_address_survey",
-           "directory_watch"),
+           "directory_watch", "sell_surface"),
     max_class="YELLOW",
     system=COMMON + """
 ТЫ — ДИЛЕР. Спецификация — MTBX.txt (протокол последней транзакции) с решениями
