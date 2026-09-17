@@ -219,9 +219,23 @@ def weave():
     # не нужен новый аккаунт — остальное закрыто классом BLACK или фиатом.
     rows = []
     if "money_paths" in _tables(c):
+        # ЧУЖОЙ ВЕРДИКТ НЕ ПЕРЕОТКРЫВАЕМ — ОСОБЕННО ПО ЛИЧНОСТИ.
+        #
+        # Здесь стояло `(open_to_us=1 OR needs_account=0)`, и это ИЛИ отменяло
+        # работу разведчика: путь, который он закрыл, всё равно попадал сюда, если
+        # на странице просто не нашлось слова «аккаунт». Замер: 24 из 42 каналов,
+        # взятых этим запросом, разведчик уже пометил стеной, и ДВА из них —
+        # стеной «требует подтверждения личности». Агентам личность запрещена
+        # классом BLACK, то есть запрос протаскивал именно то, что нельзя.
+        #
+        # Теперь закрытое остаётся закрытым: open_to_us=0 не берём никогда, а
+        # непроверенное (NULL) допускаем только если стены нет и аккаунт не нужен.
         rows = c.execute("SELECT platform, category, payout, needs_account, open_to_us, evidence "
-                         "FROM money_paths WHERE payout='crypto' AND "
-                         "(open_to_us=1 OR needs_account=0) ORDER BY score DESC LIMIT 60").fetchall()
+                         "FROM money_paths WHERE payout='crypto' "
+                         "AND COALESCE(open_to_us, 1) <> 0 "
+                         "AND needs_kyc IS NOT 1 "
+                         "AND (open_to_us=1 OR (wall IS NULL AND needs_account=0)) "
+                         "ORDER BY score DESC LIMIT 60").fetchall()
     for platform, category, payout, needs_acc, open_to, ev in rows:
         cur = c.execute("INSERT OR IGNORE INTO channels(key,platform,kind,url,how,needs_account,"
                         "allows_wallet_address,allows_links,alive,evidence,discovered_at) "

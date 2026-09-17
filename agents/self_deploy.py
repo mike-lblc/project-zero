@@ -55,7 +55,7 @@ EXPECTED = {
     "owner sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
     "owner stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
 }
-MIN_PY_TESTS = 289   # текущий набор — 293; падение ниже = сбор сломался
+MIN_PY_TESTS = 294   # текущий набор — 298; падение ниже = сбор сломался
 OWNER_EVM_TAIL = "c55354"          # хвост адреса владельца: сверяется в живом 402
 
 
