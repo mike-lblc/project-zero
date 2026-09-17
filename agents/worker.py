@@ -1467,9 +1467,53 @@ def _slow_cursor(value=None):
     return value
 
 
-def run_forever(interval=90):
+def run_forever(interval=90, deadline_minutes=None, only=None):
+    """Непрерывная работа. В облаке — та же самая, с пределом по времени.
+
+    ПОЧЕМУ ЗДЕСЬ ПОЯВИЛСЯ ПРЕДЕЛ ВРЕМЕНИ.
+
+    Облачный цикл был одноразовым: GitHub будил его по cron и он проходил список
+    шагов ОДИН раз. Замер истории запусков показал цену этой схемы — в расписании
+    стоит «каждые 15 минут», то есть 96 прогонов в сутки, а на самом деле GitHub
+    запускает ~6: медиана промежутка 200 минут, худший случай 347. Значит без
+    ноутбука владельца экосистема просыпалась шесть раз в сутки, и денежные шаги
+    не могли идти чаще. Отсюда и «транзакции раз в несколько дней»: не потому что
+    работа кончилась, а потому что работать было некогда.
+
+    Репозиторий публичный, а для публичных репозиториев минуты GitHub Actions
+    бесплатны и не ограничены. Поэтому один прогон теперь ЖИВЁТ часами и крутит
+    тот же цикл, что и локальная машина, вместо того чтобы надеяться на будильник.
+    Расписание остаётся страховкой: оно поднимает новый прогон, когда предыдущий
+    дожил до своего предела.
+
+    Вторая реализация цикла не писалась НАМЕРЕННО. Копия расходится с оригиналом
+    всегда — в этом же файле уже есть дорого купленный порядок: пауза повторов,
+    денежный слот, срочные события, последний рубеж вокруг оборота. Облако берёт
+    ровно это, а отличается только двумя вещами: когда остановиться и что ему
+    физически доступно.
+
+    deadline_minutes — сколько работать; None значит «до выключателя».
+    only — набор имён шагов, которыми ограничиться (в облаке CLOUD_STEPS:
+    остальные требуют локальной модели или локального сервиса и в облаке
+    падали бы каждый оборот, засоряя журнал настоящими отказами).
+    """
     if not _claim_slot():
         return
+    stop_at = time.time() + deadline_minutes * 60 if deadline_minutes else None
+    if only:
+        allowed = set(only)
+        globals()["CYCLE"] = [(n, f) for n, f in CYCLE if n in allowed] or CYCLE
+        globals()["SLOW_CYCLE"] = [(n, f) for n, f in SLOW_CYCLE if n in allowed]
+        globals()["MONEY_CYCLE"] = [(n, f) for n, f in MONEY_CYCLE if n in allowed]
+        print(f"[worker] ограничен {len(allowed)} шагами: быстрых {len(CYCLE)}, "
+              f"редких {len(SLOW_CYCLE)}, денежных {len(MONEY_CYCLE)}", flush=True)
+    if stop_at:
+        # Предел проверяется на входе в оборот, поэтому фактическая остановка
+        # позже на длительность ОДНОГО шага (замерено: шаг мышления — до двух
+        # минут). Вызывающий обязан оставить запас до своего таймаута; в облаке
+        # это 50 минут при пределе 300 и таймауте 350.
+        print(f"[worker] предел прогона {deadline_minutes} мин (+ последний шаг); "
+              f"дальше цикл поднимет расписание", flush=True)
     print(f"[worker] starting; cycle every {interval}s. KILL_SWITCH halts it.", flush=True)
     # Отметка старта. Без неё счёт повторов тянется через перезапуски и наказывает
     # за поведение, которое уже исправлено, — то есть превращается в цифру,
@@ -1487,6 +1531,12 @@ def run_forever(interval=90):
     # Очередь редких шагов продолжается с того места, где её прервали.
     slow_at = _slow_cursor()
     while True:
+        if stop_at and time.time() >= stop_at:
+            print(f"[worker] предел прогона достигнут: {i} оборотов за "
+                  f"{deadline_minutes} мин. Останавливаюсь чисто.", flush=True)
+            record_run("worker_deadline", "orchestrator", True,
+                       f"{i} оборотов за {deadline_minutes} мин", now(), now())
+            return
         try:
             guard.check_alive()
         except Exception as e:
@@ -1503,7 +1553,8 @@ def run_forever(interval=90):
         # TASKMARKET — ПО ЧАСАМ, В ФОНЕ. Шаг стоял в очереди редких шагов и не ходил с 15:32:
         # новые задачи на 19 USDC появились и остались незамеченными. Теперь раз в 10 минут,
         # в отдельном потоке, чтобы черновик локальной модели не останавливал цикл.
-        if time.time() - _TM_SYNCED[0] > TM_EVERY_S and not _TM_BUSY[0]:
+        if (time.time() - _TM_SYNCED[0] > TM_EVERY_S and not _TM_BUSY[0]
+                and (only is None or "taskmarket_sync" in only)):
             _TM_SYNCED[0] = time.time()
             def _tm_bg():
                 _TM_BUSY[0] = True
@@ -1520,13 +1571,20 @@ def run_forever(interval=90):
             import threading as _th
             _th.Thread(target=_tm_bg, daemon=True).start()
         # каждые SLOW_EVERY шагов — один редкий вместо быстрого
-        if i and i % SLOW_EVERY == 0:
+        if i and i % SLOW_EVERY == 0 and SLOW_CYCLE:
+            # Пустая очередь редких шагов роняла цикл делением на ноль: это
+            # возможно только при фильтре (only), но упавший цикл не работает
+            # вообще, а это ровно то, что мы здесь и лечим.
             name, fn = SLOW_CYCLE[slow_at % len(SLOW_CYCLE)]
             slow_at = _slow_cursor(slow_at + 1)
         elif i and MONEY_CYCLE and i % SLOW_EVERY == SLOW_EVERY // 2:
             name, fn = MONEY_CYCLE[_money_at[0] % len(MONEY_CYCLE)]    # денежный слот
             _money_at[0] += 1
-        elif i and i % SLOW_EVERY == THINK_AT:
+        elif i and i % SLOW_EVERY == THINK_AT and (only is None or "reason_and_act" in only):
+            # Слот мышления обходил фильтр: при only={health_check, watch_payments}
+            # он всё равно поднимал reason_and_act, а тот дёргал инструменты,
+            # которым в облаке нужна локальная машина. Фильтр, который можно
+            # обойти изнутри, фильтром не является.
             name, fn = "reason_and_act", reason_and_act               # слот мышления
         else:
             name, fn = CYCLE[i % len(CYCLE)]

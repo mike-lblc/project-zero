@@ -8,7 +8,8 @@ name: Agents cycle
 # Называть это «системой, работающей 24/7 в облаке» было нечестно.
 #
 # Теперь здесь работает ВСЁ, что физически может работать в облаке: список
-# CLOUD_STEPS в agents/worker.py, двадцать шагов. Чего здесь нет — названо
+# CLOUD_STEPS в agents/worker.py — и работает НЕПРЕРЫВНО, а не по одному
+# обороту на пробуждение (см. шаг «Непрерывный облачный цикл»). Чего здесь нет — названо
 # поимённо в CLOUD_CANNOT: локальная модель и локальный сервис остаются на
 # машине владельца, и это ограничение среды, а не умолчание.
 #
@@ -24,13 +25,23 @@ name: Agents cycle
 
 on:
   schedule:
-    - cron: '7,22,37,52 * * * *'
-    # Минуты сдвинуты с 00/15/30/45: GitHub документирует задержку и даже
-    # потерю schedule-событий в загруженные минуты. В живой истории после
-    # 06:33 не было ни одного планового запуска более трёх часов.
-    # Двухчасовой сквозной аудит отменён владельцем: одного полного прогона
-    # достаточно. Локально его сняли, а здесь расписание осталось и ещё сутки
-    # запускало аудит — и роняло прогон, когда аудит находил провал.
+    # СТРАХОВКА, А НЕ ГЛАВНЫЙ БУДИЛЬНИК. Раньше от этой строки зависело всё:
+    # «каждые 15 минут» на бумаге, ~6 запусков в сутки на деле (медиана 200 мин,
+    # худший 347 — замерено по истории). Теперь прогон работает непрерывно пять
+    # часов сам, а расписание нужно только чтобы поднять следующий. Раз в час
+    # достаточно и не создаёт очередь из отменяемых запусков.
+    - cron: '17 * * * *'
+    # Минута 17, а не 00: GitHub документирует задержку и потерю schedule-событий
+    # в «круглые» минуты.
+    #
+    # ЧТО БУДЕТ ВИДНО В ИСТОРИИ И ЧТО ЭТО ЗНАЧИТ. Прогон живёт пять часов, а
+    # будильник звонит раз в час, поэтому лишние запуски встают в очередь и
+    # GitHub отменяет их (concurrency оставляет один ожидающий). В истории
+    # появятся записи «cancelled» — это НЕ падения и не требуют вмешательства:
+    # это будильник, звонящий в дверь, за которой уже работают. Частый
+    # будильник оставлен нарочно: планировщик GitHub ненадёжен, и когда
+    # пятичасовой прогон закончится или сорвётся, следующий поднимется в
+    # пределах часа, а не через пять.
   workflow_dispatch:
 
 concurrency:
@@ -46,7 +57,9 @@ permissions:
 jobs:
   cycle:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Прогон живёт часами (см. «Непрерывный облачный цикл»), поэтому таймаут
+    # 350: 300 минут цикла + запас на последний шаг и публикацию дашборда.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v7
         with:
@@ -115,54 +128,56 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python ops/cloud_turn.py
 
-      - name: Полный облачный цикл
+      # НЕПРЕРЫВНАЯ РАБОТА, А НЕ ШЕСТЬ ПРОБУЖДЕНИЙ В СУТКИ.
+      #
+      # Здесь был ОДИН проход по списку CLOUD_STEPS: цикл просыпался по cron,
+      # обходил шаги по разу и умирал. Замер истории запусков показал настоящую
+      # цену такой схемы: в расписании стоит '7,22,37,52 * * * *' — 96 прогонов
+      # в сутки, а GitHub на самом деле запускал ~6. Медиана промежутка 200
+      # минут, худший 347. Владелец спросил, почему платежи приходят раз в
+      # несколько дней; вот прямой ответ — без его ноутбука экосистема жила шесть
+      # раз в сутки по одному обороту, и денежные шаги просто не успевали идти.
+      #
+      # Репозиторий ПУБЛИЧНЫЙ, а для публичных репозиториев минуты Actions
+      # бесплатны и не ограничены — то есть непрерывность здесь ничего не стоит
+      # и правило «$0» не нарушает. Поэтому прогон теперь живёт пять часов и
+      # крутит ТОТ ЖЕ цикл, что локальная машина (agents.worker.run_forever),
+      # а расписание осталось страховкой: оно поднимает следующий прогон, когда
+      # предыдущий дожил до предела.
+      #
+      # Предел 300 минут при таймауте 350 — запас на последний шаг (он может
+      # длиться до двух минут) и на публикацию дашборда после цикла.
+      - name: Непрерывный облачный цикл
         env:
           P0_CLOUDFLARE_AI_TOKEN: ${{ secrets.P0_CLOUDFLARE_AI_TOKEN }}
           WALLET_ETH: ${{ secrets.WALLET_ETH }}
           MOLTBOOK_API_KEY: ${{ secrets.P0_MOLTBOOK_API_KEY }}
           BOARD_TOKEN: ${{ secrets.P0_BOARD_TOKEN }}
           GH_TOKEN: ${{ github.token }}
+          P0_CLOUD_MINUTES: '300'
         run: |
           mkdir -p data docs
           printf 'WALLET_ETH=%s\n' "$WALLET_ETH" > .env
           python - <<'PY'
-          import sys, traceback
+          import os, sys
           sys.path.insert(0, '.')
           from core.db import init
           init()
           from agents import worker
-          from datetime import datetime, timezone
 
-          from ops.live_state import publish
-          def live(name, agent, phase):
-              try: publish(name, agent, phase)
-              except Exception as e: print(f"::warning::Live telemetry failed: {type(e).__name__}")
-          steps = dict(worker.CYCLE + worker.SLOW_CYCLE)
-          ok = fail = 0
-          for name in worker.CLOUD_STEPS:
-              fn = steps.get(name)
-              if not fn:
-                  print(f"{name}: ШАГ НЕ НАЙДЕН В ЦИКЛЕ", flush=True)
-                  fail += 1
-                  continue
-              started = datetime.now(timezone.utc).isoformat()
-              agent = worker.AGENT_OF.get(name, "orchestrator")
-              live(name, agent, "running")
-              try:
-                  out = fn()
-                  worker.record_run(name, agent, True, str(out), started,
-                                    datetime.now(timezone.utc).isoformat())
-                  print(f"  ok   {name}: {out}", flush=True)
-                  ok += 1
-              except Exception as e:
-                  detail = f"{type(e).__name__}: {e}"
-                  worker.record_run(name, agent, False, detail, started,
-                                    datetime.now(timezone.utc).isoformat())
-                  print(f"  FAIL {name}: {detail}", flush=True)
-                  fail += 1
-          live("cycle", "orchestrator", "waiting")
-          print(f"\nоблачный цикл: {ok} шагов отработало, {fail} упало")
-          print(f"не могут работать в облаке: {list(worker.CLOUD_CANNOT)}")
+          # Шаг, которого нет в цикле, — это опечатка в списке, и раньше она
+          # молча считалась падением на каждом прогоне. Проверяем ОДИН раз.
+          known = dict(worker.CYCLE + worker.SLOW_CYCLE)
+          missing = [n for n in worker.CLOUD_STEPS if n not in known]
+          if missing:
+              print(f"::warning::в цикле нет шагов из CLOUD_STEPS: {missing}")
+
+          minutes = int(os.environ.get("P0_CLOUD_MINUTES", "300"))
+          print(f"облачный цикл: непрерывно {minutes} мин, "
+                f"шагов доступно {len(worker.CLOUD_STEPS)}", flush=True)
+          print(f"не могут работать в облаке: {list(worker.CLOUD_CANNOT)}", flush=True)
+          worker.run_forever(interval=180, deadline_minutes=minutes,
+                             only=set(worker.CLOUD_STEPS))
           PY
 
       - name: Растущий каталог инвариантов
