@@ -283,6 +283,34 @@ def _explore():
     return growth.explore()
 
 
+@tool("self_deploy", "RED",
+      "развернуть платный сервис самостоятельно: тесты, синтаксис и сверка адреса "
+      "получателя ДО сети; после развёртывания живая проверка, и если сервис перестал "
+      "продавать — немедленный автоматический откат на предыдущую версию",
+      needs=("сеть", "ключ Cloudflare"))
+def _self_deploy():
+    from agents import self_deploy
+    return self_deploy.deploy(reason="cycle")
+
+
+@tool("deploy_history", "GREEN",
+      "чем кончились развёртывания агента: развёрнуто или откачено",
+      needs=())
+def _deploy_history():
+    from agents import self_deploy
+    return self_deploy.history()
+
+
+@tool("buyers", "GREEN",
+      "сколько РАЗНЫХ покупателей уже заплатило — по книге поступлений, где у каждой "
+      "записи есть хеш перевода; повторные платежи одного адреса за нового покупателя "
+      "не считаются",
+      needs=())
+def _buyers():
+    from agents import sell_surface
+    return sell_surface.buyers()
+
+
 @tool("sell_surface", "YELLOW",
       "поддержать продающую поверхность самостоятельно: у каждого платного маршрута есть "
       "объявление в каталоге, который платит; цена в объявлении совпадает с живой; индексы "
@@ -1114,7 +1142,7 @@ register(Agent(
         "каналов и контрагентов с известным способом оплаты, обращений с шестью элементами "
         "протокола и ответов на них; обещание, счёт и заявка не засчитываются",
     tools=("dealer_cycle", "dealer_state", "dealer_report", "moltbook_address_survey",
-           "directory_watch", "sell_surface"),
+           "directory_watch", "sell_surface", "buyers"),
     max_class="YELLOW",
     system=COMMON + """
 ТЫ — ДИЛЕР. Спецификация — MTBX.txt (протокол последней транзакции) с решениями
@@ -1344,7 +1372,7 @@ register(Agent(
     kpi="число правок, ПРИНЯТЫХ аудитом; откаченная правка засчитывается как "
         "работа предохранителя, а не как провал, но принятая без замера «до» — "
         "как провал",
-    tools=("improve_code", "check_invariants", "where_time_goes"),
+    tools=("improve_code", "self_deploy", "deploy_history", "check_invariants", "where_time_goes"),
     max_class="YELLOW",
     system=COMMON + """
 ТЫ — УЛУЧШАТЕЛЬ.

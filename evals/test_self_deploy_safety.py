@@ -117,6 +117,26 @@ def test_failed_rollback_command_does_not_stop_the_walk(monkeypatch):
     assert landed == healthy
 
 
+def test_the_improver_can_actually_reach_self_deploy():
+    """Инструмент в списке агента — ещё не право им пользоваться.
+
+    self_deploy — класса RED, улучшатель ограничен YELLOW. Без записанного
+    постоянного разрешения владельца диспетчер молча отклонял бы вызов, и вся
+    самостоятельность существовала бы только на бумаге.
+    """
+    from core import guard
+    from core.agent import TOOLS
+
+    tool = TOOLS["self_deploy"]
+    rank = {"GREEN": 0, "YELLOW": 1, "RED": 2, "BLACK": 3}
+    granted = guard.standing("self_deploy")
+    assert granted, "нет записанного разрешения — вызов отклонится по классу"
+    assert not (tool.action_class == "BLACK"
+                or (rank[tool.action_class] > rank["YELLOW"] and not granted))
+    assert granted.get("пределы, которые остаются"), "разрешение без пределов не записываем"
+    assert guard.CAPS.get("deploy_service"), "развёртывание без суточного предела не пускаем"
+
+
 class _Done:
     def __init__(self, code, out):
         self.returncode, self.stdout, self.stderr = code, out, ""

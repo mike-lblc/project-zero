@@ -19,9 +19,11 @@
 5. Всё расхождение — вслух: маршрут без объявления, объявление без маршрута,
    выпавший из verified, цена врозь.
 
-Чего здесь НЕТ и не будет: правок кода и развёртываний. Агент, который сам себе
-меняет платный сервис и деплоит его, — это не автономность, а риск без надзора.
-Такие расхождения шаг НАЗЫВАЕТ, чтобы их увидел человек.
+Чего здесь НЕТ: правок кода и развёртываний. Расхождения этот шаг НАЗЫВАЕТ.
+Разворачивает отдельный агент (`agents/self_deploy.py`) — с проверкой адреса
+получателя до сети, живой проверкой после разноса версии и автоматическим
+откатом; разделение нарочное, чтобы «поддержать витрину» и «переписать платный
+сервис» не делались одной рукой.
 
 Денег шаг не тратит: создание объявления и аудит бесплатны и без аккаунта.
 """
@@ -530,9 +532,65 @@ def delivery_gap():
     return f"разрыва нет за сутки: платежей {paid_in}, обслужено {served} (всего платежей {len(items)})"
 
 
+BUYER_TARGET = 5          # цель владельца: платежи от пяти РАЗНЫХ покупателей
+
+
+def buyers():
+    """Сколько РАЗНЫХ покупателей заплатило — по нашей же книге поступлений.
+
+    Это считалось снаружи, в наблюдателе на bash, и наблюдатель врал: переменная
+    уходила питону аргументом вместо переменной среды, `os.environ` оказывался
+    пустым, и один и тот же давно известный плательщик каждые пять минут объявлялся
+    новым. Счёт, который нельзя перепроверить, хуже отсутствия счёта.
+
+    Поэтому считаем по `payment_receipts`, где у каждой записи есть доказательство
+    в виде хеша перевода, а платёж от самого владельца записать нельзя вообще.
+    Один покупатель — один адрес-источник, сколько бы переводов он ни сделал:
+    двенадцать переводов скаута каталога — это один покупатель, а не двенадцать.
+    """
+    guard.check_action("research", "GREEN")
+    from core.db import connect as _db
+    c = _db()
+    rows = c.execute("SELECT from_party, network, currency, gross FROM payment_receipts").fetchall()
+    who = {}
+    for r in rows:
+        d = dict(r)
+        key = str(d.get("from_party") or "?").lower()
+        w = who.setdefault(key, {"n": 0, "sum": 0.0, "net": d.get("network"),
+                                 "cur": d.get("currency")})
+        w["n"] += 1
+        w["sum"] += float(d.get("gross") or 0)
+    distinct = len(who)
+
+    # Верхняя отметка — чтобы о новом покупателе сказать ОДИН раз, а не в каждом цикле.
+    c.execute("CREATE TABLE IF NOT EXISTS buyer_highwater (id INTEGER PRIMARY KEY, n INTEGER, at TEXT)")
+    prev = c.execute("SELECT n FROM buyer_highwater ORDER BY id DESC LIMIT 1").fetchone()
+    prev_n = int(dict(prev)["n"]) if prev else 0
+    if distinct > prev_n:
+        c.execute("INSERT INTO buyer_highwater(n,at) VALUES (?,?)", (distinct, now()))
+        c.commit()
+    c.close()
+
+    chains = sorted({(w["net"] or "?") for w in who.values()})
+    line = (f"разных покупателей {distinct} из {BUYER_TARGET}; поступлений {len(rows)}; "
+            f"сети: {', '.join(chains)}")
+    if distinct > prev_n:
+        newcomers = distinct - prev_n
+        _note("dealer", f"НОВЫХ ПОКУПАТЕЛЕЙ: {newcomers}. Всего разных плательщиков {distinct} "
+                        f"из {BUYER_TARGET} по цели владельца. Считано по книге поступлений, "
+                        f"где у каждой записи есть хеш перевода.", conf=1.0)
+        bus.broadcast("dealer", f"Платит уже {distinct} разных покупателей (было {prev_n}). "
+                                f"До цели владельца — {max(0, BUYER_TARGET - distinct)}.")
+        return "НОВЫЙ ПОКУПАТЕЛЬ; " + line
+    if distinct >= BUYER_TARGET:
+        return "ЦЕЛЬ ДОСТИГНУТА; " + line
+    return line
+
+
 def cycle():
     """Полный оборот: поверхность жива, объявлена, цены совпадают, аудит дёрнут."""
-    parts = [f"здоровье: {health()}",
+    parts = [f"покупатели: {buyers()}",
+             f"здоровье: {health()}",
              f"новые маршруты: {declare_routes()}",
              f"доставка: {delivery_gap()}",
              f"объявления: {ensure_listings()}",
