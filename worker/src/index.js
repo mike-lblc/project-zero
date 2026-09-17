@@ -846,6 +846,78 @@ function acceptsFor(path, payTo, description, tier) {
   return CHAINS.map((c) => requirements(path, payTo, description, c, tier));
 }
 
+
+// ПРИМЕР ОТВЕТА ДЛЯ КАЖДОГО ПЛАТНОГО АДРЕСА.
+//
+// Раньше здесь на все маршруты стояла одна заглушка: {generatedAt, data: "see tier
+// description"}. Индексатор просит пример ответа не из вежливости — по нему
+// покупающий агент решает, нужен ли ему этот вызов ВООБЩЕ, ещё до оплаты.
+// «see tier description» не отвечает ни на один вопрос и выглядит как пустая полка:
+// у сервисов, стоящих в каталоге рядом, примеры конкретные, с настоящими значениями.
+//
+// Значения ниже — настоящей формы, снятой с живого ответа каждого маршрута, а не
+// придуманной. Чтобы она не разошлась с действительностью молча, тест
+// worker/test/examples.test.mjs сверяет КАЖДЫЙ ключ примера с ключами настоящего
+// ответа: обещать в каталоге поле, которого мы не отдаём, — это ложь покупателю.
+const EXAMPLES = {
+  "/count": { generatedAt: "2026-09-17T12:00:00.000Z", services: 15758, calls30d: 412903,
+              payers30d: 21447, callsPerPayer: 1.0,
+              note: "median calls per payer is 1.00: most money here is one-shot verification buying" },
+  "/search": { query: "weather", mode: "relevance",
+               results: [{ resource: "https://api.example.com/forecast", name: "forecast api",
+                           description: "hourly forecast by city", tags: ["weather"],
+                           priceUsd: 0.01, network: "eip155:8453", calls30d: 310,
+                           payers30d: 42, score: 8.4 }] },
+  "/top": { generatedAt: "2026-09-17T12:00:00.000Z", count: 25,
+            method: "ranked by unique paying wallets in a 30-day window",
+            services: [{ resource: "https://api.example.com/forecast", name: "forecast api",
+                         priceUsd: 0.01, network: "eip155:8453", calls30d: 310,
+                         payers30d: 42, callsPerPayer: 7.4 }] },
+  "/tags": { generatedAt: "2026-09-17T12:00:00.000Z", count: 40,
+             tags: [{ tag: "weather", providers: 12, payers30d: 380, calls30d: 2140,
+                      medianPriceUsd: 0.01 }] },
+  "/networks": { generatedAt: "2026-09-17T12:00:00.000Z",
+                 method: "providers and demand grouped by CAIP-2 network",
+                 catalogSize: 15758,
+                 networks: [{ network: "eip155:8453", providers: 1090, calls30d: 254110,
+                              payers30d: 14802, medianPriceUsd: 0.01,
+                              payersPerProvider: 13.58, shareOfProviders: 0.958 }] },
+  "/report": { generatedAt: "2026-09-17T12:00:00.000Z", catalogSize: 15758,
+               categories: [{ tag: "weather", providers: 12, payers30d: 380,
+                              calls30d: 2140, medianPriceUsd: 0.01 }],
+               topServices: [{ resource: "https://api.example.com/forecast",
+                               name: "forecast api", calls30d: 310, payers30d: 42,
+                               priceUsd: 0.01 }] },
+  "/alpha": { generatedAt: "2026-09-17T12:00:00.000Z",
+              method: "unique payers per provider, 30d window; min 3 providers, 10 payers",
+              opportunities: [{ tag: "weather", providers: 12, payers30d: 380,
+                                demandPerProvider: 31.67, medianPriceUsd: 0.01 }] },
+  "/price": { generatedAt: "2026-09-17T12:00:00.000Z", query: "weather", mode: "relevance",
+              note: "zero-price services are counted separately: free is not cheap",
+              method: "percentiles over services that declared a non-zero price",
+              benchmark: { p10: 0.001, median: 0.01, p90: 0.1, charging: 9114, free: 6644 },
+              byCategory: [{ tag: "weather", charging: 12, p10: 0.001, median: 0.01,
+                             p90: 0.05, payers30d: 380 }] },
+  "/service": { generatedAt: "2026-09-17T12:00:00.000Z", query: "api.example.com",
+                mode: "exact", found: true,
+                service: { resource: "https://api.example.com/forecast", name: "forecast api",
+                           priceUsd: 0.01, network: "eip155:8453", calls30d: 310,
+                           payers30d: 42 } },
+  "/token": { generatedAt: "2026-09-17T12:00:00.000Z", query: "0x833589fCD6eDb...",
+              mode: "contract", note: "read live from the chain, not from a list",
+              network: "eip155:8453", token: { name: "USD Coin", symbol: "USDC", decimals: 6 },
+              contract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              checks: { respondsToName: true, respondsToVersion: true },
+              method: "eth_call against name(), version(), symbol(), decimals()",
+              disclaimer: "presence of a contract is not an endorsement of the token" },
+  "/dataset": { generatedAt: "2026-09-17T12:00:00.000Z", count: 15758,
+                fields: { u: "resource url", n: "name", d: "description", t: "tags",
+                          p: "price usd", w: "network", c: "calls 30d", y: "payers 30d" },
+                services: [{ u: "https://api.example.com/forecast", n: "forecast api",
+                             d: "hourly forecast by city", t: ["weather"], p: 0.01,
+                             w: "eip155:8453", c: 310, y: 42 }] },
+};
+
 function bazaarExtension(path) {
   const i = INPUTS[path] || { method: "GET", queryParams: {}, schema: {} };
   return {
@@ -858,10 +930,8 @@ function bazaarExtension(path) {
         },
         output: {
           type: "json",
-          example: path === "/search"
-            ? { query: "weather", results: [{ resource: "https://example.com/api",
-                name: "sample service", priceUsd: 0.01, payers30d: 42, calls30d: 310 }] }
-            : { generatedAt: "ISO-8601", data: "see tier description" },
+          example: EXAMPLES[path] || { generatedAt: "2026-09-17T12:00:00.000Z",
+                                       data: "see the route description" },
         },
       },
       schema: {

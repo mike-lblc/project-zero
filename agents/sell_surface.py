@@ -332,15 +332,43 @@ def trigger_auditions(limit=3):
 
 
 def register_indexes():
-    """Индексы без аккаунта должны знать про ВСЕ маршруты, а не про те, что были когда-то."""
+    """Индексы без аккаунта должны знать про ВСЕ маршруты, а не про те, что были когда-то.
+
+    Индексов теперь два, и это не дублирование. Замечание владельца — «не быть
+    привязанным к чему-то одному» — подтвердилось счётом: за всё время нам заплатили
+    два разных покупателя, и один из них пришёл из единственного каталога. Пока
+    источник один, он же и есть потолок выручки.
+
+    Ни один из этих индексов не платит сам: они приводят платящих агентов. Обещать
+    здесь платёж было бы ложью, поэтому шаг докладывает ровно факт размещения.
+    """
     guard.check_action("research", "GREEN")
+    parts = []
     try:
         from agents import dealer
         r = dealer._register_x402scan()
-        return (f"x402scan: registered {r.get('registered')}/{r.get('total')}, "
-                f"public {r.get('publicCount')}, failed {r.get('failed')}")
+        parts.append(f"x402scan: размещено {r.get('registered')}/{r.get('total')}, "
+                     f"публичных {r.get('publicCount')}, отказов {r.get('failed')}")
     except Exception as e:
-        return f"x402scan не ответил: {type(e).__name__}"
+        parts.append(f"x402scan не ответил: {type(e).__name__}")
+
+    # Agent402: бесплатно, без аккаунта и почты; их обходчик сам снимает наши
+    # маршруты с нашего же ответа 402 раз в час.
+    st, d = _http("https://agent402.tools/api/index/register", method="POST",
+                  body={"origin": SELF}, timeout=60)
+    if st == 200 and isinstance(d, dict):
+        seller = d.get("seller") or {}
+        nets = seller.get("networks") or []
+        line = (f"agent402: размещено {bool(d.get('listed'))}, маршрутов у них "
+                f"{seller.get('toolCount')}, маршрутизуем {seller.get('routable')}")
+        # Пустой список сетей — не мелочь: маршрутизатор, который фильтрует по сети,
+        # пройдёт мимо продавца без сетей. Называем это вслух, а не прячем.
+        if not nets:
+            line += "; СЕТИ У НИХ ПУСТЫ — маршрутизатор с фильтром по сети нас не найдёт"
+        parts.append(line)
+    else:
+        parts.append(f"agent402 не ответил: {st}")
+    return "; ".join(parts)
 
 
 def health():
