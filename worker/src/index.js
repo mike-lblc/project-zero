@@ -21,6 +21,26 @@ const SCORING_REVISION = "2026-09-14.2";
 const WORKER_VERSION = "0.2.0";
 
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+
+// НЕ ОДНА СЕТЬ, И ЭТО НЕ ЖАДНОСТЬ. Тестовый покупатель x402gle ответил дословно:
+// «could not settle a test payment on a chain this route accepts» — он не смог
+// рассчитаться на Base, а Base была единственной сетью, которую мы принимали.
+// Адрес владельца один и тот же в любой сети EVM, так что принять больше сетей
+// ничего не стоит и расширяет круг тех, кто физически может нам заплатить.
+//
+// В список входит ТОЛЬКО то, что наш собственный расчёт умеет провести: иначе мы
+// объявили бы приём и отвергли настоящий платёж. CDP считает 8453, 137, 42161
+// (проверено GET /x402/supported); публичный фасилитатор — только Base, поэтому
+// для остальных сетей страховки нет и подмена фасилитатора для них запрещена.
+// Optimism (eip155:10) НЕ включён: USDC там есть, но ни один наш фасилитатор его
+// не считает. Контракт, символ, decimals и домен EIP-712 каждой сети прочитаны
+// вызовами name()/version()/symbol()/decimals() прямо в сети, а не взяты по памяти.
+const CHAINS = [
+  { network: "eip155:8453",  asset: USDC_BASE,                                    name: "USD Coin", version: "2", publicFallback: true },
+  { network: "eip155:42161", asset: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", name: "USD Coin", version: "2", publicFallback: false },
+  { network: "eip155:137",   asset: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", name: "USD Coin", version: "2", publicFallback: false },
+];
+const chainOf = (network) => CHAINS.find((c) => c.network === network) || CHAINS[0];
 // ДВА ФАСИЛИТАТОРА, И ВЫБОР НЕ КОСМЕТИЧЕСКИЙ.
 //
 // Общественный работает без ключа, и на нём мы жили до сих пор. Но индекс
@@ -294,15 +314,16 @@ function inputSchema(path) {
   };
 }
 
-function requirements(path, payTo, description) {
+function requirements(path, payTo, description, chain) {
   const t = TIERS[path];
   const i = INPUTS[path] || { method: "GET", queryParams: {}, example: "" };
+  const c = chain || CHAINS[0];
   return {
     scheme: "exact",
-    network: "eip155:8453",
+    network: c.network,
     maxAmountRequired: t.amount,
     amount: t.amount,
-    asset: USDC_BASE,
+    asset: c.asset,
     payTo,
     description,
     mimeType: "application/json",
@@ -311,7 +332,7 @@ function requirements(path, payTo, description) {
     // («EIP-712 domain parameters (name, version) are required»), а фасилитатор при проверке
     // отвечает ErrMissingEip712Domain. У 125 из 125 проиндексированных продавцов на Base это
     // поле есть; у нас его не было до 16.09 — стандартным клиентом заплатить было нельзя.
-    extra: { name: "USD Coin", version: "2" },
+    extra: { name: c.name, version: c.version },
     // resource — ПОЛНЫЙ АДРЕС строкой. Ни путь «/search», ни объект с полем
     // url не подходят: у всех проиндексированных сервисов здесь строка.
     resource: SELF + path,
@@ -322,6 +343,12 @@ function requirements(path, payTo, description) {
 // Проверка сказала дословно: «no bazaar extension in top-level extensions
 // object». Вложив его в accepts[0].extra, я сделал его невидимым для
 // индексатора — структура важна не меньше содержания.
+// accepts[] — ровно то место протокола, где перечисляют несколько способов заплатить:
+// клиент берёт тот, который умеет. Base идёт первой, она же остаётся дефолтом.
+function acceptsFor(path, payTo, description) {
+  return CHAINS.map((c) => requirements(path, payTo, description, c));
+}
+
 function bazaarExtension(path) {
   const i = INPUTS[path] || { method: "GET", queryParams: {}, schema: {} };
   return {
@@ -407,13 +434,20 @@ async function cdpJwt(env, method, path) {
 }
 
 /** Проверяем и проводим платёж через фасилитатор. Без подтверждения данные не отдаём. */
-async function settle(paymentHeader, reqs, env) {
+async function settle(paymentHeader, accepts, env) {
   let payload;
   try {
     payload = JSON.parse(atob(paymentHeader));
   } catch {
     try { payload = JSON.parse(paymentHeader); } catch { return { ok: false, why: "payload не разобран" }; }
   }
+  // КАКОЙ ИМЕННО СПОСОБ ВЫБРАЛ КЛИЕНТ. Мы объявляем несколько сетей, и фасилитатору
+  // надо отдать ТО САМОЕ требование, против которого подписан платёж: с чужой сетью
+  // или чужим контрактом в paymentRequirements проверка провалится на верном платеже.
+  const list = Array.isArray(accepts) ? accepts : [accepts];
+  const want = payload && (payload.network || (payload.payload && payload.payload.network));
+  const reqs = list.find((r) => r.network === want) || list[0];
+  const chain = chainOf(reqs.network);
   const body = JSON.stringify({ x402Version: 2, paymentPayload: payload, paymentRequirements: reqs });
   const haveCdp = Boolean(env && env.CDP_API_KEY_ID && env.CDP_API_KEY_SECRET);
 
@@ -483,9 +517,16 @@ async function settle(paymentHeader, reqs, env) {
   if (haveCdp) {
     const r = await attempt(true);
     if (r.ok || !r.retryable) return r;
+    // Подмена фасилитатора осмысленна только для сети, которую он считает. На
+    // Arbitrum и Polygon публичный ответит «unsupported network», и мы бы
+    // превратили сбой CDP в невнятный отказ на верном платеже.
+    if (!chain.publicFallback)
+      return { ...r, why: `${r.why} (no fallback settles ${reqs.network})` };
     const f = await attempt(false);
     return { ...f, via: f.ok ? "public-after-cdp-failed" : f.via, cdpWhy: r.why };
   }
+  if (!chain.publicFallback)
+    return { ok: false, via: "public", why: `no configured facilitator settles ${reqs.network}` };
   return attempt(false);
 }
 
@@ -1110,14 +1151,15 @@ export default {
     // ---- платное
     if (TIERS[path]) {
       const t = TIERS[path];
-      const reqs = requirements(path, payTo, t.what);
+      const accepts = acceptsFor(path, payTo, t.what);
+      const reqs = accepts[0];   // Base — способ по умолчанию, для прямого перевода и текстов
       // ПРЯМОЙ ПЕРЕВОД: ?tx=<hash> — проверяем перевод на Base и отдаём ответ без x402.
       const txParam = url.searchParams.get("tx") || "";
       if (/^0x[0-9a-fA-F]{64}$/.test(txParam)) {
         const d = await directPaid(txParam, t, payTo, env);
         console.log(JSON.stringify({ ev: d.ok ? "direct_paid" : "direct_failed", path, tx: txParam, why: d.ok ? null : d.why }));
         await bump(env, d.ok ? "direct_paid" : "direct_failed");
-        if (!d.ok) return json({ error: "direct payment not verified", reason: d.why, how_to_pay: SELF + "/pay", accepts: [reqs] }, 402);
+        if (!d.ok) return json({ error: "direct payment not verified", reason: d.why, how_to_pay: SELF + "/pay", accepts }, 402);
         return json({ ...payload(path, url), paid_via: "direct-transfer", tx: d.tx, asset: d.asset, amount: d.amount }, 200);
       }
       // ЧИТАЕМ ОБА ЗАГОЛОВКА — И ЭТО НЕ ПЕРЕСТРАХОВКА.
@@ -1150,7 +1192,7 @@ export default {
                                  type: "http",
                                  method: (INPUTS[path] || {}).method || "GET",
                                  description: t.what },
-                     accepts: [reqs],
+                     accepts,
                      extensions: bazaarExtension(path) };
         const ua402 = request.headers.get("user-agent") || "";
         console.log(JSON.stringify({ ev: "402", path, ua: ua402.slice(0, 80) }));
@@ -1162,13 +1204,13 @@ export default {
         return json(body402, 402, { "payment-required": b64utf8(JSON.stringify(pr)) });
       }
 
-      const r = await settle(header, reqs, env);
+      const r = await settle(header, accepts, env);
       // ПОПЫТКА ОПЛАТЫ — САМОЕ ВАЖНОЕ СОБЫТИЕ СЕРВИСА: пишется всегда, с исходом и причиной.
       console.log(JSON.stringify({ ev: r.ok ? "paid" : "pay_failed", path, via: r.via, tx: r.tx || null,
                                    why: r.ok ? null : String(r.why).slice(0, 160) }));
       await bump(env, r.ok ? "paid" : "pay_failed");
       if (!r.ok)
-        return json({ x402Version: 2, error: "Payment failed", reason: r.why, accepts: [reqs] }, 402);
+        return json({ x402Version: 2, error: "Payment failed", reason: r.why, accepts }, 402);
 
       // ПОДТВЕРЖДЕНИЕ ТОЖЕ В ОБОИХ ВИДАХ. Клиент версии 2 ищет PAYMENT-RESPONSE
       // и, не найдя его, считает оплату неподтверждённой — даже получив товар.
