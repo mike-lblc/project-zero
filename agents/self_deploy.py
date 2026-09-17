@@ -55,7 +55,7 @@ EXPECTED = {
     "owner sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
     "owner stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
 }
-MIN_PY_TESTS = 294   # текущий набор — 298; падение ниже = сбор сломался
+MIN_PY_TESTS = 297   # текущий набор — 301; падение ниже = сбор сломался
 OWNER_EVM_TAIL = "c55354"          # хвост адреса владельца: сверяется в живом 402
 
 
@@ -364,6 +364,30 @@ def _behind_origin():
         return False, f"состояние git не выяснено ({type(e).__name__}) — не запрещаем деплой"
 
 
+def _fast_forward():
+    """Подтянуть origin/main БЕЗ слияний. Возвращает (получилось, как именно).
+
+    Только fast-forward и намеренно: он не создаёт коммитов слияния, не трогает
+    чужие правки и честно падает, если история разошлась или в рабочей копии есть
+    несохранённое. В облаке копия чистая, поэтому обычно проходит; на машине
+    владельца с незакоммиченными правками — откажется, и это правильно.
+    """
+    try:
+        f = subprocess.run(["git", "fetch", "--quiet", "origin", "main"], cwd=str(ROOT),
+                           capture_output=True, text=True, timeout=240)
+        if f.returncode:
+            return False, f"fetch не прошёл: {(f.stderr or '')[-120:]}"
+        m = subprocess.run(["git", "merge", "--ff-only", "origin/main"], cwd=str(ROOT),
+                           capture_output=True, text=True, timeout=240)
+        if m.returncode:
+            return False, f"fast-forward невозможен: {((m.stderr or '') + (m.stdout or ''))[-140:]}"
+        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=str(ROOT),
+                              capture_output=True, text=True, timeout=60)
+        return True, f"подтянуто до {(head.stdout or '').strip()}"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {str(e)[:100]}"
+
+
 def deploy_if_changed():
     """Развернуть ТОЛЬКО если исходник воркера изменился с прошлого деплоя.
 
@@ -390,7 +414,25 @@ def deploy_if_changed():
     # одиннадцать маршрутов честно отдают 402, проверка продаж прошла бы.
     behind, why = _behind_origin()
     if behind:
-        return f"деплой пропущен: {why} — развернём из свежего кода следующим прогоном"
+        # ОТСТАЁШЬ — ПОДТЯНИСЬ, А НЕ СДАВАЙСЯ.
+        #
+        # Предохранитель «не разворачивать старое поверх нового» правильный, но
+        # первая его версия просто отказывалась. Следствие замерено: облачный
+        # прогон выкачивает main на старте и живёт пять часов, а я за вечер
+        # запушил ещё три коммита — значит копия устаревала через минуты, и
+        # облако не разворачивало НИКОГДА, пока человек работает. Автономность,
+        # существующая только когда человек остановился, — не автономность.
+        #
+        # Цель предохранителя — «в сети должен оказаться свежий код», и она
+        # достигается не отказом, а обновлением. Тянем только fast-forward: он
+        # не создаёт слияний и честно падает при расхождении, и тогда мы всё-таки
+        # отказываемся.
+        pulled, how = _fast_forward()
+        if not pulled:
+            return f"деплой пропущен: {why}; подтянуть не удалось ({how})"
+        behind, why = _behind_origin()
+        if behind:
+            return f"деплой пропущен: {why} даже после обновления ({how})"
     cur = _bundle_hash()
     if not cur:
         return "бандл не прочитан — деплой не нужен"

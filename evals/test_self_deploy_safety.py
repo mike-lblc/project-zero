@@ -268,12 +268,73 @@ def test_stale_checkout_never_deploys_over_newer_code(monkeypatch):
     monkeypatch.setattr(sd, "_token", lambda: "fake-token")
     monkeypatch.setattr(sd, "_behind_origin",
                         lambda: (True, "копия abc12345 отстаёт от origin/main def67890"))
+    # Обновиться не удалось — значит разворачивать нечего, и это единственный
+    # случай, когда отказ правильный.
+    monkeypatch.setattr(sd, "_fast_forward", lambda: (False, "fast-forward невозможен"))
     called = []
     monkeypatch.setattr(sd, "deploy", lambda reason="": called.append(reason) or "deployed")
     monkeypatch.setattr(sd, "_log_deploy_action", lambda r: called.append("cap"))
     out = sd.deploy_if_changed()
     assert not called, "развернул устаревшую копию поверх свежей"
     assert "отстаёт" in out
+
+
+def test_a_stale_copy_is_refreshed_rather_than_abandoned(monkeypatch):
+    """Отказ — не единственный способ не разворачивать старое.
+
+    Замерено в бою: облачный прогон берёт main на старте и живёт пять часов, а я
+    за вечер запушил три коммита — копия устаревала через минуты, и облако не
+    разворачивало НИКОГДА, пока человек работает. Автономность, существующая
+    только когда человек остановился, — не автономность. Поэтому отставание
+    лечится подтягиванием, и лишь неудача подтягивания — отказом.
+    """
+    pulled = []
+    state = {"behind": True}
+
+    def behind():
+        return (True, "отстаёт") if state["behind"] else (False, "совпадает")
+
+    def ff():
+        pulled.append(1)
+        state["behind"] = False
+        return True, "подтянуто до deadbeef"
+
+    monkeypatch.setattr(sd, "_token", lambda: "fake-token")
+    monkeypatch.setattr(sd, "_behind_origin", behind)
+    monkeypatch.setattr(sd, "_fast_forward", ff)
+    monkeypatch.setattr(sd, "_bundle_hash", lambda: "hash-after-pull")
+    from core.db import connect
+    c = connect()
+    c.execute("CREATE TABLE IF NOT EXISTS deploy_hash (id INTEGER PRIMARY KEY, hash TEXT, at TEXT)")
+    c.execute("DELETE FROM deploy_hash")
+    c.commit(); c.close()
+    deployed = []
+    monkeypatch.setattr(sd, "deploy",
+                        lambda reason="": deployed.append(reason) or "развёрнуто и проверено: ok")
+    out = sd.deploy_if_changed()
+    c = connect(); c.execute("DELETE FROM deploy_hash"); c.commit(); c.close()
+    assert pulled, "устаревшая копия не была подтянута"
+    assert deployed, f"после обновления деплой не пошёл: {out}"
+
+
+def test_a_pull_that_does_not_help_still_refuses(monkeypatch):
+    """Подтянули, а всё равно отстаём — разворачивать нельзя."""
+    monkeypatch.setattr(sd, "_token", lambda: "fake-token")
+    monkeypatch.setattr(sd, "_behind_origin", lambda: (True, "отстаёт"))
+    monkeypatch.setattr(sd, "_fast_forward", lambda: (True, "подтянуто"))
+    called = []
+    monkeypatch.setattr(sd, "deploy", lambda reason="": called.append(reason) or "x")
+    out = sd.deploy_if_changed()
+    assert not called, "развернул, хотя копия всё ещё отстаёт"
+    assert "даже после обновления" in out
+
+
+def test_the_pull_is_fast_forward_only(monkeypatch):
+    """Только fast-forward: без коммитов слияния и без затирания чужих правок."""
+    import inspect
+    src = inspect.getsource(sd._fast_forward)
+    assert "--ff-only" in src, "подтягивание больше не ограничено fast-forward"
+    assert "reset" not in src and "--force" not in src, "в подтягивании появилось насилие над историей"
 
 
 def test_a_current_checkout_is_allowed_to_deploy(monkeypatch):
