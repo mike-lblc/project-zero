@@ -55,7 +55,7 @@ EXPECTED = {
     "owner sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
     "owner stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
 }
-MIN_PY_TESTS = 274   # текущий набор — 278; падение ниже = сбор сломался
+MIN_PY_TESTS = 277   # текущий набор — 281; падение ниже = сбор сломался
 OWNER_EVM_TAIL = "c55354"          # хвост адреса владельца: сверяется в живом 402
 
 
@@ -323,6 +323,32 @@ def _bundle_hash():
     return h.hexdigest()[:16]
 
 
+def _behind_origin():
+    """Отстаёт ли рабочая копия от origin/main. Возвращает (отстаёт, почему).
+
+    Неизвестность трактуется как «не отстаём»: git может быть недоступен, и это не
+    повод запретить деплой вовсе. Но если отставание ВИДНО — деплой отменяется.
+    """
+    try:
+        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ROOT), capture_output=True,
+                           text=True, timeout=60)
+        local = (r.stdout or "").strip()
+        subprocess.run(["git", "fetch", "--quiet", "origin", "main"], cwd=str(ROOT),
+                       capture_output=True, text=True, timeout=180)
+        r2 = subprocess.run(["git", "rev-parse", "origin/main"], cwd=str(ROOT),
+                            capture_output=True, text=True, timeout=60)
+        remote = (r2.stdout or "").strip()
+        if not local or not remote or local == remote:
+            return False, "копия совпадает с origin/main"
+        r3 = subprocess.run(["git", "merge-base", "--is-ancestor", local, remote],
+                            cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+        if r3.returncode == 0:
+            return True, f"копия {local[:8]} отстаёт от origin/main {remote[:8]}"
+        return False, "копия не является предком origin/main (своя ветка правок)"
+    except Exception as e:
+        return False, f"состояние git не выяснено ({type(e).__name__}) — не запрещаем деплой"
+
+
 def deploy_if_changed():
     """Развернуть ТОЛЬКО если исходник воркера изменился с прошлого деплоя.
 
@@ -339,6 +365,17 @@ def deploy_if_changed():
     # провальных попытках, пока владелец не добавит секрет CLOUDFLARE_API_TOKEN.
     if not _token():
         return "нет ключа Cloudflare (секрет CLOUDFLARE_API_TOKEN не задан) — деплой в облаке пропущен"
+    # СТАРЫМ КОДОМ ПОВЕРХ НОВОГО — НИКОГДА.
+    #
+    # Деплоить могут двое: локальная машина и облако. Облако выкачивает main при
+    # СТАРТЕ прогона и живёт пять часов, поэтому к середине прогона его копия
+    # может отставать. Замеренный случай: облако держало 64907f6 (11 маршрутов),
+    # а в сети уже стояли 15 из свежего коммита. Разверни оно свою копию — и
+    # четыре платных маршрута тихо исчезли бы, причём откат НЕ сработал бы:
+    # одиннадцать маршрутов честно отдают 402, проверка продаж прошла бы.
+    behind, why = _behind_origin()
+    if behind:
+        return f"деплой пропущен: {why} — развернём из свежего кода следующим прогоном"
     cur = _bundle_hash()
     if not cur:
         return "бандл не прочитан — деплой не нужен"

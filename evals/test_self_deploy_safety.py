@@ -201,6 +201,52 @@ def test_deploy_if_changed_deploys_when_bundle_changed(monkeypatch):
     assert latest == "newhash999", "новый хеш не записан после успешного деплоя"
 
 
+def test_stale_checkout_never_deploys_over_newer_code(monkeypatch):
+    """Старым кодом поверх нового — никогда.
+
+    Деплоить могут двое: машина и облако. Облако выкачивает main на СТАРТЕ и живёт
+    пять часов, поэтому к середине прогона отстаёт. Замеренный случай: в сети уже
+    стояли 15 платных маршрутов, а облако держало копию с 11. Разверни он свою —
+    четыре маршрута исчезли бы, и откат НЕ спас бы: одиннадцать маршрутов честно
+    отдают 402, значит проверка продаж прошла бы и поломки не увидела.
+    """
+    monkeypatch.setattr(sd, "_token", lambda: "fake-token")
+    monkeypatch.setattr(sd, "_behind_origin",
+                        lambda: (True, "копия abc12345 отстаёт от origin/main def67890"))
+    called = []
+    monkeypatch.setattr(sd, "deploy", lambda reason="": called.append(reason) or "deployed")
+    monkeypatch.setattr(sd, "_log_deploy_action", lambda r: called.append("cap"))
+    out = sd.deploy_if_changed()
+    assert not called, "развернул устаревшую копию поверх свежей"
+    assert "отстаёт" in out
+
+
+def test_a_current_checkout_is_allowed_to_deploy(monkeypatch):
+    """Осторожность не должна превращаться в паралич: свежая копия разворачивается."""
+    monkeypatch.setattr(sd, "_token", lambda: "fake-token")
+    monkeypatch.setattr(sd, "_behind_origin", lambda: (False, "совпадает с origin/main"))
+    monkeypatch.setattr(sd, "_bundle_hash", lambda: "fresh-hash-1")
+    from core.db import connect
+    c = connect()
+    c.execute("CREATE TABLE IF NOT EXISTS deploy_hash (id INTEGER PRIMARY KEY, hash TEXT, at TEXT)")
+    c.execute("DELETE FROM deploy_hash")
+    c.commit(); c.close()
+    monkeypatch.setattr(sd, "deploy", lambda reason="": "развёрнуто и проверено: ok")
+    out = sd.deploy_if_changed()
+    c = connect(); c.execute("DELETE FROM deploy_hash"); c.commit(); c.close()
+    assert "развёрнуто" in out
+
+
+def test_unknown_git_state_does_not_forbid_deploying(monkeypatch):
+    """git может быть недоступен — это не повод запретить деплой вообще."""
+    def boom(*a, **k):
+        raise OSError("no git")
+    monkeypatch.setattr(sd.subprocess, "run", boom)
+    behind, why = sd._behind_origin()
+    assert behind is False
+    assert "не выяснено" in why
+
+
 def test_deploy_if_changed_skips_without_a_token(monkeypatch):
     """Нет ключа Cloudflare — пропуск ДО попытки, иначе облако жгло бы предел зря."""
     monkeypatch.setattr(sd, "_token", lambda: "")
