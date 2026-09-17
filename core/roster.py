@@ -293,6 +293,16 @@ def _self_deploy():
     return self_deploy.deploy(reason="cycle")
 
 
+@tool("deploy_if_changed", "RED",
+      "развернуть платный сервис ТОЛЬКО если его исходник изменился с прошлого деплоя "
+      "(сравнение по хешу): изменился — полный безопасный деплой с откатом, не менялся — "
+      "тихий no-op; безопасно ставить в цикл, не жжёт суточный предел на ровном месте",
+      needs=("сеть", "ключ Cloudflare"))
+def _deploy_if_changed():
+    from agents import self_deploy
+    return self_deploy.deploy_if_changed()
+
+
 @tool("deploy_history", "GREEN",
       "чем кончились развёртывания агента: развёрнуто или откачено",
       needs=())
@@ -1382,7 +1392,7 @@ register(Agent(
     kpi="число правок, ПРИНЯТЫХ аудитом; откаченная правка засчитывается как "
         "работа предохранителя, а не как провал, но принятая без замера «до» — "
         "как провал",
-    tools=("improve_code", "self_deploy", "deploy_history", "check_invariants", "where_time_goes"),
+    tools=("improve_code", "self_deploy", "deploy_if_changed", "deploy_history", "check_invariants", "where_time_goes"),
     max_class="YELLOW",
     system=COMMON + """
 ТЫ — УЛУЧШАТЕЛЬ.

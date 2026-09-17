@@ -157,6 +157,11 @@ jobs:
           WALLET_ETH: ${{ secrets.WALLET_ETH }}
           MOLTBOOK_API_KEY: ${{ secrets.P0_MOLTBOOK_API_KEY }}
           BOARD_TOKEN: ${{ secrets.P0_BOARD_TOKEN }}
+          # КЛЮЧ РАЗВЁРТЫВАНИЯ. Без него шаг deploy_if_changed в облаке — тихий
+          # no-op: агенты не могут выкатить правку воркера, пока владелец не добавит
+          # секрет `CLOUDFLARE_API_TOKEN` (gh secret set CLOUDFLARE_API_TOKEN).
+          # Пустой при отсутствии секрета — это безопасно, а не ошибка.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GH_TOKEN: ${{ github.token }}
           P0_CLOUD_MINUTES: '300'
         run: |

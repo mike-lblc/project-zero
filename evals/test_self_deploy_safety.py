@@ -165,6 +165,53 @@ def test_the_improver_can_actually_reach_self_deploy():
     assert guard.CAPS.get("deploy_service"), "развёртывание без суточного предела не пускаем"
 
 
+def test_deploy_if_changed_skips_when_bundle_unchanged(monkeypatch):
+    """Тот же исходник — тихий no-op, а не деплой: цикл не жжёт предел на ровном месте."""
+    monkeypatch.setattr(sd, "_token", lambda: "fake-token")
+    monkeypatch.setattr(sd, "_bundle_hash", lambda: "abc123")
+    from core.db import connect
+    c = connect()
+    c.execute("CREATE TABLE IF NOT EXISTS deploy_hash (id INTEGER PRIMARY KEY, hash TEXT, at TEXT)")
+    c.execute("INSERT INTO deploy_hash(hash,at) VALUES ('abc123', 'now')")
+    c.commit(); c.close()
+    called = []
+    monkeypatch.setattr(sd, "deploy", lambda reason="": called.append(reason) or "deployed")
+    out = sd.deploy_if_changed()
+    assert not called, "развернул, хотя бандл не менялся"
+    assert "не менялся" in out
+
+
+def test_deploy_if_changed_deploys_when_bundle_changed(monkeypatch):
+    """Исходник изменился — полный деплой; хеш записывается только при успехе."""
+    monkeypatch.setattr(sd, "_token", lambda: "fake-token")
+    monkeypatch.setattr(sd, "_bundle_hash", lambda: "newhash999")
+    from core.db import connect
+    c = connect()
+    c.execute("CREATE TABLE IF NOT EXISTS deploy_hash (id INTEGER PRIMARY KEY, hash TEXT, at TEXT)")
+    c.execute("DELETE FROM deploy_hash")
+    c.execute("INSERT INTO deploy_hash(hash,at) VALUES ('oldhash', 'now')")
+    c.commit(); c.close()
+    monkeypatch.setattr(sd, "deploy",
+                        lambda reason="": "развёрнуто и проверено: 11 платных отдают 402")
+    out = sd.deploy_if_changed()
+    assert "развёрнуто" in out
+    c = connect()
+    latest = c.execute("SELECT hash FROM deploy_hash ORDER BY id DESC LIMIT 1").fetchone()[0]
+    c.execute("DELETE FROM deploy_hash"); c.commit(); c.close()
+    assert latest == "newhash999", "новый хеш не записан после успешного деплоя"
+
+
+def test_deploy_if_changed_skips_without_a_token(monkeypatch):
+    """Нет ключа Cloudflare — пропуск ДО попытки, иначе облако жгло бы предел зря."""
+    monkeypatch.setattr(sd, "_token", lambda: "")
+    called = []
+    monkeypatch.setattr(sd, "_log_deploy_action", lambda r: called.append(r))
+    monkeypatch.setattr(sd, "deploy", lambda reason="": called.append("deploy") or "x")
+    out = sd.deploy_if_changed()
+    assert not called, "тронул предел/деплой без ключа"
+    assert "нет ключа" in out.lower()
+
+
 class _Done:
     def __init__(self, code, out):
         self.returncode, self.stdout, self.stderr = code, out, ""

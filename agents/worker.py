@@ -135,6 +135,7 @@ AGENT_OF = {"reason_and_act":"orchestrator","expand":"prospector","fulfil":"craf
             "dealer_cycle":"dealer", "dealer_state":"dealer", "deliver_aibtc":"bounty",
             "revalidate_channels":"leads",
             "strategist_think":"orchestrator", "strategist_report":"orchestrator",
+            "deploy_if_changed":"improver",
             "scout_registrations":"browser_scout", "hunt_offsite":"browser_scout",
             "moltbook_address_survey":"dealer"}
 
@@ -315,7 +316,21 @@ def _write_snapshot():
 
 
 def _env_value(name):
-    """Одно значение из Brain/.env — в промпт не попадает, только в окружение процесса."""
+    """Одно значение: сперва окружение процесса, потом Brain/.env.
+
+    ПОРЯДОК ВАЖЕН, И ВОТ ПОЧЕМУ. В облаке .env нет — секреты приходят переменными
+    окружения из GitHub Actions. Раньше эта функция читала ТОЛЬКО .env, поэтому в
+    облаке любой ключ, переданный секретом (Cloudflare, Moltbook, доска), был
+    невидим коду: секрет есть в окружении, а функция смотрит в несуществующий файл
+    и возвращает пусто. Из-за этого облако не могло ни развернуть воркер, ни писать
+    на доску, хотя секреты были переданы. Сначала окружение — тогда облако видит
+    свои секреты; .env остаётся как запасной источник для локальной машины.
+
+    В промпт значение не попадает — только в окружение процесса-инструмента.
+    """
+    val = os.environ.get(name)
+    if val:
+        return val.strip().strip('"')
     env = ROOT / ".env"
     if not env.exists():
         return ""
@@ -1150,6 +1165,11 @@ SLOW_CYCLE = [("mechanic", _mech("mechanic")),
               ("dealer_cycle", _src("dealer_cycle")),
               ("deliver_aibtc", _src("deliver_aibtc")),      # сдача готовых результатов на AIBTC
               ("revalidate_channels", _src("revalidate_channels")),  # каналы лидов стареют
+              # УЛУЧШАТЕЛЬ — сам выкатывает изменение воркера, КОГДА оно есть.
+              # Разворачивает только при изменении исходника (сравнение по хешу),
+              # со всеми проверками и откатом; не менялось — тихий no-op. Так
+              # правка, залитая в main, доезжает до сети без человека у пульта.
+              ("deploy_if_changed", _src("deploy_if_changed")),
               # СТРАТЕГ — оборот мышления: гипотезы из живых компонентов, эксперименты, отбор.
               ("strategist_think", _src("strategist_think")),
               ("strategist_report", _src("strategist_report")),
@@ -1269,6 +1289,11 @@ CLOUD_STEPS = [
     # дублирования нет вовсе; когда работают обе машины, предел на базу ограничивает
     # худший случай (например, не больше 1+1 поста в сутки) — это не спам.
     "strategist_think",    # observe→generate→ИСПОЛНИТЬ гипотезу→попросить нехватку
+    # САМ ВЫКАТ ИЗМЕНЕНИЯ. Разворачивает воркер, только если его исходник изменился
+    # (правка залита в main и выкачана облаком) — со сверкой адреса, тестами, тремя
+    # живыми проверками и откатом. Нет ключа Cloudflare — тихо пропускает. Это и
+    # есть «агенты сами делают то, что делал человек: правку и деплой», в облаке.
+    "deploy_if_changed",
 ]
 
 # Чего в облаке нет и почему — без умолчаний:

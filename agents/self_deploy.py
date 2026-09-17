@@ -55,7 +55,7 @@ EXPECTED = {
     "owner sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
     "owner stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
 }
-MIN_PY_TESTS = 258   # текущий набор — 262; падение ниже = сбор сломался
+MIN_PY_TESTS = 261   # текущий набор — 265; падение ниже = сбор сломался
 OWNER_EVM_TAIL = "c55354"          # хвост адреса владельца: сверяется в живом 402
 
 
@@ -304,6 +304,57 @@ def _verify_settled(attempts=3, first_wait=12, gap=6):
         if i + 1 < attempts:
             time.sleep(gap)
     return True, f"{last}; подтверждено {attempts} раза подряд"
+
+
+def _bundle_hash():
+    """Хеш исходника воркера — по нему видно, менялся ли он с прошлого деплоя."""
+    import hashlib
+    try:
+        return hashlib.sha256(BUNDLE.read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ""
+
+
+def deploy_if_changed():
+    """Развернуть ТОЛЬКО если исходник воркера изменился с прошлого деплоя.
+
+    Это то, что делает self_deploy пригодным для цикла. Разворачивать на КАЖДОМ
+    обороте нельзя: это жгло бы суточный предел, гоняло бы разнос версии впустую и
+    рисковало бы откатами на ровном месте. Здесь шаг сравнивает хеш бандла с хешем
+    последнего успешного деплоя: совпал — тихий no-op; изменился (кто-то залил
+    правку в main, и облако её выкачало) — полный безопасный деплой с проверкой и
+    откатом. Так агенты САМИ выкатывают изменение, когда оно есть, и молчат, когда
+    его нет — без человека у пульта.
+    """
+    # Нет ключа Cloudflare — деплой физически невозможен. Выходим ДО записи
+    # действия и попытки, иначе облако жгло бы суточный предел на заведомо
+    # провальных попытках, пока владелец не добавит секрет CLOUDFLARE_API_TOKEN.
+    if not _token():
+        return "нет ключа Cloudflare (секрет CLOUDFLARE_API_TOKEN не задан) — деплой в облаке пропущен"
+    cur = _bundle_hash()
+    if not cur:
+        return "бандл не прочитан — деплой не нужен"
+    try:
+        c = connect(); _table(c)
+        c.execute("CREATE TABLE IF NOT EXISTS deploy_hash (id INTEGER PRIMARY KEY, hash TEXT, at TEXT)")
+        row = c.execute("SELECT hash FROM deploy_hash ORDER BY id DESC LIMIT 1").fetchone()
+        c.close()
+    except Exception as e:
+        return f"состояние деплоя не прочитано ({type(e).__name__}) — пропускаю во избежание лишнего деплоя"
+    last = row[0] if row else None
+    if last == cur:
+        return f"бандл не менялся (hash {cur}) — деплой не нужен"
+    result = deploy(reason=f"bundle changed {last or 'nil'}→{cur}")
+    # Отмечаем хеш только при успешном деплое — иначе следующий оборот повторит.
+    if "развёрнуто и проверено" in result:
+        try:
+            c = connect()
+            c.execute("CREATE TABLE IF NOT EXISTS deploy_hash (id INTEGER PRIMARY KEY, hash TEXT, at TEXT)")
+            c.execute("INSERT INTO deploy_hash(hash,at) VALUES (?,?)", (cur, now()))
+            c.commit(); c.close()
+        except Exception:
+            pass
+    return result
 
 
 def deploy(reason="agent change"):
