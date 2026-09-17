@@ -128,10 +128,54 @@ class Prices(Base):
         self.assertEqual(patched["hdr"]["x-claim-token"], "tok-net")
 
     def test_without_a_token_the_drift_is_reported_not_silently_ignored(self):
+        """Настоящее отсутствие ключа: ни в базе, ни в окружении.
+
+        Окружение здесь отключается НАРОЧНО. У маршрута /networks ключ правки
+        реально лежит в .env владельца, и без изоляции этот тест проверял бы
+        наличие ключа на машине, а не поведение «ключа нет». Проверяем то, что
+        заявлено: нет ключа — расхождение НАЗЫВАЕТСЯ, а не глотается.
+        """
         self.cfg = {"networks": "id-net"}
-        self.stub(lambda m, u, b, h: (200, {"price_amount": 0.05}) if m == "GET" else (200, {}))
-        out = self.ss.fix_price_drift()
+        import agents.worker as _w
+        saved = _w._env_value
+        _w._env_value = lambda name: ""
+        try:
+            self.stub(lambda m, u, b, h: (200, {"price_amount": 0.05}) if m == "GET" else (200, {}))
+            out = self.ss.fix_price_drift()
+        finally:
+            _w._env_value = saved
         self.assertIn("ключа правки нет", out)
+
+    def test_a_hand_made_listing_is_repairable_from_the_environment(self):
+        """Ключи ЗАРАБАТЫВАЮЩИХ объявлений лежат в окружении, а не в базе.
+
+        Одиннадцать объявлений, которые единственные приносят деньги, создавались
+        руками, и их ключи легли в .env (NOHUMANS_TOKEN_<МАРШРУТ>), тогда как
+        таблица directory_claim осталась пустой. Пока правка искала ключ только в
+        базе, расхождение цены в платящем канале починить было НЕЧЕМ — а каталог
+        за price_drift валит маршрут.
+        """
+        self.cfg = {"networks": "id-net"}
+        patched = {}
+
+        def h(method, url, body, headers):
+            if method == "GET":
+                return 200, {"price_amount": 0.05}
+            if method == "PATCH":
+                patched["hdr"] = headers
+                return 200, {}
+            return 200, {}
+
+        import agents.worker as _w
+        saved = _w._env_value
+        _w._env_value = lambda name: "env-tok" if name == "NOHUMANS_TOKEN_NETWORKS" else ""
+        try:
+            self.stub(h)
+            out = self.ss.fix_price_drift()
+        finally:
+            _w._env_value = saved
+        self.assertIn("подравнено", out)
+        self.assertEqual(patched["hdr"]["x-claim-token"], "env-tok")
 
 
 

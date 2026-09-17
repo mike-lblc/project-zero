@@ -115,6 +115,34 @@ def _save_config(listings):
     CONFIG.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _claim_token(c, listing_id, route):
+    """Ключ правки объявления: сперва база, потом окружение.
+
+    ПОЧЕМУ ДВА ИСТОЧНИКА. Одиннадцать объявлений, которые РЕАЛЬНО приносят деньги,
+    создавались руками, и их ключи легли в .env (NOHUMANS_TOKEN_<МАРШРУТ>), а таблица
+    directory_claim осталась пустой. Поэтому `fix_price_drift` не мог починить ни
+    одно из зарабатывающих объявлений: он смотрел только в базу. А расхождение цены
+    каталог считает price_drift и ВАЛИТ маршрут — то есть единственный платящий канал
+    молча выключался, и починить его было некому.
+
+    Порядок: база (там ключи объявлений, созданных агентом) → окружение (ключи,
+    созданные руками; в облаке приходят секретом). Значение никуда не печатается.
+    """
+    try:
+        row = c.execute("SELECT claim_token FROM directory_claim WHERE listing_id=?",
+                        (listing_id,)).fetchone()
+        if row and row[0]:
+            return row[0]
+    except Exception:
+        pass
+    key = "NOHUMANS_TOKEN_" + str(route).lstrip("/").upper()
+    try:
+        from agents.worker import _env_value
+        return _env_value(key) or ""
+    except Exception:
+        return ""
+
+
 def live_tariff():
     """Действующий тариф ИЗ ВОРКЕРА, а не из кода.
 
@@ -296,10 +324,10 @@ def fix_price_drift():
         if same:
             continue
         drift.append(f"{route}: объявлено {declared}, тариф {want}")
-        row = c.execute("SELECT claim_token FROM directory_claim WHERE listing_id=?", (lid,)).fetchone()
-        if not row or not row[0]:
+        tok = _claim_token(c, lid, route)
+        if not tok:
             continue
-        st2, _ = _http(f"{NH}/{lid}", "PATCH", {"price_amount": want}, {"x-claim-token": row[0]})
+        st2, _ = _http(f"{NH}/{lid}", "PATCH", {"price_amount": want}, {"x-claim-token": tok})
         if st2 == 200:
             fixed.append(route)
     c.close()

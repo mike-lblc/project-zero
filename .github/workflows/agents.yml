@@ -162,11 +162,24 @@ jobs:
           # секрет `CLOUDFLARE_API_TOKEN` (gh secret set CLOUDFLARE_API_TOKEN).
           # Пустой при отсутствии секрета — это безопасно, а не ошибка.
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # КЛЮЧИ ПРАВКИ ОБЪЯВЛЕНИЙ в каталоге, который единственный нам платит.
+          # Одиннадцать зарабатывающих объявлений создавались руками, и их ключи
+          # жили только в .env на ноутбуке — поэтому облако не могло подравнять
+          # разошедшуюся цену, а каталог за price_drift ВАЛИТ маршрут, то есть
+          # единственный платящий канал молча выключался. Один секрет со
+          # строками KEY=value для всех одиннадцати.
+          NOHUMANS_TOKENS: ${{ secrets.NOHUMANS_TOKENS }}
           GH_TOKEN: ${{ github.token }}
           P0_CLOUD_MINUTES: '300'
         run: |
           mkdir -p data docs
           printf 'WALLET_ETH=%s\n' "$WALLET_ETH" > .env
+          if [ -n "$NOHUMANS_TOKENS" ]; then
+            printf '%s\n' "$NOHUMANS_TOKENS" >> .env
+            echo "ключей правки объявлений в .env: $(grep -c '^NOHUMANS_TOKEN_' .env)"
+          else
+            echo "::warning::секрет NOHUMANS_TOKENS не задан — облако не починит цену объявления"
+          fi
           python - <<'PY'
           import os, sys
           sys.path.insert(0, '.')
