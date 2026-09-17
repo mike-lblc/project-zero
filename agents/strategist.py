@@ -88,6 +88,50 @@ MECHANISMS = {
     "reciprocal":    {"reach": 0.6, "pay": 0.12, "cost": 1.2, "why": "продавец-агент с деньгами: обмен вызовами"},
     "delivery":      {"reach": 1.0, "pay": 0.4,  "cost": 2.0, "why": "готовый результат сдаётся на доску"},
 }
+# ЧТО ИСПОЛНИТЕЛЬ УМЕЕТ — ДАННЫМИ, А НЕ ТОЛЬКО УСЛОВИЕМ В КОДЕ.
+#
+# Нужно двум местам сразу: самому исполнителю (_run_experiment) и оживлению
+# заблокированных гипотез (revive_blocked). Если бы каждое проверяло по-своему,
+# они разошлись бы — эту ошибку я в этом проекте уже дважды оплатил, поэтому
+# список один и общий.
+LISTING_MECHANISMS = ("listing", "reciprocal")
+LISTING_CHANNELS = (
+    "index_api", "listing", "x402scan", "Merit-Systems", "agent-souk",
+    "mission69b", "public channel found", "public listing on mission69b",
+    "direct API integration",
+)
+# Механизмы, у которых исполнитель есть вообще (см. _run_experiment).
+EXECUTABLE_MECHANISMS = ("reply_demand", "reciprocal", "offer_post", "listing",
+                         "board_import", "bounty_claim", "delivery")
+
+
+def can_dispatch(mech, channel, source=""):
+    """Есть ли сегодня исполнитель для связки «механизм + канал (+ источник)».
+
+    Ровно тот же вопрос, на который отвечает _run_experiment, но без запуска:
+    нужен, чтобы понять, можно ли оживить ранее заблокированную гипотезу.
+
+    ИСТОЧНИК ЗДЕСЬ НЕ ЛИШНИЙ. Первая версия принимала только механизм и канал и
+    сразу разошлась с исполнителем: тест на согласие поймал offer_post+moltbook_post,
+    где can_dispatch обещал «можно», а исполнитель возвращал noop — потому что
+    посту нужен ещё и сабмолт (`source` вида "submolt:x402"). Расхождение здесь
+    опаснее, чем кажется: оживление вернуло бы такую гипотезу в очередь, она снова
+    упала бы в noop и снова заблокировалась — вечный круг.
+    """
+    mech = str(mech or "")
+    channel = str(channel or "")
+    sub = str(source or "").startswith("submolt:")
+    if mech in LISTING_MECHANISMS and channel in LISTING_CHANNELS:
+        return True
+    if mech in ("reply_demand", "reciprocal") and channel == "moltbook_comment":
+        return True
+    if mech == "offer_post" and channel == "moltbook_post" and sub:
+        return True
+    if mech in ("board_import", "bounty_claim", "delivery"):
+        return True
+    return False
+
+
 # Каналы и что нужно, чтобы ими пользоваться (проверяется по фактам в базе и коде).
 CHANNEL_NEEDS = {
     "moltbook_comment": None, "moltbook_post": None, "github_issue": None, "index_api": None,
@@ -351,10 +395,7 @@ def _run_experiment(h):
             res = moltbook.create_post("strategist", title, body, submolt=sub, allow_own_links=True)
             ok = bool(res.get("published")) or res.get("state") == "CONFIRMED"
             return "moltbook.create_post", f"{res.get('state')} {res.get('external_id')}", int(ok)
-        if mech in ("listing", "reciprocal") and channel in (
-                "index_api", "listing", "x402scan", "Merit-Systems", "agent-souk",
-                "mission69b", "public channel found", "public listing on mission69b",
-                "direct API integration"):
+        if mech in LISTING_MECHANISMS and channel in LISTING_CHANNELS:
             # РЕГИСТРАЦИЯ В ИНДЕКСЕ ИДЕМПОТЕНТНА, поэтому её безопасно исполнять и в
             # облаке, и повторно: второй раз тот же origin просто пере-листится.
             # Раньше сюда попадал только channel=index_api, а 30+ гипотез с теми же
@@ -397,6 +438,43 @@ def _run_experiment(h):
     except Exception as e:
         return "error", f"{type(e).__name__}: {str(e)[:160]}", 0
     return "noop", "нет исполнителя для этой связки — capability gap", 0
+
+
+def revive_blocked():
+    """Оживить гипотезы, чья причина блокировки БОЛЬШЕ НЕ ДЕЙСТВУЕТ.
+
+    Это и есть «самоулучшение», которого не хватало, и вот чем оно вызвано.
+    Замер: 15 гипотез в статусе blocked, из них СЕМЬ — связка listing+x402scan.
+    Исполнитель научился этой связке несколькими часами ранее (список каналов
+    расширен), но blocked терминален: его никто не перечитывал, и семь вполне
+    исполнимых идей остались лежать мёртвыми навсегда.
+
+    Причина блокировки одна — «нет исполнителя для связки». Значит проверять надо
+    ровно одно: появился ли исполнитель. Появился — гипотеза возвращается в
+    очередь (proposed) и получит попытку; не появился — остаётся лежать с
+    названной нехваткой, а не молча.
+
+    Попытки при блокировке НЕ тратились (experiment не увеличивает tries на noop),
+    поэтому оживление ничего не «прощает»: идея получает тот шанс, которого у неё
+    не было.
+    """
+    c = _con()
+    rows = c.execute("SELECT id, name, mechanism, channel, source FROM strategy_hypotheses "
+                     "WHERE status='blocked'").fetchall()
+    revived, still = [], 0
+    for hid, name, mech, channel, source in rows:
+        if can_dispatch(mech, channel, source):
+            c.execute("UPDATE strategy_hypotheses SET status='proposed', needs=NULL, updated_at=? "
+                      "WHERE id=?", (now(), hid))
+            revived.append(str(name)[:40])
+        else:
+            still += 1
+    c.commit(); c.close()
+    if revived:
+        bus.broadcast("orchestrator",
+                      f"Оживлено гипотез: {len(revived)} — исполнитель научился их связкам "
+                      f"({', '.join(revived[:4])}). Заблокированными остаются {still}.")
+    return {"revived": revived, "still_blocked": still}
 
 
 def experiment(max_runs=2):
@@ -486,6 +564,9 @@ def think(max_runs=5, with_market=True):
             market = {"error": type(e).__name__}
     new = generate(sig, market)
     scored = prioritize(sig)
+    # СНАЧАЛА ОЖИВИТЬ, ПОТОМ ПРОБОВАТЬ: иначе ставшая исполнимой идея так и
+    # останется лежать в blocked, пока очередь занята новыми предложениями.
+    rev = revive_blocked()
     ex = experiment(max_runs=max_runs)
     asked = ask_for_capabilities()
     st = state()
@@ -494,6 +575,7 @@ def think(max_runs=5, with_market=True):
            f"kept {by.get('kept', 0)}, killed {by.get('killed', 0)}, blocked {by.get('blocked', 0)}); "
            f"market: {(market or {}).get('earn_stories', 0)} earn stories, {len((market or {}).get('mechanisms', []))} mechanisms, "
            f"demand +{(market or {}).get('demand_new', 0)}; ran {len(ex['ran'])}: {'; '.join(ex['ran'])[:160]}; "
+           f"оживлено {len(rev['revived'])} (ещё заблокировано {rev['still_blocked']}); "
            f"asked {asked}")
     if ex["kept"]:
         bus.broadcast("orchestrator", f"Гипотеза подтверждена сигналом и оставлена: {', '.join(ex['kept'])[:200]} — от неё пойдут ветви.")
