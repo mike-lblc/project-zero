@@ -254,6 +254,41 @@ class Agent:
             f'"why":"<почему именно это>"}}'
         )
 
+    def _missing_params(self, raw):
+        """Какие обязательные аргументы модель забыла. Пусто — значит всё в порядке."""
+        payload = _parse_decision(raw)
+        chosen = str(payload.get("tool") or "").strip() or None
+        if not chosen or chosen not in self.tools or chosen not in TOOLS:
+            return chosen, set()
+        args = payload.get("args", {})
+        if not isinstance(args, dict):
+            args = {}
+        params = _parameters(TOOLS[chosen])
+        required = {p.name for p in params if p.default is inspect.Parameter.empty}
+        return chosen, required - set(args)
+
+    def _retry_if_params_missing(self, raw, prompt):
+        """Назвать забытые аргументы и дать ОДНУ попытку исправиться."""
+        chosen, missing = self._missing_params(raw)
+        if not missing:
+            return raw
+        params = _parameters(TOOLS[chosen])
+        signature = ", ".join(
+            p.name + ("" if p.default is inspect.Parameter.empty else " (необязательно)")
+            for p in params)
+        fix = (f"{prompt}\n\nТЫ ТОЛЬКО ЧТО ОТВЕТИЛ: {str(raw)[:200]}\n"
+               f"Это не выполнится: у инструмента «{chosen}» не переданы обязательные "
+               f"параметры {sorted(missing)}. Полный список параметров: [{signature}].\n"
+               f"Ответь той же одной строкой JSON ещё раз — либо с этими параметрами "
+               f"(значения возьми из своего состояния, не выдумывай), либо выбери "
+               f"другой инструмент, который сможешь вызвать полностью.")
+        try:
+            again = router.run("classify", fix)
+        except Exception:
+            return raw
+        _, still = self._missing_params(again)
+        return raw if still else again
+
     def decide(self):
         """Агент смотрит на своё состояние и выбирает следующее действие.
 
@@ -266,10 +301,25 @@ class Agent:
         try:
             raw = router.run("classify", prompt)
         except router.EscalationRequired as e:
-            return {"tool": None, "why": f"эскалация: {e}", "allowed": False}
+            return {"tool": None, "why": f"эскалация: {e}", "allowed": False,
+                    "infra": True}
         except Exception as e:
             return {"tool": None, "why": f"модель недоступна: {type(e).__name__}",
-                    "allowed": False}
+                    "allowed": False, "infra": True}
+
+        # ОДНА ПОПРАВКА ВМЕСТО ПОТЕРЯННОГО ОБОРОТА.
+        #
+        # Меню уже показывает модели имена параметров — «ask_agent [to, question]».
+        # Она всё равно иногда выбирает инструмент и не передаёт обязательный
+        # аргумент, и тогда оборот пропадал целиком: действие отклонено, ничего
+        # не сделано, а в облаке этим ещё и валился весь прогон. Замер: закрывающий
+        # выбрал ask_agent без question и to — и пятичасовой облачный прогон
+        # отметился провалом.
+        #
+        # Здесь ровно ОДНА поправка: модели называют то, что она забыла, и просят
+        # либо дослать, либо выбрать другое. Не цикл уговоров — одна попытка;
+        # если и она мимо, оборот честно считается неудачным.
+        raw = self._retry_if_params_missing(raw, prompt)
 
         payload = _parse_decision(raw)
         chosen = str(payload.get("tool") or "").strip() or None
@@ -423,8 +473,13 @@ class Agent:
                 except Exception:
                     pass
             self._record(d, "не выполнено", ok=False)
+            # Признак «инфраструктура» доносится до вызывающего: недоступная модель
+            # и неудачный выбор — разные вещи, и облачный прогон обязан падать
+            # только на первом. Иначе каждый седьмой прогон красный без поломки,
+            # и красный цвет перестаёт что-либо значить.
             return {"agent": self.name, "chose": chose, "ok": False,
-                    "detail": why or "выбор не прошёл проверку", "answered": answered}
+                    "detail": why or "выбор не прошёл проверку", "answered": answered,
+                    "infra": bool(d.get("infra"))}
         t = TOOLS[chose]
         if dry_run:
             self._record(d, "вхолостую", ok=True)

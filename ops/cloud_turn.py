@@ -35,15 +35,37 @@ def main():
     cur = con.execute("INSERT INTO cloud_turns(agent,started_at) VALUES (?,?)",(name,started))
     turn_id = cur.lastrowid
     con.commit()
+    infra_broke = False
     try:
         result = agent.get(name).act()
     except Exception as error:
         result = {"agent":name,"ok":False,"detail":type(error).__name__}
+        infra_broke = True
     con.execute("UPDATE cloud_turns SET outcome=? WHERE id=?",(json.dumps(result,ensure_ascii=False),turn_id))
     con.commit()
     con.close()
     print(json.dumps(result,ensure_ascii=False))
-    return 0 if result.get("ok") else 1
+
+    # ПЛОХОЕ РЕШЕНИЕ АГЕНТА — НЕ ПОЛОМКА ИНФРАСТРУКТУРЫ.
+    #
+    # Здесь стояло `return 0 if result.get("ok") else 1`, и из-за этого весь
+    # облачный прогон отмечался провалом, когда один опрошенный агент выбрал
+    # инструмент неудачно. Замер по истории: 3 провала из 20 прогонов, и все
+    # три — вот такие. Один из них дословно: closer выбрал ask_agent и не
+    # передал question и to.
+    #
+    # Цена этого не косметическая. Когда каждый седьмой прогон красный по
+    # причине, которая ничего не сломала, владелец перестаёт читать красное —
+    # и настоящая поломка приезжает в том же цвете, что и опечатка модели.
+    # Поэтому провалом считается только то, что действительно не работает:
+    # модель недоступна, исключение, эскалация. Отклонённое решение остаётся
+    # записанным в cloud_turns и agent_decisions, где его и надо смотреть.
+    if infra_broke or result.get("infra"):
+        return 1
+    if not result.get("ok"):
+        print(f"::warning::оборот не дал действия ({name}: {str(result.get('detail'))[:120]}) — "
+              f"это качество решения, а не отказ облака")
+    return 0
 
 if __name__ == '__main__':
     sys.exit(main())
