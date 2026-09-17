@@ -263,7 +263,7 @@ async function livePrices(env) {
         const parsed = JSON.parse(raw);
         for (const [k, v] of Object.entries(parsed || {})) {
           const usd = Number(v);
-          if (TIERS[k] && Number.isFinite(usd) && usd >= PRICE_FLOOR && usd <= PRICE_CAP) map[k] = usd;
+          if (tiersNow()[k] && Number.isFinite(usd) && usd >= PRICE_FLOOR && usd <= PRICE_CAP) map[k] = usd;
         }
       }
     }
@@ -274,11 +274,134 @@ async function livePrices(env) {
 
 // Действующий тариф маршрута: цена может быть переопределена, остальное — нет.
 function tierWith(path, prices) {
-  const t = TIERS[path];
+  const t = tiersNow()[path];
   if (!t) return t;
   const usd = prices && prices[path];
   if (!usd || usd === t.usd) return t;
   return { ...t, usd, amount: String(Math.round(usd * 1e6)) };
+}
+
+// МАРШРУТ КАК ДАННЫЕ, А НЕ КАК КОД (владелец 17.09: агенты должны уметь всё сами).
+//
+// Самое результативное, что делал человек, — добавлял платные маршруты. Это была
+// правка кода и развёртывание, то есть человек в петле. Но давать агенту писать
+// произвольный JS и деплоить платный сервис — это не автономность, а ружьё без
+// предохранителя: одна ошибка в обработчике отдаёт данные бесплатно или роняет
+// выручку в ноль.
+//
+// Поэтому маршрут описывается ДЕКЛАРАТИВНО: путь, цена, описание и запрос к нашему
+// же каталогу из закрытого списка операций. Воркер его ИНТЕРПРЕТИРУЕТ, а не
+// исполняет. Агент не может прислать код — только спецификацию, и каждое её поле
+// проверяется по белому списку. Что не в списке — отвергается по имени.
+const ROUTE_OPS = new Set(["top", "group", "count"]);
+// ПРОТОТИП — ЭТО ТОЖЕ ПОВЕРХНОСТЬ АТАКИ. С обычным объектом ROUTE_BY["constructor"]
+// возвращает Object.prototype.constructor, то есть ИСТИНУ, и spec.by="constructor"
+// проезжал проверку. Тест это поймал. Объекты без прототипа и явная проверка
+// собственного ключа закрывают весь класс: __proto__, constructor, toString.
+const ROUTE_BY = Object.assign(Object.create(null), { payers: "y", calls: "c", price: "p" });
+const ROUTE_GROUP = Object.assign(Object.create(null), { tag: "t", network: "w" });
+const owns = (o, k) => Object.prototype.hasOwnProperty.call(o, String(k));
+const ROUTE_CAP = 100;
+const ROUTES_KEY = "routes";
+let DYN = { at: 0, map: {} };
+
+// Проверка спецификации. Возвращает [ок, причина]: причина называется вслух,
+// чтобы агент видел, ЧТО именно не принято, а не «400».
+function validateRouteSpec(r) {
+  if (!r || typeof r !== "object") return [false, "not an object"];
+  const path = String(r.path || "");
+  if (!/^\/[a-z][a-z0-9-]{1,30}$/.test(path)) return [false, "path must look like /name (lowercase, 2-31 chars)"];
+  if (TIERS[path]) return [false, `${path} is a compiled route and cannot be redefined`];
+  const usd = Number(r.usd);
+  if (!Number.isFinite(usd) || usd < PRICE_FLOOR || usd > PRICE_CAP)
+    return [false, `usd must be a number in $${PRICE_FLOOR}..$${PRICE_CAP}`];
+  const what = String(r.what || "");
+  if (what.length < 20 || what.length > 400) return [false, "what must be 20..400 chars — buyers read it"];
+  const spec = r.spec || {};
+  if (spec.source !== "catalog") return [false, 'spec.source must be "catalog"'];
+  if (!ROUTE_OPS.has(String(spec.op))) return [false, `spec.op must be one of ${[...ROUTE_OPS].join(", ")}`];
+  if (spec.op === "top" && !owns(ROUTE_BY, spec.by))
+    return [false, `spec.by must be one of ${Object.keys(ROUTE_BY).join(", ")}`];
+  if (spec.op === "group" && !owns(ROUTE_GROUP, spec.by))
+    return [false, `spec.by must be one of ${Object.keys(ROUTE_GROUP).join(", ")}`];
+  const lim = spec.limit === undefined ? 25 : Number(spec.limit);
+  if (!Number.isInteger(lim) || lim < 1 || lim > ROUTE_CAP) return [false, `spec.limit must be 1..${ROUTE_CAP}`];
+  const w = spec.where || {};
+  for (const k of Object.keys(w))
+    if (!["tag", "network", "minPayers"].includes(k)) return [false, `spec.where.${k} is not allowed`];
+  if (w.tag !== undefined && typeof w.tag !== "string") return [false, "where.tag must be a string"];
+  if (w.network !== undefined && typeof w.network !== "string") return [false, "where.network must be a string"];
+  if (w.minPayers !== undefined && !Number.isFinite(Number(w.minPayers))) return [false, "where.minPayers must be a number"];
+  return [true, null];
+}
+
+async function loadRoutes(env) {
+  if (Date.now() - DYN.at < 60 * 1000) return DYN.map;
+  let map = {};
+  try {
+    if (env && env.BOARD) {
+      const raw = await env.BOARD.get(ROUTES_KEY);
+      for (const r of JSON.parse(raw || "[]")) {
+        const [ok] = validateRouteSpec(r);
+        if (!ok) continue;
+        const usd = Number(r.usd);
+        map[String(r.path)] = { amount: String(Math.round(usd * 1e6)), usd, what: String(r.what),
+                                spec: r.spec, dynamic: true };
+      }
+    }
+  } catch { map = DYN.map; }
+  DYN = { at: Date.now(), map };
+  return map;
+}
+
+// Действующий тариф: скомпилированные маршруты плюс объявленные данными.
+function tiersNow() {
+  return { ...TIERS, ...DYN.map };
+}
+
+// ИНТЕРПРЕТАТОР спецификации. Ни eval, ни new Function — только выбор из каталога.
+function runSpec(spec) {
+  const where = spec.where || {};
+  const minPayers = where.minPayers === undefined ? 0 : Number(where.minPayers);
+  const tag = where.tag ? String(where.tag).toLowerCase() : null;
+  const net = where.network ? String(where.network) : null;
+  const rows = [];
+  for (const sv of CATALOG) {
+    if ((sv.y || 0) < minPayers) continue;
+    if (net && sv.w !== net) continue;
+    if (tag && !(sv.t || []).some((g) => String(g).toLowerCase() === tag)) continue;
+    rows.push(sv);
+  }
+  const limit = Math.min(spec.limit === undefined ? 25 : Number(spec.limit), ROUTE_CAP);
+  if (spec.op === "count") {
+    const calls = rows.reduce((n, x) => n + (x.c || 0), 0);
+    const payers = rows.reduce((n, x) => n + (x.y || 0), 0);
+    return { matched: rows.length, calls30d: calls, payers30d: payers,
+             callsPerPayer: +(calls / (payers || 1)).toFixed(3) };
+  }
+  if (spec.op === "top") {
+    const key = owns(ROUTE_BY, spec.by) ? ROUTE_BY[String(spec.by)] : "y";
+    const out = [...rows].sort((a, b) => (b[key] || 0) - (a[key] || 0)).slice(0, limit);
+    return { matched: rows.length, count: out.length,
+             services: out.map((x) => ({ resource: x.u, name: x.n || null, priceUsd: x.p, network: x.w,
+                                         calls30d: x.c, payers30d: x.y,
+                                         callsPerPayer: x.y ? +((x.c || 0) / x.y).toFixed(2) : null })) };
+  }
+  const key = owns(ROUTE_GROUP, spec.by) ? ROUTE_GROUP[String(spec.by)] : "w";
+  const acc = {};
+  for (const sv of rows) {
+    const keys = key === "t" ? (sv.t || []) : [sv.w || "unknown"];
+    for (const k of keys) {
+      const d = acc[k] || (acc[k] = { providers: 0, calls30d: 0, payers30d: 0, prices: [] });
+      d.providers++; d.calls30d += sv.c || 0; d.payers30d += sv.y || 0;
+      if (typeof sv.p === "number" && sv.p > 0 && sv.p <= PRICE_CEILING) d.prices.push(sv.p);
+    }
+  }
+  const groups = Object.entries(acc).map(([k, d]) => ({
+    key: k, providers: d.providers, calls30d: d.calls30d, payers30d: d.payers30d,
+    medianPriceUsd: median(d.prices),
+  })).sort((a, b) => b.payers30d - a.payers30d).slice(0, limit);
+  return { matched: rows.length, count: groups.length, groups };
 }
 
 const SPOT = new Map();
@@ -686,7 +809,7 @@ function inputSchema(path) {
 }
 
 function requirements(path, payTo, description, chain, tier) {
-  const t = tier || TIERS[path];
+  const t = tier || tiersNow()[path];
   const i = INPUTS[path] || { method: "GET", queryParams: {}, example: "" };
   const c = chain || CHAINS[0];
   return {
@@ -1015,6 +1138,18 @@ const pct = (sorted, p) => (sorted.length ? sorted[Math.min(sorted.length - 1, M
 
 // ------------------------------------------------------------------ ответы тарифов
 async function payload(path, url) {
+  // Маршрут, объявленный ДАННЫМИ: его ответ собирает интерпретатор, а не код,
+  // написанный агентом. Ответ той же формы, что у остальных: квитанция на месте.
+  const dynamic = DYN.map[path];
+  if (dynamic && dynamic.spec) {
+    const lim = url.searchParams.get("limit");
+    const spec = { ...dynamic.spec };
+    if (lim && Number.isInteger(+lim) && +lim >= 1 && +lim <= ROUTE_CAP) spec.limit = +lim;
+    return { generatedAt: new Date().toISOString(), receipt: receipt(),
+             route: path, declaredBy: "agent",
+             query: { op: spec.op, by: spec.by ?? null, where: spec.where ?? {}, limit: spec.limit ?? 25 },
+             ...runSpec(spec) };
+  }
   if (path === "/search") {
     const q = (url.searchParams.get("q") || "").trim();
     const limit = Math.min(+url.searchParams.get("limit") || 10, 50);
@@ -1382,6 +1517,9 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const payTo = env.PAY_TO;
+    // Маршруты, объявленные данными, нужны ДО первого обращения к тарифу: их видит
+    // и 402, и /openapi.json, и /pay, и .well-known. Кэш на минуту, одна запись KV не тратится.
+    await loadRoutes(env);
 
     // MCP-эндпоинт: JSON-RPC поверх HTTP
     if (path === "/mcp") {
@@ -1425,9 +1563,9 @@ export default {
     if (path === "/prices") {
       if (request.method === "GET") {
         const live = await livePrices(env);
-        return json({ compiled: Object.fromEntries(Object.entries(TIERS).map(([k, v]) => [k, v.usd])),
+        return json({ compiled: Object.fromEntries(Object.entries(tiersNow()).map(([k, v]) => [k, v.usd])),
                        override: live, floor: PRICE_FLOOR, cap: PRICE_CAP,
-                       effective: Object.fromEntries(Object.keys(TIERS).map((k) => [k, tierWith(k, live).usd])) });
+                       effective: Object.fromEntries(Object.keys(tiersNow()).map((k) => [k, tierWith(k, live).usd])) });
       }
       if (request.method !== "POST") return json({ error: "GET or POST" }, 405);
       if (!env.BOARD_TOKEN || request.headers.get("x-board-token") !== env.BOARD_TOKEN)
@@ -1438,7 +1576,7 @@ export default {
       const next = {}, rejected = [];
       for (const [k, v] of Object.entries(body || {})) {
         const usd = Number(v);
-        if (!TIERS[k]) { rejected.push(`${k}: unknown route`); continue; }
+        if (!tiersNow()[k]) { rejected.push(`${k}: unknown route`); continue; }
         if (!Number.isFinite(usd)) { rejected.push(`${k}: not a number`); continue; }
         if (usd < PRICE_FLOOR || usd > PRICE_CAP) { rejected.push(`${k}: ${usd} outside $${PRICE_FLOOR}..$${PRICE_CAP}`); continue; }
         next[k] = usd;
@@ -1459,12 +1597,50 @@ export default {
       console.log(JSON.stringify({ ev: "reprice", next, rejected }));
       return json({ ok: true, override: next, rejected, note: "effective within a minute" });
     }
+    // МАРШРУТЫ, ОБЪЯВЛЕННЫЕ АГЕНТОМ. GET — что объявлено и чем можно объявлять.
+    // POST — заменить набор (тот же токен, что у доски). Каждая спецификация
+    // проверяется по белому списку; непринятое называется вслух, а не глотается.
+    if (path === "/routes") {
+      if (request.method === "GET")
+        return json({ compiled: Object.keys(TIERS), declared: Object.entries(DYN.map).map(([k, v]) => ({
+                        path: k, usd: v.usd, what: v.what, spec: v.spec })),
+                      grammar: { source: ["catalog"], op: [...ROUTE_OPS],
+                                 by: { top: Object.keys(ROUTE_BY), group: Object.keys(ROUTE_GROUP) },
+                                 where: ["tag", "network", "minPayers"], limit: `1..${ROUTE_CAP}`,
+                                 usd: `${PRICE_FLOOR}..${PRICE_CAP}` },
+                      note: "a declared route is interpreted, never executed as code" });
+      if (request.method !== "POST") return json({ error: "GET or POST" }, 405);
+      if (!env.BOARD_TOKEN || request.headers.get("x-board-token") !== env.BOARD_TOKEN)
+        return json({ error: "forbidden" }, 403);
+      if (!env.BOARD) return json({ error: "no store" }, 500);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "not json" }, 400); }
+      const list = Array.isArray(body) ? body : (body && body.routes) || [];
+      if (!Array.isArray(list)) return json({ error: "send an array of route specs" }, 400);
+      if (list.length > 40) return json({ error: "at most 40 declared routes" }, 400);
+      const accepted = [], rejected = [];
+      for (const r of list) {
+        const [ok, why] = validateRouteSpec(r);
+        if (ok) accepted.push({ path: String(r.path), usd: Number(r.usd), what: String(r.what), spec: r.spec });
+        else rejected.push(`${(r && r.path) || "?"}: ${why}`);
+      }
+      if (!accepted.length) return json({ error: "nothing accepted", rejected }, 400);
+      try {
+        await env.BOARD.put(ROUTES_KEY, JSON.stringify(accepted), { expirationTtl: 60 * 60 * 24 * 400 });
+      } catch (e) {
+        return json({ error: "route store unavailable", reason: String(e).slice(0, 160),
+                      note: "the daily KV write limit resets at 00:00 UTC", wanted: accepted.map((a) => a.path) }, 503);
+      }
+      DYN = { at: 0, map: {} };
+      console.log(JSON.stringify({ ev: "routes_declared", paths: accepted.map((a) => a.path), rejected }));
+      return json({ ok: true, declared: accepted.map((a) => a.path), rejected, note: "live within a minute" });
+    }
     if (path === "/board")
       return new Response(BOARD_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
     if (path === "/pay") {
       const lp = await livePrices(env);
-      const rows = Object.entries(TIERS).map(([e, t]) => {
+      const rows = Object.entries(tiersNow()).map(([e, t]) => {
         const eff = tierWith(e, lp);
         return `<tr><td><code>${e}</code></td><td>$${eff.usd}</td><td>${t.what}</td></tr>`;
       }).join("");
@@ -1497,7 +1673,7 @@ export default {
       buy_without_x402: SELF + "/pay",
       payment_stats: SELF + "/stats.json",
       live_board: SELF + "/board",
-      pricing: Object.entries(TIERS).map(([e, t]) => ({ endpoint: e, usdc: t.usd, what: t.what })),
+      pricing: Object.entries(tiersNow()).map(([e, t]) => ({ endpoint: e, usdc: t.usd, what: t.what })),
       free_endpoints: ["/", "/health", "/sample", "/join", "/openapi.json", "/.well-known/x402"],
       weekly_report: JOIN_URL,
       weekly_report_note: "Free weekly market changes: new services, ones going quiet, price moves. "
@@ -1510,13 +1686,13 @@ export default {
     // не требует ни платежа, ни аккаунта — только эти два документа.
     if (path === "/.well-known/x402") return json({
       version: 1,
-      resources: Object.keys(TIERS).map((e) => SELF + e),
+      resources: Object.keys(tiersNow()).map((e) => SELF + e),
       instructions: "Ranked x402 market data. Every paid route returns an x402 v2 402 with the "
                   + "receiving address; /sample and /health are free and carry the same receipt.",
     });
     if (path === "/openapi.json") {
       const paths = {};
-      for (const [e, t] of Object.entries(TIERS)) {
+      for (const [e, t] of Object.entries(tiersNow())) {
         const q = (INPUTS[e] || {}).queryParams || {};
         paths[e] = { get: {
           summary: t.what,
@@ -1632,7 +1808,7 @@ export default {
     });
 
     // ---- платное
-    if (TIERS[path]) {
+    if (tiersNow()[path]) {
       // ДЕЙСТВУЮЩАЯ цена, а не скомпилированная: агент мог переоценить маршрут
       // через /prices, и развёртывания для этого не требуется.
       const t = tierWith(path, await livePrices(env));
@@ -1775,7 +1951,7 @@ export default {
       return json(await payload(path, url), 200, confirm);
     }
 
-    return json({ error: "not found", try: ["/", "/health", "/sample", "/join", "/openapi.json", "/.well-known/x402", ...Object.keys(TIERS)],
+    return json({ error: "not found", try: ["/", "/health", "/sample", "/join", "/openapi.json", "/.well-known/x402", ...Object.keys(tiersNow())],
                   weekly_report: JOIN_URL }, 404);
   },
 };

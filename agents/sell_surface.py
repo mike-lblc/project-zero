@@ -113,6 +113,100 @@ def _save_config(listings):
     CONFIG.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def live_tariff():
+    """Действующий тариф ИЗ ВОРКЕРА, а не из кода.
+
+    Маршрут, объявленный агентом через /routes, в статическом core.identity.TARIFF
+    не появляется — значит по нему не создалось бы объявление, не проверилась бы цена
+    и не сработал бы контроль здоровья. Поэтому источник истины здесь — /prices,
+    который отдаёт действующие цены и скомпилированных, и объявленных маршрутов.
+    Если воркер недоступен, откатываемся на скомпилированный тариф.
+    """
+    st, d = _http(SELF + "/prices", timeout=30)
+    if st == 200 and isinstance(d.get("effective"), dict) and d["effective"]:
+        out = {}
+        for path, usd in d["effective"].items():
+            base = TARIFF.get(path) or {}
+            out[path] = {"usd": float(usd), "what": base.get("what") or f"declared route {path}"}
+        # описания объявленных маршрутов берём из /routes
+        st2, r = _http(SELF + "/routes", timeout=30)
+        if st2 == 200:
+            for x in (r.get("declared") or []):
+                if x.get("path") in out:
+                    out[x["path"]]["what"] = x.get("what") or out[x["path"]]["what"]
+        return out
+    return {k: dict(v) for k, v in TARIFF.items()}
+
+
+def declare_routes(limit=4):
+    """Новый платный маршрут БЕЗ правки кода: агент объявляет его данными.
+
+    Добавление маршрута было последним, что делал человек: правка worker/src/index.js
+    и развёртывание. Теперь маршрут — это спецификация (путь, цена, описание и запрос
+    к нашему каталогу из закрытого списка операций), воркер её ИНТЕРПРЕТИРУЕТ, а не
+    исполняет. Агент не может прислать код: каждое поле проверяется по белому списку
+    на стороне воркера, и непринятое называется вслух.
+
+    Что именно объявляем: по самым спросовым тегам каталога — «сервисы этого тега по
+    числу платящих». Это продукт, а не пустая нарезка: спрос по тегу измерен чужими
+    деньгами, а форма (много дешёвых узких маршрутов) — та, которую 17.09 покупал свип.
+    """
+    guard.check_action("research", "YELLOW")
+    st, grammar = _http(SELF + "/routes", timeout=30)
+    if st != 200:
+        return f"/routes не ответил ({st}) — маршруты не объявляем"
+    already = {x.get("path") for x in (grammar.get("declared") or [])}
+    compiled = set(grammar.get("compiled") or [])
+    try:
+        cat = json.loads(CATALOG.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return "каталог не прочитан — маршруты не объявляем"
+    stat = {}
+    for sv in cat:
+        for t in (sv.get("t") or []):
+            d = stat.setdefault(str(t), {"n": 0, "y": 0})
+            d["n"] += 1
+            d["y"] += sv.get("y") or 0
+    # тег стоит маршрута, если у него есть и спрос, и не один поставщик
+    ranked = sorted((t for t, d in stat.items() if d["n"] >= 5 and d["y"] >= 200),
+                    key=lambda t: -stat[t]["y"])
+    m = market_percentiles() or {"p10": 0.001}
+    price = max(PRICE_FLOOR, min(PRICE_CAP, float(m["p10"])))
+    want, why = [], []
+    for tag in ranked:
+        slug = "".join(ch if ch.isalnum() else "-" for ch in tag.lower()).strip("-")[:24]
+        if not slug or not slug[0].isalpha():
+            continue
+        path = "/in-" + slug
+        if path in compiled or path in already or any(w["path"] == path for w in want):
+            continue
+        want.append({
+            "path": path, "usd": price,
+            "what": (f"Highest-demand x402 services tagged '{tag}': ranked by 30-day unique paying "
+                     f"wallets, with calls, price, network and calls-per-payer for each. "
+                     f"{stat[tag]['n']} providers and {stat[tag]['y']} paying wallets measured in this tag."),
+            "spec": {"source": "catalog", "op": "top", "by": "payers", "where": {"tag": tag}, "limit": 25},
+        })
+        why.append(f"{path} (тег {tag}: {stat[tag]['n']} поставщиков, {stat[tag]['y']} платящих)")
+        if len(want) >= limit:
+            break
+    if not want:
+        return f"новых маршрутов не нужно: объявлено {len(already)}, скомпилировано {len(compiled)}"
+    token = _board_token()
+    if not token:
+        return "нет BOARD_TOKEN — только предложение: " + "; ".join(why)
+    keep = [{"path": x["path"], "usd": x["usd"], "what": x["what"], "spec": x["spec"]}
+            for x in (grammar.get("declared") or [])] + want
+    st2, d2 = _http(SELF + "/routes", "POST", keep, {"x-board-token": token}, timeout=45)
+    if st2 != 200:
+        return f"объявление отклонено воркером ({st2} {str(d2)[:110]})"
+    _note("dealer", "МАРШРУТЫ ОБЪЯВЛЕНЫ АГЕНТОМ БЕЗ ПРАВКИ КОДА: " + "; ".join(why)
+          + f". Цена {price} (нижний дециль рынка). Воркер интерпретирует спецификацию, "
+          f"кода агент не писал. Отвергнуто: {d2.get('rejected')}", conf=0.9)
+    bus.broadcast("dealer", "Объявлены новые платные маршруты без развёртывания: " + "; ".join(why))
+    return "объявлено: " + "; ".join(why)
+
+
 def describe(route, usd, what):
     """Описание объявления из тарифа. То же, что писалось руками, но без рук."""
     return (f"{what}. Computed from a full re-fetch of the Coinbase x402 Bazaar discovery feed "
@@ -131,13 +225,13 @@ def ensure_listings(limit=CREATE_CAP):
     _table(c)
     cfg = listings_config()
     have = {r.lstrip("/") for r in cfg}
-    want = {p.lstrip("/") for p in TARIFF}
+    want = {p.lstrip("/") for p in live_tariff()}
     missing = sorted(want - have)
     extra = sorted(have - want)
     created, failed = [], []
     for route in missing[:limit]:
         path = "/" + route
-        t = TARIFF.get(path) or {}
+        t = live_tariff().get(path) or {}
         usd = t.get("usd")
         body = {
             "name": f"x402 Bazaar Rank — {route}",
@@ -186,7 +280,7 @@ def fix_price_drift():
     fixed, drift = [], []
     for route, lid in sorted(cfg.items()):
         path = "/" + route
-        want = (TARIFF.get(path) or {}).get("usd")
+        want = (live_tariff().get(path) or {}).get("usd")
         if want is None:
             continue
         st, d = _http(f"{NH}/{lid}")
@@ -263,7 +357,8 @@ def health():
         return 0, {}
 
     bad, unreachable = [], []
-    for path in sorted(TARIFF):
+    lt = live_tariff()
+    for path in sorted(lt):
         st, d = probe(path, 402)
         if st == 0:
             unreachable.append(path)
@@ -285,9 +380,9 @@ def health():
         bus.broadcast("dealer", "Маршруты отвечают не так, как продаются: " + "; ".join(bad[:4]))
         return "СЛОМАНО: " + "; ".join(bad)
     if unreachable:
-        return (f"проверено {len(TARIFF) - len([p for p in unreachable if p in TARIFF])} платных из {len(TARIFF)}; "
+        return (f"проверено {len(lt) - len([p for p in unreachable if p in lt])} платных из {len(lt)}; "
                 f"не дозвонились до {len(unreachable)} ({', '.join(unreachable[:4])}) — это наша сеть, не поломка")
-    return f"все {len(TARIFF)} платных отдают 402 с нашим адресом, бесплатные — 200"
+    return f"все {len(lt)} платных отдают 402 с нашим адресом, бесплатные — 200"
 
 
 CATALOG = ROOT / "worker" / "catalog.slim.json"
@@ -438,6 +533,7 @@ def delivery_gap():
 def cycle():
     """Полный оборот: поверхность жива, объявлена, цены совпадают, аудит дёрнут."""
     parts = [f"здоровье: {health()}",
+             f"новые маршруты: {declare_routes()}",
              f"доставка: {delivery_gap()}",
              f"объявления: {ensure_listings()}",
              f"цены: {fix_price_drift()}",
