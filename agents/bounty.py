@@ -1244,10 +1244,29 @@ def search_aibtc():
         # в истории доски все они оплачены), а не аудиты Clarity. Такая задача
         # уходит в очередь суждений один раз, чтобы её взяли, пока она открыта.
         title_low = str(b.get("title") or "").lower()
+        # ПОЛОМКА ЧУЖОГО ПЛАТЕЖА — НЕ НАШ ЗАРАБОТОК, ДАЖЕ ЗА НАГРАДУ.
+        #
+        # На доске есть награды вида «получить платные данные без подтверждённого
+        # платежа» / «сломать пейволл честно» (mtt3jab2… — 15000 сатов). Это
+        # просьба доказать, что чужой боевой платёжный сервис можно обокрасть,
+        # то есть атака на продакшн третьей стороны, а не работа с нуля на своём.
+        # Отказ уже принимался по награде Vibewatch; закрепляем его в коде, чтобы
+        # агент не тратил на такое обороты и тем более не пытался это сдать.
+        attack = any(k in title_low or k in low[:800] for k in
+                     ("without a verified payment", "without paying", "break the paywall",
+                      "paywall", "bypass", "double-spend", "double spend", "unconfirmed",
+                      "from the mempool", "without a settled"))
         ours = (any(k in title_low or k in low[:600] for k in
                     ("census", "document", "docs", "cross-post", "pitch", "translate", "readme",
                      "summar", "postmortem", "write-up", "scout", "catalog", "list "))
+                and not attack
                 and not any(k in title_low for k in ("audit", "clarity", "exploit", "stress-test")))
+        if attack:
+            _flag_once("aibtc-declined", str(b.get("id")),
+                       f"AIBTC: награда за поломку чужого платежа — «{title_low[:70]}». "
+                       f"Не берём: это атака на боевой сервис третьей стороны, а не заработок "
+                       f"с нуля. Решение уже принималось по Vibewatch.",
+                       {"url": f"https://aibtc.com/bounties/{b.get('id')}", "declined": True})
         if ours:
             _flag_once("aibtc", str(b.get("id")),
                        f"AIBTC: задача НАШЕГО класса — «{title_low[:70]}» за {sats} сатов "
