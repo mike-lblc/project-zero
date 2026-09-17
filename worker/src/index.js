@@ -180,8 +180,13 @@ async function bump(env, ev) {
     //
     // Поэтому шум останавливается раньше денег: 402 пишется до 200, события
     // оплаты — до 300. Сотня записей всегда остаётся тому, чего мы ждём.
-    const cap = ev === "402" ? 200 : 300;
-    if ((cur.w || 0) >= cap) return;       // вместе с доской (≤360) — не больше 660 записей KV в сутки
+    // 402 В KV БОЛЬШЕ НЕ ПИШЕТСЯ — 17.09 мы выбили бесплатный лимит 1000 записей в сутки.
+    // Счётчик 402 и так был шумом: это пробы каталогов на живость, а не покупатели
+    // (десять объявлений по ~45 проб = ~450 попыток записи в сутки). В журнале
+    // Cloudflare каждый 402 по-прежнему виден через console.log, а в KV остаётся
+    // только то, ради чего он нужен: события оплаты и отметки использованных переводов.
+    if (ev === "402") return;
+    if ((cur.w || 0) >= 300) return;
     cur[ev] = (cur[ev] || 0) + 1;
     cur.w = (cur.w || 0) + 1;
     await env.BOARD.put(key, JSON.stringify(cur), { expirationTtl: 60 * 60 * 24 * 40 });
@@ -206,21 +211,22 @@ async function bump(env, ev) {
 // использованным и отдаём данные. Строго: наш payTo, признанный стейблкоин,
 // не старше 30 минут, один перевод — один ответ. Из подходящих берём САМЫЙ
 // ДЕШЁВЫЙ, чтобы вызов за цент не съедал перевод за пять.
+// Память изолята: кэш входящих переводов и отметки уже отработанных переводов.
+// Живёт, пока жив изолят, и не стоит ни одной записи в KV.
+const INBOX_CACHE = new Map();
+const SPENT = new Set();
+// Обнуляются в тестах: состояние изолята не должно течь между случаями.
+
 async function prepaid(tier, payTo, env) {
   if (!env.BOARD) return { ok: false, why: "store unavailable" };
   const cacheKey = "inbox:" + payTo.toLowerCase();
-  let items;
-  try {
-    const c = await env.BOARD.get(cacheKey);
-    if (c) items = JSON.parse(c);
-  } catch {}
-  if (!items) {
+  const load = async () => {
     try {
       const r = await fetch(`https://base.blockscout.com/api/v2/addresses/${payTo}/token-transfers?filter=to`,
                             { headers: { accept: "application/json" } });
-      if (!r.ok) return { ok: false, why: "explorer unavailable (" + r.status + ")" };
+      if (!r.ok) return null;
       const d = await r.json();
-      items = (d.items || []).slice(0, 50).map((t) => ({
+      const list = (d.items || []).slice(0, 50).map((t) => ({
         tx: t.transaction_hash,
         ts: t.timestamp,
         to: ((t.to || {}).hash || "").toLowerCase(),
@@ -228,10 +234,18 @@ async function prepaid(tier, payTo, env) {
         token: ((t.token || {}).address_hash || (t.token || {}).address || "").toLowerCase(),
         raw: String((t.total || {}).value || t.value || "0"),
       }));
-      // Кэш на минуту: иначе каждый показ цены бил бы по обозревателю и тормозил 402.
-      try { await env.BOARD.put(cacheKey, JSON.stringify(items), { expirationTtl: 60 }); } catch {}
-    } catch { return { ok: false, why: "explorer unavailable" }; }
-  }
+      // Кэш на минуту — В ПАМЯТИ, А НЕ В KV. Сначала он был в KV, и каждый промах
+      // писал запись: это и выбило бесплатный лимит 17.09. Изолят живёт между
+      // запросами, кэша в нём достаточно, а записей он не стоит вовсе.
+      INBOX_CACHE.set(cacheKey, { at: Date.now(), items: list });
+      return list;
+    } catch { return null; }
+  };
+  const hit = INBOX_CACHE.get(cacheKey);
+  let items = hit && Date.now() - hit.at < 60 * 1000 ? hit.items : null;
+  let fresh = false;
+  if (!items) { items = await load(); fresh = true; }
+  if (!items) return { ok: false, why: "explorer unavailable" };
   const now = Date.now();
   const mine = payTo.toLowerCase();
   const cand = [];
@@ -245,14 +259,42 @@ async function prepaid(tier, payTo, env) {
     cand.push({ t, tok, usd });
   }
   cand.sort((a, b) => a.usd - b.usd);
+  // ПЛАТЁЖ МОГ ПРИЙТИ МИНУТУ НАЗАД. Покупатель переводит цену и зовёт маршрут сразу;
+  // если мы смотрим в кэш минутной давности, его перевода там ещё нет, и он получит
+  // отказ на оплаченном вызове. Поэтому пустой результат по кэшу — повод перечитать.
+  if (!cand.length && !fresh) {
+    const again = await load();
+    if (again) {
+      for (const t of again) {
+        const tok = BASE_STABLES[t.token];
+        if (!tok || t.to !== mine) continue;
+        const ts = Date.parse(t.ts || "");
+        if (!ts || now - ts > 30 * 60 * 1000) continue;
+        const usd = Number(t.raw) / 10 ** tok.decimals;
+        if (!(usd + 1e-9 >= tier.usd)) continue;
+        cand.push({ t, tok, usd });
+      }
+      cand.sort((a, b) => a.usd - b.usd);
+    }
+  }
   for (const { t, tok, usd } of cand) {
-    const usedKey = "used:" + String(t.tx).toLowerCase();
+    const key = String(t.tx).toLowerCase();
+    const usedKey = "used:" + key;
+    if (SPENT.has(key)) continue;
     try { if (await env.BOARD.get(usedKey)) continue; } catch {}
+    // ОТМЕТКА МОЖЕТ НЕ ЗАПИСАТЬСЯ, И ЭТО НЕ ПОВОД ОТКАЗАТЬ ЗАПЛАТИВШЕМУ.
+    // Сначала здесь стоял `catch { continue; }` — то есть при исчерпанном лимите
+    // KV покупатель, уже переведший деньги, снова получал 402. Это ровно тот
+    // отказ, от которого мы и лечились. Теперь отдаём товар, а от повторного
+    // списания страхуемся памятью изолята.
+    let marked = false;
     try {
       await env.BOARD.put(usedKey, JSON.stringify({ at: new Date().toISOString(), amount: usd, asset: tok.symbol, via: "prepaid" }),
                           { expirationTtl: 60 * 60 * 24 * 400 });
-    } catch { continue; }
-    return { ok: true, tx: t.tx, asset: tok.symbol, amount: usd, from: t.from };
+      marked = true;
+    } catch {}
+    SPENT.add(key);
+    return { ok: true, tx: t.tx, asset: tok.symbol, amount: usd, from: t.from, marked };
   }
   return { ok: false, why: `no fresh unconsumed stablecoin payment to ${payTo} of at least $${tier.usd} in the last 30 minutes` };
 }

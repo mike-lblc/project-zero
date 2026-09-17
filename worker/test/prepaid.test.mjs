@@ -21,18 +21,18 @@ src = src.replace('import CATALOG from "../catalog.slim.json";',
                   'import CATALOG from "./catalog.slim.json" with { type: "json" };')
          .replace('import SNAPSHOT from "../snapshot.json";',
                   'import SNAPSHOT from "./snapshot.json" with { type: "json" };');
-src = src.slice(0, src.lastIndexOf("export default")) + "export { prepaid, TIERS };\n";
+src = src.slice(0, src.lastIndexOf("export default")) + "export { prepaid, TIERS, INBOX_CACHE, SPENT };\n";
 const dir = mkdtempSync(join(tmpdir(), "p0-prepaid-"));
 writeFileSync(join(dir, "index.mjs"), src);
 for (const f of ["catalog.slim.json", "snapshot.json"])
   writeFileSync(join(dir, f), readFileSync(join(root, f)));
-const { prepaid, TIERS } = await import(pathToFileURL(join(dir, "index.mjs")).href);
+const { prepaid, TIERS, INBOX_CACHE, SPENT } = await import(pathToFileURL(join(dir, "index.mjs")).href);
 
 const PAYTO = "0xECa891e34b3E5873181Fb779672564E198C55354";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const now = Date.now();
 const kv = () => { const m = new Map(); return { get: async (k) => m.get(k) ?? null, put: async (k, v) => void m.set(k, v) }; };
-const stub = (items) => { globalThis.fetch = async () => ({ ok: true, json: async () => ({ items }) }); };
+const stub = (items) => { INBOX_CACHE.clear(); SPENT.clear(); globalThis.fetch = async () => ({ ok: true, json: async () => ({ items }) }); };
 const T = (amt, minsAgo, tx, to = PAYTO, token = USDC) => ({
   transaction_hash: tx, timestamp: new Date(now - minsAgo * 60000).toISOString(),
   to: { hash: to }, from: { hash: "0xPAYER" }, token: { address_hash: token },
@@ -67,9 +67,29 @@ stub([T(0.05, 1, "0xbig"), T(0.001, 1, "0xsmall"), T(0.02, 1, "0xmid")]);
 r = await prepaid(TIERS["/networks"], PAYTO, { BOARD: kv() });
 check("the cheapest sufficient payment is consumed first", r.ok && r.tx === "0xsmall", JSON.stringify(r));
 
-globalThis.fetch = async () => { throw new Error("net"); };
+INBOX_CACHE.clear(); SPENT.clear(); globalThis.fetch = async () => { throw new Error("net"); };
 r = await prepaid(TIERS["/networks"], PAYTO, { BOARD: kv() });
 check("explorer outage yields a refusal, not a crash", !r.ok && /unavailable/.test(r.why || ""));
+
+
+// ЛИМИТ KV ИСЧЕРПАН — заплативший всё равно получает товар.
+// 17.09 мы выбили бесплатный предел 1000 записей в сутки, и прежний код на неудачной
+// отметке делал continue: покупатель, уже переведший деньги, снова получал 402.
+INBOX_CACHE.clear(); SPENT.clear();
+stub([T(0.001, 1, "0xkvfail")]);
+const failingKv = { get: async () => null, put: async () => { throw new Error("KV 429 put limit"); } };
+r = await prepaid(TIERS["/networks"], PAYTO, { BOARD: failingKv });
+check("payer is served even when KV writes are blocked", r.ok && r.marked === false, JSON.stringify(r));
+check("and that transfer is not served twice in the same isolate",
+      !(await prepaid(TIERS["/networks"], PAYTO, { BOARD: failingKv })).ok);
+
+// ПЛАТЁЖ ПРИШЁЛ ПОЗЖЕ, ЧЕМ НАПОЛНИЛСЯ КЭШ.
+INBOX_CACHE.clear(); SPENT.clear();
+stub([]);
+check("empty inbox refuses", !(await prepaid(TIERS["/networks"], PAYTO, { BOARD: kv() })).ok);
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ items: [T(0.001, 0, "0xjustnow")] }) });
+r = await prepaid(TIERS["/networks"], PAYTO, { BOARD: kv() });
+check("a payment made after the cache filled is still found", r.ok && r.tx === "0xjustnow", JSON.stringify(r));
 
 console.log("\n  passed " + pass + ", failed " + fail);
 process.exit(fail ? 1 : 0);
