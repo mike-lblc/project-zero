@@ -238,6 +238,49 @@ const STACKS_API = "https://api.hiro.so";
 
 // Курс держим в памяти изолята пять минут: иначе каждый платёж стоил бы лишнего
 // запроса, а цена монеты за пять минут не меняет сути проверки «хватило ли суммы».
+// ЦЕНА БЕЗ РАЗВЁРТЫВАНИЯ — ИНАЧЕ ПЕРЕОЦЕНКА НАВСЕГДА ОСТАЁТСЯ РУЧНОЙ.
+// Самое результативное, что было сделано руками 17.09, — снижение цены простых
+// маршрутов до нижнего дециля рынка: свип купил семь из двенадцати раз именно их.
+// Но тариф скомпилирован в бандл, значит любая переоценка требовала развёртывания,
+// то есть человека. Теперь действующая цена = скомпилированная, если в KV нет
+// переопределения, и переопределение, если есть.
+//
+// ГРАНИЦЫ ЖЁСТКИЕ И НЕ ОБХОДЯТСЯ АГЕНТОМ: дешевле PRICE_FLOOR отдавать нельзя
+// (иначе ответ дешевле вызова), дороже PRICE_CAP — тоже (иначе агент может
+// случайно выставить цену, по которой никто не купит, и выручка встанет).
+const PRICE_FLOOR = 0.0005;
+const PRICE_CAP = 1.0;
+const PRICE_KEY = "prices";
+let PRICE_OVERRIDE = { at: 0, map: {} };
+
+async function livePrices(env) {
+  if (Date.now() - PRICE_OVERRIDE.at < 60 * 1000) return PRICE_OVERRIDE.map;
+  let map = {};
+  try {
+    if (env && env.BOARD) {
+      const raw = await env.BOARD.get(PRICE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        for (const [k, v] of Object.entries(parsed || {})) {
+          const usd = Number(v);
+          if (TIERS[k] && Number.isFinite(usd) && usd >= PRICE_FLOOR && usd <= PRICE_CAP) map[k] = usd;
+        }
+      }
+    }
+  } catch { map = PRICE_OVERRIDE.map; }
+  PRICE_OVERRIDE = { at: Date.now(), map };
+  return map;
+}
+
+// Действующий тариф маршрута: цена может быть переопределена, остальное — нет.
+function tierWith(path, prices) {
+  const t = TIERS[path];
+  if (!t) return t;
+  const usd = prices && prices[path];
+  if (!usd || usd === t.usd) return t;
+  return { ...t, usd, amount: String(Math.round(usd * 1e6)) };
+}
+
 const SPOT = new Map();
 async function spotUsd(sym) {
   const hit = SPOT.get(sym);
@@ -642,8 +685,8 @@ function inputSchema(path) {
   };
 }
 
-function requirements(path, payTo, description, chain) {
-  const t = TIERS[path];
+function requirements(path, payTo, description, chain, tier) {
+  const t = tier || TIERS[path];
   const i = INPUTS[path] || { method: "GET", queryParams: {}, example: "" };
   const c = chain || CHAINS[0];
   return {
@@ -673,8 +716,8 @@ function requirements(path, payTo, description, chain) {
 // индексатора — структура важна не меньше содержания.
 // accepts[] — ровно то место протокола, где перечисляют несколько способов заплатить:
 // клиент берёт тот, который умеет. Base идёт первой, она же остаётся дефолтом.
-function acceptsFor(path, payTo, description) {
-  return CHAINS.map((c) => requirements(path, payTo, description, c));
+function acceptsFor(path, payTo, description, tier) {
+  return CHAINS.map((c) => requirements(path, payTo, description, c, tier));
 }
 
 function bazaarExtension(path) {
@@ -1377,11 +1420,54 @@ export default {
       await env.BOARD.put("snapshot", body);
       return json({ ok: true, bytes: body.length });
     }
+    // ПЕРЕОЦЕНКА АГЕНТОМ. Тот же токен, что у доски; границы проверяются здесь, а не
+    // на стороне вызывающего, и запись в KV одна на изменение.
+    if (path === "/prices") {
+      if (request.method === "GET") {
+        const live = await livePrices(env);
+        return json({ compiled: Object.fromEntries(Object.entries(TIERS).map(([k, v]) => [k, v.usd])),
+                       override: live, floor: PRICE_FLOOR, cap: PRICE_CAP,
+                       effective: Object.fromEntries(Object.keys(TIERS).map((k) => [k, tierWith(k, live).usd])) });
+      }
+      if (request.method !== "POST") return json({ error: "GET or POST" }, 405);
+      if (!env.BOARD_TOKEN || request.headers.get("x-board-token") !== env.BOARD_TOKEN)
+        return json({ error: "forbidden" }, 403);
+      if (!env.BOARD) return json({ error: "no store" }, 500);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "not json" }, 400); }
+      const next = {}, rejected = [];
+      for (const [k, v] of Object.entries(body || {})) {
+        const usd = Number(v);
+        if (!TIERS[k]) { rejected.push(`${k}: unknown route`); continue; }
+        if (!Number.isFinite(usd)) { rejected.push(`${k}: not a number`); continue; }
+        if (usd < PRICE_FLOOR || usd > PRICE_CAP) { rejected.push(`${k}: ${usd} outside $${PRICE_FLOOR}..$${PRICE_CAP}`); continue; }
+        next[k] = usd;
+      }
+      if (!Object.keys(next).length) return json({ error: "nothing accepted", rejected }, 400);
+      // ЗАПИСЬ МОЖЕТ НЕ ПРОЙТИ, И ЭТО НЕ ПОВОД УПАСТЬ. Без обёртки исчерпанный
+      // суточный лимит KV (429) превращал переоценку в 1101 «worker threw»:
+      // агент получал загадочную пятисотку вместо внятного «сейчас не могу».
+      try {
+        await env.BOARD.put(PRICE_KEY, JSON.stringify(next), { expirationTtl: 60 * 60 * 24 * 400 });
+      } catch (e) {
+        console.log(JSON.stringify({ ev: "reprice_failed", why: String(e).slice(0, 120) }));
+        return json({ error: "price store unavailable", reason: String(e).slice(0, 160),
+                      note: "the daily KV write limit resets at 00:00 UTC; the compiled prices stay in force until then",
+                      wanted: next }, 503);
+      }
+      PRICE_OVERRIDE = { at: 0, map: {} };
+      console.log(JSON.stringify({ ev: "reprice", next, rejected }));
+      return json({ ok: true, override: next, rejected, note: "effective within a minute" });
+    }
     if (path === "/board")
       return new Response(BOARD_HTML, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
     if (path === "/pay") {
-      const rows = Object.entries(TIERS).map(([e, t]) => `<tr><td><code>${e}</code></td><td>$${t.usd}</td><td>${t.what}</td></tr>`).join("");
+      const lp = await livePrices(env);
+      const rows = Object.entries(TIERS).map(([e, t]) => {
+        const eff = tierWith(e, lp);
+        return `<tr><td><code>${e}</code></td><td>$${eff.usd}</td><td>${t.what}</td></tr>`;
+      }).join("");
       return new Response(PAY_HTML.replace("__ROWS__", rows).replace(/__PAYTO__/g, payTo).replace(/__SELF__/g, SELF),
                           { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     }
@@ -1547,8 +1633,10 @@ export default {
 
     // ---- платное
     if (TIERS[path]) {
-      const t = TIERS[path];
-      const accepts = acceptsFor(path, payTo, t.what);
+      // ДЕЙСТВУЮЩАЯ цена, а не скомпилированная: агент мог переоценить маршрут
+      // через /prices, и развёртывания для этого не требуется.
+      const t = tierWith(path, await livePrices(env));
+      const accepts = acceptsFor(path, payTo, t.what, t);
       const reqs = accepts[0];   // Base — способ по умолчанию, для прямого перевода и текстов
       // ПРЯМОЙ ПЕРЕВОД: ?tx=<hash> — проверяем перевод на Base и отдаём ответ без x402.
       // НЕ ТОЛЬКО BASE. Явные параметры на каждую сеть: один и тот же 64-символьный

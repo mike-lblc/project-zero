@@ -111,6 +111,7 @@ jobs:
           P0_CLOUDFLARE_ACCOUNT_ID: a8dd50703f4d727cd15c934aed9582d4
           P0_CLOUDFLARE_AI_TOKEN: ${{ secrets.P0_CLOUDFLARE_AI_TOKEN }}
           MOLTBOOK_API_KEY: ${{ secrets.P0_MOLTBOOK_API_KEY }}
+          BOARD_TOKEN: ${{ secrets.P0_BOARD_TOKEN }}
           GH_TOKEN: ${{ github.token }}
         run: python ops/cloud_turn.py
 
@@ -119,6 +120,7 @@ jobs:
           P0_CLOUDFLARE_AI_TOKEN: ${{ secrets.P0_CLOUDFLARE_AI_TOKEN }}
           WALLET_ETH: ${{ secrets.WALLET_ETH }}
           MOLTBOOK_API_KEY: ${{ secrets.P0_MOLTBOOK_API_KEY }}
+          BOARD_TOKEN: ${{ secrets.P0_BOARD_TOKEN }}
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p data docs

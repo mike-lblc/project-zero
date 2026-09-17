@@ -118,6 +118,69 @@ class Prices(Base):
         self.assertIn("ключа правки нет", out)
 
 
+
+class Repricing(Base):
+    """Переоценка БЕЗ развёртывания — то самое действие, которое 17.09 сделал человек."""
+
+    def _live(self, effective):
+        def h(method, url, body, headers):
+            if url.endswith("/prices") and method == "GET":
+                return 200, {"compiled": effective, "effective": effective,
+                             "override": {}, "floor": 0.0005, "cap": 1.0}
+            if url.endswith("/prices") and method == "POST":
+                self.posted = (body, headers)
+                return 200, {"ok": True, "override": body}
+            return 200, {}
+        self.posted = None
+        self.stub(h)
+
+    def test_primitives_go_to_p10_and_analysis_to_median(self):
+        self.ss.market_percentiles = lambda: {"n": 15000, "p10": 0.001, "median": 0.01, "p90": 0.1}
+        self._live({"/count": 0.05, "/report": 0.0005})
+        self.ss._board_token = lambda: "tok"
+        out = self.ss.reprice()
+        body = self.posted[0]
+        self.assertIn("/count", body, out)          # примитив дороже p10 -> вниз
+        self.assertIn("/report", body, out)         # аналитика дешевле медианы -> вверх
+
+    def test_a_full_export_is_not_priced_like_a_single_query(self):
+        """Первый прогон предложил срезать /dataset в 25 раз по медиане рынка."""
+        self.ss.market_percentiles = lambda: {"n": 15000, "p10": 0.001, "median": 0.01, "p90": 0.1}
+        self._live({"/dataset": 0.25})
+        self.ss._board_token = lambda: "tok"
+        self.ss.reprice()
+        self.assertAlmostEqual(self.posted[0]["/dataset"], 0.125, places=6)
+
+    def test_no_price_moves_more_than_twofold_in_one_run(self):
+        self.ss.market_percentiles = lambda: {"n": 15000, "p10": 0.001, "median": 0.01, "p90": 0.1}
+        self._live({"/count": 1.0})
+        self.ss._board_token = lambda: "tok"
+        self.ss.reprice()
+        self.assertAlmostEqual(self.posted[0]["/count"], 0.5, places=6)
+
+    def test_prices_stay_inside_the_worker_bounds(self):
+        self.ss.market_percentiles = lambda: {"n": 15000, "p10": 0.0000001, "median": 99.0, "p90": 99.0}
+        self._live({"/count": 0.001, "/report": 0.02})
+        self.ss._board_token = lambda: "tok"
+        self.ss.reprice()
+        for v in (self.posted[0] or {}).values():
+            self.assertGreaterEqual(v, self.ss.PRICE_FLOOR)
+            self.assertLessEqual(v, self.ss.PRICE_CAP)
+
+    def test_without_a_token_it_proposes_rather_than_failing_silently(self):
+        self.ss.market_percentiles = lambda: {"n": 15000, "p10": 0.001, "median": 0.01, "p90": 0.1}
+        self._live({"/dataset": 0.25})
+        self.ss._board_token = lambda: ""
+        out = self.ss.reprice()
+        self.assertIn("BOARD_TOKEN", out)
+        self.assertIsNone(self.posted)
+
+    def test_a_market_it_cannot_measure_leaves_prices_alone(self):
+        self.ss.market_percentiles = lambda: None
+        self._live({"/count": 0.05})
+        out = self.ss.reprice()
+        self.assertIn("не трогаем", out)
+
 class Boundaries(unittest.TestCase):
     def test_the_agent_never_edits_code_or_deploys(self):
         """Агент, который сам себе правит платный сервис и деплоит его, — риск без надзора."""

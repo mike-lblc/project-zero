@@ -290,6 +290,106 @@ def health():
     return f"все {len(TARIFF)} платных отдают 402 с нашим адресом, бесплатные — 200"
 
 
+CATALOG = ROOT / "worker" / "catalog.slim.json"
+PRICE_FLOOR, PRICE_CAP = 0.0005, 1.0
+# Простые справки живут по нижнему децилю рынка, аналитика — по медиане. Это не вкус:
+# 17.09 свип купил семь из двенадцати раз именно дешёвые справки, а датасет за $0.25
+# не взял вовсе. Менять цену чаще чем в два раза от цели незачем — это была бы возня.
+PRIMITIVES = {"/count", "/tags", "/top", "/service", "/networks"}
+# Полный выгруз и разбор нишевого спроса — НЕ то же, что одиночный запрос, и
+# равнять их по медиане рынка неправильно. Первый прогон предложил срезать
+# /dataset с $0.25 до $0.01, то есть в двадцать пять раз: медиана рынка — это
+# цена одного вопроса, а не всей выгрузки на 15 758 строк. Для них ориентир p90.
+PREMIUM = {"/dataset", "/alpha"}
+# И в любом случае — не больше чем вдвое за один ход: цена движется шагами, чтобы
+# ошибку было видно на выручке до того, как она станет обвалом.
+MAX_STEP = 2.0
+
+
+def market_percentiles():
+    """p10 и медиана по ЧУЖИМ объявленным ценам из нашего же каталога."""
+    try:
+        cat = json.loads(CATALOG.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    ours = SELF.split("//", 1)[-1]
+    prices = sorted(x for s in cat
+                    if ours not in str(s.get("u") or "")
+                    for x in [s.get("p")]
+                    if isinstance(x, (int, float)) and 0 < x <= 1000)
+    if len(prices) < 100:
+        return None
+    pick = lambda q: prices[min(len(prices) - 1, int(len(prices) * q))]
+    return {"n": len(prices), "p10": pick(0.10), "median": pick(0.50), "p90": pick(0.90)}
+
+
+def reprice(apply=True):
+    """Переоценка БЕЗ развёртывания: действующая цена живёт в KV, границы — в воркере.
+
+    Самое результативное ручное действие 17.09 — снижение простых маршрутов до нижнего
+    дециля рынка. Оно требовало правки кода и развёртывания, то есть человека. Теперь
+    тариф маршрута можно поменять через /prices, и это делает агент.
+    """
+    guard.check_action("research", "YELLOW")
+    m = market_percentiles()
+    if not m:
+        return "каталог не прочитан или слишком мал — цену не трогаем"
+    st, live = _http(SELF + "/prices", timeout=30)
+    if st != 200:
+        return f"/prices не ответил ({st}) — цену не трогаем"
+    effective = live.get("effective") or {}
+    want, why = {}, []
+    for path, eff in effective.items():
+        if path in PREMIUM:
+            target = m["p90"]
+        elif path in PRIMITIVES:
+            target = m["p10"]
+        else:
+            target = m["median"]
+        target = max(PRICE_FLOOR, min(PRICE_CAP, float(target)))
+        try:
+            cur = float(eff)
+        except (TypeError, ValueError):
+            continue
+        # трогаем только при расхождении больше чем вдвое — иначе это возня
+        if not (cur > target * 2 or cur * 2 < target):
+            continue
+        # и двигаем не больше чем вдвое за ход
+        step = min(target, cur * MAX_STEP) if target > cur else max(target, cur / MAX_STEP)
+        step = round(max(PRICE_FLOOR, min(PRICE_CAP, step)), 6)
+        if abs(step - cur) < 1e-9:
+            continue
+        want[path] = step
+        why.append(f"{path}: {cur} -> {step} (ориентир {target})")
+    if not want:
+        return (f"цены в пределах рынка (p10 {m['p10']}, медиана {m['median']}, "
+                f"по {m['n']} чужим ценам) — менять нечего")
+    if not apply:
+        return "предложение: " + "; ".join(why)
+    token = _board_token()
+    if not token:
+        _note("dealer", "ПЕРЕОЦЕНКА ПРЕДЛОЖЕНА, НО КЛЮЧА НЕТ: " + "; ".join(why)
+              + ". Нужен BOARD_TOKEN, иначе цену меняет только человек.", conf=0.8)
+        return "нет BOARD_TOKEN — только предложение: " + "; ".join(why)
+    st2, d2 = _http(SELF + "/prices", "POST", want, {"x-board-token": token}, timeout=40)
+    if st2 != 200:
+        return f"переоценка отклонена воркером ({st2} {str(d2)[:80]})"
+    _note("dealer", "ЦЕНА ИЗМЕНЕНА АГЕНТОМ без развёртывания: " + "; ".join(why)
+          + f". Ориентир — рынок: p10 {m['p10']}, медиана {m['median']} по {m['n']} чужим ценам. "
+          f"Границы воркера ${PRICE_FLOOR}..${PRICE_CAP} проверяются на его стороне.", conf=0.9)
+    bus.broadcast("dealer", "Переоценка без развёртывания: " + "; ".join(why))
+    return "изменено: " + "; ".join(why)
+
+
+def _board_token():
+    try:
+        from agents.worker import _env_value
+        return _env_value("BOARD_TOKEN")
+    except Exception:
+        import os
+        return os.environ.get("BOARD_TOKEN") or ""
+
+
 def delivery_gap():
     """Взяли деньги — отдали ли товар?
 
@@ -341,6 +441,7 @@ def cycle():
              f"доставка: {delivery_gap()}",
              f"объявления: {ensure_listings()}",
              f"цены: {fix_price_drift()}",
+             f"цена по рынку: {reprice()}",
              f"индексы: {register_indexes()}",
              f"аудит: {trigger_auditions()}"]
     return " | ".join(parts)
