@@ -248,6 +248,9 @@ const STACKS_API = "https://api.hiro.so";
 // ГРАНИЦЫ ЖЁСТКИЕ И НЕ ОБХОДЯТСЯ АГЕНТОМ: дешевле PRICE_FLOOR отдавать нельзя
 // (иначе ответ дешевле вызова), дороже PRICE_CAP — тоже (иначе агент может
 // случайно выставить цену, по которой никто не купит, и выручка встанет).
+// Потолок записей на дашборд: 150 в сутки (каждые ~10 минут). Остальные ~850 из
+// бесплатной тысячи всегда остаются платежам, ценам и маршрутам.
+const BOARD_WRITE_CAP = 150;
 const PRICE_FLOOR = 0.0005;
 const PRICE_CAP = 1.0;
 const PRICE_KEY = "prices";
@@ -1555,8 +1558,33 @@ export default {
       if (body.length > 600_000) return json({ error: "too large" }, 413);
       try { JSON.parse(body); } catch { return json({ error: "not json" }, 400); }
       if (!env.BOARD) return json({ error: "no store" }, 500);
-      await env.BOARD.put("snapshot", body);
-      return json({ ok: true, bytes: body.length });
+      // БЮДЖЕТ ЗАПИСЕЙ ПРИНАДЛЕЖИТ ДЕНЬГАМ, А НЕ ДАШБОРДУ.
+      //
+      // Снимок доски — наблюдаемость для владельца: он не приносит ни одного платежа.
+      // При этом он был САМЫМ КРУПНЫМ потребителем записей (до 360 в сутки при пределе
+      // 1 000), и именно это 17.09 вместе с моим кэшем выбило лимит — а вместе с ним
+      // отказали переоценка и объявление маршрутов, то есть ровно то, чем агент
+      // зарабатывает. Деньги важнее картинки, поэтому у картинки теперь свой потолок.
+      //
+      // Данные доски и так лежат бесплатно и без лимита на GitHub Pages
+      // (mike-lblc.github.io/project-zero/api/*.json), их коммитит облачный цикл.
+      // Упёрлись в потолок — страница берёт оттуда, просто чуть менее свежая.
+      const day = new Date().toISOString().slice(0, 10);
+      const bkey = "boardw:" + day;
+      let used = 0;
+      try { used = Number((await env.BOARD.get(bkey)) || 0) || 0; } catch {}
+      if (used >= BOARD_WRITE_CAP)
+        return json({ ok: false, skipped: "board write cap reached",
+                      used, cap: BOARD_WRITE_CAP,
+                      note: "the rest of today's KV writes are reserved for payments; "
+                          + "the board data stays available on GitHub Pages" }, 429);
+      try {
+        await env.BOARD.put("snapshot", body);
+        await env.BOARD.put(bkey, String(used + 1), { expirationTtl: 60 * 60 * 48 });
+      } catch (e) {
+        return json({ ok: false, error: "store unavailable", reason: String(e).slice(0, 140) }, 503);
+      }
+      return json({ ok: true, bytes: body.length, boardWritesToday: used + 1, cap: BOARD_WRITE_CAP });
     }
     // ПЕРЕОЦЕНКА АГЕНТОМ. Тот же токен, что у доски; границы проверяются здесь, а не
     // на стороне вызывающего, и запись в KV одна на изменение.
