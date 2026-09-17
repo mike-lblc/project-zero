@@ -55,8 +55,29 @@ EXPECTED = {
     "owner sol": "FTbVqWwsfJJ5AuAwNDuCuzdpwCEJahu14HAUgAYcJHuq",
     "owner stx": "SP34GH04YTB01AMXF4CAQ10Y5B7G4E0119N99W986",
 }
-MIN_PY_TESTS = 250   # текущий набор — 253; падение ниже = сбор сломался
+MIN_PY_TESTS = 258   # текущий набор — 262; падение ниже = сбор сломался
 OWNER_EVM_TAIL = "c55354"          # хвост адреса владельца: сверяется в живом 402
+
+
+def _log_deploy_action(reason):
+    """Записать развёртывание в таблицу actions, по которой guard считает предел.
+
+    Без этой строки CAPS["deploy_service"] был числом без силы: check_action
+    считает actions, а сюда никто не писал. Класс RED — как и у самого действия.
+    Запись не имеет права уронить развёртывание, поэтому ошибки глотаются.
+    """
+    try:
+        c = connect()
+        c.execute("CREATE TABLE IF NOT EXISTS actions (id INTEGER PRIMARY KEY, kind TEXT, "
+                  "action_class TEXT, dry_run INTEGER, payload TEXT, result TEXT, created_at TEXT)")
+        c.execute("INSERT INTO actions(kind,action_class,dry_run,payload,result,created_at) "
+                  "VALUES (?,?,?,?,?,?)", ("deploy_service", "RED", 0,
+                                          json.dumps({"reason": reason}, ensure_ascii=False)[:500],
+                                          "attempt", now()))
+        c.commit(); c.close()
+    except Exception as e:
+        print(f"[self_deploy] действие не записано в actions ({type(e).__name__}); "
+              f"предел на этот раз не учтётся", flush=True)
 
 
 def now():
@@ -307,6 +328,15 @@ def deploy(reason="agent change"):
         return "ОТМЕНЕНО — " + why
 
     before = live_version()
+    # СЧИТАЕМ РАЗВЁРТЫВАНИЕ ДО СЕТИ, ЧТОБЫ ПРЕДЕЛ БЫЛ НАСТОЯЩИМ.
+    #
+    # guard.check_action только СЧИТАЕТ строки в таблице actions, но deploy_service
+    # туда никто не писал — значит суточный предел CAPS["deploy_service"]=4 не
+    # срабатывал никогда (адверсарный аудит поймал это на CAPS в целом). Пишем
+    # строку здесь, в момент реальной попытки развернуть: пятое за сутки упрётся
+    # в предел на guard.check_action следующего вызова. Пишем ДО _wrangler, чтобы
+    # и упавшее развёртывание считалось попыткой — иначе предел обходится сбоями.
+    _log_deploy_action(reason)
     code, out = _wrangler(["deploy"], timeout=420)
     if code:
         return f"развернуть не удалось: {out[-200:]}"

@@ -117,6 +117,34 @@ def test_failed_rollback_command_does_not_stop_the_walk(monkeypatch):
     assert landed == healthy
 
 
+def test_the_daily_deploy_cap_actually_bites(monkeypatch):
+    """CAPS['deploy_service'] обязан считаться, а не быть числом без силы.
+
+    check_action только СЧИТАЕТ строки в таблице actions, а self_deploy туда
+    ничего не писал — предел в 4 развёртывания в сутки не срабатывал никогда.
+    Теперь каждая попытка развернуть пишет строку класса RED, и пятая за сутки
+    упирается в предел.
+    """
+    from core import guard
+    from core.db import connect
+
+    c = connect()
+    c.execute("CREATE TABLE IF NOT EXISTS actions (id INTEGER PRIMARY KEY, kind TEXT, "
+              "action_class TEXT, dry_run INTEGER, payload TEXT, result TEXT, created_at TEXT)")
+    c.execute("DELETE FROM actions WHERE kind='deploy_service'")
+    c.commit(); c.close()
+    cap = guard.CAPS["deploy_service"]
+    for i in range(cap):
+        sd._log_deploy_action(f"test {i}")
+    raised = False
+    try:
+        guard.check_action("deploy_service", "RED")
+    except guard.CapExceeded:
+        raised = True
+    c = connect(); c.execute("DELETE FROM actions WHERE kind='deploy_service'"); c.commit(); c.close()
+    assert raised, f"развёртывание #{cap + 1} за сутки не было остановлено пределом"
+
+
 def test_the_improver_can_actually_reach_self_deploy():
     """Инструмент в списке агента — ещё не право им пользоваться.
 

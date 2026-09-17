@@ -225,11 +225,44 @@ class Agent:
                 "карта возможностей": cap}
 
     # ---------------------------------------------------------- рассуждение
-    def _prompt(self, state):
+    # Исход, который был пустым: инструмент отработал, но ничего не дал. Ключевой
+    # случай — propose_path, вернувший «уже есть в плане»: 84% его вызовов были
+    # именно этим. Держим набор УЗКИМ (буквальный пустой исход), чтобы не спрятать
+    # инструмент, у которого есть настоящая новая работа.
+    _NOOP_OUTCOME = re.compile(r"уже есть в плане|уже предлаг|замечаний нет|"
+                               r"нечего|ничего нового|новых для нас нет", re.I)
+
+    def _spent_tools(self, minutes=60):
+        """Инструменты, чей ПОСЛЕДНИЙ для этого агента исход был пустым.
+
+        Прямой ответ на цикл повторного предложения: если агент только что выбрал
+        инструмент и получил «уже есть в плане», повторный тот же выбор на этом же
+        состоянии даст тот же пустой результат. Пряча его из меню до смены условий,
+        мы заставляем агента выбрать что-то ДЕЛАЮЩЕЕ, а не крутить пустой цикл.
+
+        Узость намеренная: смотрим только на САМЫЙ СВЕЖИЙ исход каждого инструмента
+        у ЭТОГО агента. Как только инструмент дал непустой результат — он снова в меню.
+        """
+        try:
+            c = _con()
+            since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+            rows = c.execute(
+                "SELECT chose, outcome FROM agent_decisions WHERE agent=? AND decided_at > ? "
+                "AND id IN (SELECT MAX(id) FROM agent_decisions WHERE agent=? AND decided_at > ? "
+                "GROUP BY chose)", (self.name, since, self.name, since)).fetchall()
+            c.close()
+            return {chose for chose, outcome in rows if self._NOOP_OUTCOME.search(outcome or "")}
+        except Exception:
+            return set()
+
+    def _prompt(self, state, spent=None):
+        spent = spent if spent is not None else self._spent_tools()
         rows = []
         for name in self.tools:
             if name not in TOOLS:
                 continue
+            if name in spent:
+                continue          # последний исход этого инструмента был пустым — не показываем
             t = TOOLS[name]
             params = _parameters(t)
             signature = ", ".join(
@@ -237,7 +270,7 @@ class Agent:
                 for p in params)
             rows.append(f"  {name}" + (f" [{signature}]" if signature else "")
                         + f" — {t.describe}")
-        menu = "\n".join(rows)
+        menu = "\n".join(rows) or "  (все инструменты недавно отработали вхолостую — пропусти оборот)"
         facts = json.dumps(state, ensure_ascii=False, indent=1)
         return (
             f"{self.system}\n\n"
@@ -297,7 +330,8 @@ class Agent:
         запрещает локальной модели принимать решения класса YELLOW и выше.
         """
         st = self.state()
-        prompt = self._prompt(st)
+        spent = self._spent_tools()
+        prompt = self._prompt(st, spent=spent)
         try:
             raw = router.run("classify", prompt)
         except router.EscalationRequired as e:
@@ -329,6 +363,15 @@ class Agent:
             args = {}
 
         allowed = bool(chosen) and chosen in self.tools and chosen in TOOLS
+        # ЗАПРЕТ, А НЕ ТОЛЬКО ПОДСКАЗКА. Меню уже прячет отработавший вхолостую
+        # инструмент, но `allowed` считается из self.tools, а не из меню, — значит
+        # модель может назвать спрятанное имя и всё равно его выполнить. Здесь мы
+        # отклоняем ровно тот инструмент, чей последний исход у этого агента был
+        # пустым: иначе цикл повторного предложения возвращается через чёрный ход.
+        if allowed and chosen in spent:
+            allowed = False
+            why = (f"{why} | отклонено: последний вызов {chosen} у {self.name} дал пустой "
+                   f"исход, условия не менялись — выбери другое действие")
         if allowed:
             t = TOOLS[chosen]
             # ПРАВА. max_class — верхняя граница, а не требование точного

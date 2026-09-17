@@ -237,7 +237,16 @@ def generate(sig, market=None):
                             f"moltbook_address_policy {sub}")
     # 2) индексы и доски из реестра каналов
     for key, kind, platform, addr, results in sig.get("channels_alive", []):
-        if kind in ("index", "index_candidate"):
+        # ТОЛЬКО ПОДТВЕРЖДЁННЫЙ ИНДЕКС, НЕ КАНДИДАТ.
+        #
+        # kind='index_candidate' — это репозиторий GitHub, чьё имя или описание
+        # совпало с /market|registry|index|scan|.../ (dealer.py). Это НЕ индекс с
+        # API регистрации, а всего лишь зацепка. Предлагать «be listed in
+        # <github-username>» по такой зацепке значило плодить мусорные гипотезы,
+        # которые исполнитель всё равно не может выполнить (seek_indexes знает
+        # девять реальных индексов), — и они же давали ложные «kept» выше.
+        # Кандидат станет 'index' только когда найдётся настоящий API размещения.
+        if kind == "index":
             needs = CHANNEL_NEEDS["facilitator_adapter"] if platform in ("payai_discovery", "bazaar") else None
             new += _propose(c, f"be listed in {platform}", "combinatorial", f"index:{platform}", "index_api", main_offer,
                             "listing", f"индекс/рынок жив; результатов {results or 0}", key, needs=needs)
@@ -342,12 +351,37 @@ def _run_experiment(h):
             res = moltbook.create_post("strategist", title, body, submolt=sub, allow_own_links=True)
             ok = bool(res.get("published")) or res.get("state") == "CONFIRMED"
             return "moltbook.create_post", f"{res.get('state')} {res.get('external_id')}", int(ok)
-        if mech == "listing" and channel == "index_api":
+        if mech in ("listing", "reciprocal") and channel in (
+                "index_api", "listing", "x402scan", "Merit-Systems", "agent-souk",
+                "mission69b", "public channel found", "public listing on mission69b",
+                "direct API integration"):
+            # РЕГИСТРАЦИЯ В ИНДЕКСЕ ИДЕМПОТЕНТНА, поэтому её безопасно исполнять и в
+            # облаке, и повторно: второй раз тот же origin просто пере-листится.
+            # Раньше сюда попадал только channel=index_api, а 30+ гипотез с теми же
+            # по смыслу каналами (listing, x402scan, Merit-Systems…) валились в noop
+            # и метились «blocked: capability gap» — то есть внешнее действие, которое
+            # МОЖНО сделать бесплатно, не делалось из-за несовпадения ярлыка канала.
             from agents import dealer
             rep = dealer.seek_indexes(discover=False)
             plat = source.split(":", 1)[-1]
-            hit = str(rep.get(plat, "")) if plat in rep else str(rep)[:120]
-            return "dealer.seek_indexes", hit[:200], int("registered" in hit or "в индексе" in hit)
+            # СЧИТАЕМ ТОЛЬКО СОБСТВЕННЫЙ ВЕРДИКТ ПЛОЩАДКИ, НЕ ВЕСЬ ОТЧЁТ.
+            #
+            # Тонкая, но дорогая ошибка, найденная адверсарной проверкой аудита:
+            # при отсутствии plat в отчёте здесь стояло hit=str(rep) — а в отчёте
+            # ВСЕГДА есть чужое «x402scan: registered 11/14». Подстрока «registered»
+            # красила ЛЮБУЮ гипотезу как успех (signal=1). Так родились 17 ложных
+            # «kept» (площадки-то нет в отчёте) и 84 мутации от них — ровно тот
+            # мусор, который агенты потом переписывали обратно в план.
+            #
+            # Нет площадки в отчёте — мы НЕ знаем, что зарегистрировались: signal=0.
+            # Положительным считаем только её собственное «registered/в индексе»,
+            # и то лишь если рядом нет «нас нет / не найден / не отвечает».
+            verdict = str(rep.get(plat, "")) if plat in rep else ""
+            vl = verdict.lower()
+            positive = any(k in vl for k in ("registered", "в индексе", "listed", "размещено"))
+            negative = any(k in vl for k in ("нас нет", "не отвеч", "не найден", "мёртв", "мертв", "неизвест"))
+            done = int(positive and not negative)
+            return "dealer.seek_indexes", (verdict or f"{plat}: нет в отчёте seek_indexes")[:200], done
         if mech == "board_import":
             from agents import dealer
             r = dealer.import_taskmarket()
@@ -432,8 +466,16 @@ def state(write=True):
     return st
 
 
-def think(max_runs=2, with_market=True):
-    """Один оборот мышления: наблюдать → придумать → оценить → проверить → отобрать → просить."""
+def think(max_runs=5, with_market=True):
+    """Один оборот мышления: наблюдать → придумать → оценить → ИСПОЛНИТЬ → отобрать → просить.
+
+    max_runs поднят с 2 до 5: очередь в 169 предложенных гипотез при двух исполнениях
+    за оборот не убывала никогда — предлагали быстрее, чем исполняли. Пять безопасно,
+    потому что настоящий предел ставят не эти числа, а суточные лимиты в guard.CAPS
+    (moltbook_publish=1, moltbook_comment=5): исчерпав их, лишние попытки просто
+    возвращают «capped», а не шлют наружу. Идемпотентная часть (регистрация в индексе)
+    безопасна и при повторе.
+    """
     guard.check_action("research", "GREEN")
     sig = observe()
     market = None

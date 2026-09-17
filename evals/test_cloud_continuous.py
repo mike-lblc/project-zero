@@ -45,21 +45,28 @@ class Deadline(Base):
         теста записал те же результаты. Это правильное поведение системы, и мерить
         им предел по времени нельзя.
         """
+        # Детерминированные часы: настоящий wall-clock делал тест хрупким — под
+        # нагрузкой всей сюиты старт съедал крошечный предел до первого оборота.
+        # Здесь время идёт управляемым счётчиком: предел заведомо наступает ПОСЛЕ
+        # нескольких оборотов, что и проверяем.
         calls = []
         worker.CYCLE = [("t", lambda: calls.append(1) or "ok")]
         worker.SLOW_CYCLE = []
         worker.MONEY_CYCLE = []
-        saved_should = worker.should_run
+        clock = [1000.0]
+        saved_time, saved_sleep, saved_should = worker.time.time, worker.time.sleep, worker.should_run
+        worker.time.time = lambda: clock[0]
+        worker.time.sleep = lambda s: clock.__setitem__(0, clock[0] + max(s, 1.0))
         worker.should_run = lambda name: True
         try:
-            t0 = time.time()
-            worker.run_forever(interval=1, deadline_minutes=0.05, only={"t"})
-            spent = time.time() - t0
+            # предел 0.1 мин = 6 «секунд» модельных часов; шаг спит ~interval/1,
+            # значит несколько оборотов пройдут прежде чем часы пересекут предел.
+            worker.run_forever(interval=1, deadline_minutes=0.1, only={"t"})
         finally:
-            worker.should_run = saved_should
-        self.assertGreater(len(calls), 0, "цикл не выполнил ни одного оборота")
-        # 3 секунды предела плюс один последний шаг — но не минуты.
-        self.assertLess(spent, 60, f"цикл не остановился по пределу: {spent:.0f}с")
+            worker.time.time, worker.time.sleep, worker.should_run = saved_time, saved_sleep, saved_should
+        self.assertGreater(len(calls), 0, "цикл не выполнил ни одного оборота до предела")
+        # часы пересекли предел => цикл вышел сам, а не крутится вечно
+        self.assertGreaterEqual(clock[0], 1000.0 + 0.1 * 60, "цикл не дошёл до предела")
 
     def test_repeat_backoff_still_pauses_a_useless_step(self):
         """Пауза повторов — это и есть встроенная защита от траты; она обязана работать.
