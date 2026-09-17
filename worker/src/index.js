@@ -185,6 +185,71 @@ async function bump(env, ev) {
 // стеке), платит стейблкоином на Base на наш адрес и открывает платный адрес с ?tx=<hash>.
 // Перевод проверяется по Blockscout: успех, получатель — наш адрес, признанный токен, сумма не
 // меньше цены, не старше 30 дней, хэш ещё не использован (KV). Один перевод — один ответ.
+// СНАЧАЛА ПЛАТЁЖ, ПОТОМ ВЫЗОВ — ИМЕННО ТАК РАБОТАЮТ ПРОВЕРЯЮЩИЕ ПОКУПАТЕЛИ.
+//
+// 17.09 в 09:35 нам заплатили ДВЕНАДЦАТЬ раз (0.117 USDC, суммы точно по тарифу
+// помаршрутно) — и воркер не записал ни одного paid/pay_failed. Значит платёжного
+// заголовка не присылали вовсе: покупатель перевёл объявленную цену прямо на payTo
+// и позвал маршрут, а мы ответили 402. Деньги получены, товар не отдан.
+// У каталога nohumans это отдельный класс отказа, paid_but_status_402, и в него
+// попадают 146 эндпоинтов. Повторных покупок так не бывает.
+//
+// Поэтому: на платном маршруте без заголовка ищем свежий НЕиспользованный входящий
+// перевод на наш адрес, которого хватает на цену маршрута, помечаем его
+// использованным и отдаём данные. Строго: наш payTo, признанный стейблкоин,
+// не старше 30 минут, один перевод — один ответ. Из подходящих берём САМЫЙ
+// ДЕШЁВЫЙ, чтобы вызов за цент не съедал перевод за пять.
+async function prepaid(tier, payTo, env) {
+  if (!env.BOARD) return { ok: false, why: "store unavailable" };
+  const cacheKey = "inbox:" + payTo.toLowerCase();
+  let items;
+  try {
+    const c = await env.BOARD.get(cacheKey);
+    if (c) items = JSON.parse(c);
+  } catch {}
+  if (!items) {
+    try {
+      const r = await fetch(`https://base.blockscout.com/api/v2/addresses/${payTo}/token-transfers?filter=to`,
+                            { headers: { accept: "application/json" } });
+      if (!r.ok) return { ok: false, why: "explorer unavailable (" + r.status + ")" };
+      const d = await r.json();
+      items = (d.items || []).slice(0, 50).map((t) => ({
+        tx: t.transaction_hash,
+        ts: t.timestamp,
+        to: ((t.to || {}).hash || "").toLowerCase(),
+        from: ((t.from || {}).hash || ""),
+        token: ((t.token || {}).address_hash || (t.token || {}).address || "").toLowerCase(),
+        raw: String((t.total || {}).value || t.value || "0"),
+      }));
+      // Кэш на минуту: иначе каждый показ цены бил бы по обозревателю и тормозил 402.
+      try { await env.BOARD.put(cacheKey, JSON.stringify(items), { expirationTtl: 60 }); } catch {}
+    } catch { return { ok: false, why: "explorer unavailable" }; }
+  }
+  const now = Date.now();
+  const mine = payTo.toLowerCase();
+  const cand = [];
+  for (const t of items) {
+    const tok = BASE_STABLES[t.token];
+    if (!tok || t.to !== mine) continue;
+    const ts = Date.parse(t.ts || "");
+    if (!ts || now - ts > 30 * 60 * 1000) continue;
+    const usd = Number(t.raw) / 10 ** tok.decimals;
+    if (!(usd + 1e-9 >= tier.usd)) continue;
+    cand.push({ t, tok, usd });
+  }
+  cand.sort((a, b) => a.usd - b.usd);
+  for (const { t, tok, usd } of cand) {
+    const usedKey = "used:" + String(t.tx).toLowerCase();
+    try { if (await env.BOARD.get(usedKey)) continue; } catch {}
+    try {
+      await env.BOARD.put(usedKey, JSON.stringify({ at: new Date().toISOString(), amount: usd, asset: tok.symbol, via: "prepaid" }),
+                          { expirationTtl: 60 * 60 * 24 * 400 });
+    } catch { continue; }
+    return { ok: true, tx: t.tx, asset: tok.symbol, amount: usd, from: t.from };
+  }
+  return { ok: false, why: `no fresh unconsumed stablecoin payment to ${payTo} of at least $${tier.usd} in the last 30 minutes` };
+}
+
 async function directPaid(tx, tier, payTo, env) {
   if (!env.BOARD) return { ok: false, why: "store unavailable" };
   const usedKey = "used:" + tx.toLowerCase();
@@ -1177,6 +1242,20 @@ export default {
       const header = request.headers.get("payment-signature")
                   || request.headers.get("x-payment");
       if (!header) {
+        // ПЕРЕД ТЕМ КАК ПОКАЗАТЬ ЦЕНУ — ПРОВЕРИТЬ, НЕ ЗАПЛАТИЛИ ЛИ УЖЕ.
+        // Проверяющие покупатели переводят цену на payTo и потом зовут маршрут без
+        // всякого заголовка. Свои проверки сюда не пускаем: они ничего не платили,
+        // и незачем бить по обозревателю на каждый health_check.
+        const uaPre = request.headers.get("user-agent") || "";
+        if (!/P0-worker|P0-audit|MTBX-audit|P0-agent/i.test(uaPre)) {
+          const pre = await prepaid(t, payTo, env);
+          if (pre.ok) {
+            console.log(JSON.stringify({ ev: "prepaid", path, tx: pre.tx, amount: pre.amount, from: pre.from }));
+            await bump(env, "prepaid");
+            return json({ ...payload(path, url), paid_via: "prepaid-transfer", tx: pre.tx,
+                          asset: pre.asset, amount: pre.amount }, 200);
+          }
+        }
         // ЗАГОЛОВОК, А НЕ ТОЛЬКО ТЕЛО. Проверка CDP сказала прямо: «индексатор
         // читает для версии 2 только заголовок». Мы отдавали требование оплаты
         // лишь в теле — и девятнадцать последующих проверок пропускались из-за
