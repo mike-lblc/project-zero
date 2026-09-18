@@ -260,18 +260,27 @@ class Boundaries(unittest.TestCase):
                 # платный маршрут терять нельзя: число маршрутов определяет, сколько
                 # оплаченных проверок пришлёт скаут каталога. Запрет на правку КОДА
                 # от этого не ослабевает — он проверяется ниже по именам файлов.
-                self.assertLessEqual(src.count("write_text"), 2,
-                                     "агент пишет файлы шире, чем объявления и маршруты")
+                # Третий файл — CURSOR: одно число, докуда дошло окно проверки
+                # витрины. Появился, когда выяснилось, что шаг осматривал только
+                # первые 11 маршрутов из 62. Это данные, как и первые два; запрет
+                # на правку КОДА проверяется ниже по именам и расширениям.
+                self.assertLessEqual(src.count("write_text"), 3,
+                                     "агент пишет файлы шире, чем объявления, маршруты и курсор")
                 continue
             self.assertNotIn(forbidden, src, f"в шаге есть {forbidden}")
 
     def test_the_agent_writes_only_data_files_never_source(self):
         """Что именно разрешено писать: два файла данных и ничего с кодом."""
         from agents import sell_surface
-        targets = {sell_surface.CONFIG.name, sell_surface.BAKED.name}
-        self.assertEqual(targets, {"nohumans_listings.json", "routes.json"})
+        targets = {sell_surface.CONFIG.name, sell_surface.BAKED.name, sell_surface.CURSOR.name}
+        self.assertEqual(targets, {"nohumans_listings.json", "routes.json", "surface_cursor.txt"})
         for t in targets:
-            self.assertTrue(t.endswith(".json"), f"агент пишет не-данные: {t}")
+            self.assertTrue(t.endswith((".json", ".txt")), f"агент пишет не-данные: {t}")
+        # Каждый обязан лежать в каталоге данных (data/) или рядом с воркером
+        # (worker/routes.json — маршруты, объявленные ДАННЫМИ), но не в agents/ и
+        # не в core/, где живёт код.
+        for f in (sell_surface.CONFIG, sell_surface.BAKED, sell_surface.CURSOR):
+            self.assertIn(f.parent.name, {"data", "worker"}, f"файл вне каталогов данных: {f}")
         raw = (ROOT / "agents" / "sell_surface.py").read_text(encoding="utf-8")
         src = _code_only(raw)
         for source_ext in (".py", ".js", ".mjs", ".sh", ".yml"):
