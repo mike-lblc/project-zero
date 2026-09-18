@@ -657,6 +657,52 @@ async function recentTransfersViaRpc(payTo) {
   }
 }
 
+// ПОКУПАТЕЛЬ, ЗАПЛАТИВШИЙ ПО-НАСТОЯЩЕМУ, НЕ ДОЛЖЕН ПОЛУЧАТЬ «ПЛАТЕЖ НЕ НАЙДЕН» (18.09.2026).
+//
+// Замер на РЕАЛЬНЫХ наших транзакциях: /dataset?tx=<хеш> на четырёх настоящих
+// оплатах вернул «transaction not found on Base (429)». 429 — это индексатор нас
+// придушил лимитом, а не ответ «такой транзакции нет». Мы превращали свой отказ
+// в отказ покупателю: он заплатил и остался без товара. Каталог скаута фиксирует
+// ровно это — onchain_volume_usd_30d=0.117 при deliveries=0.
+//
+// Здесь второй источник: сама цепь. Квитанция транзакции читается напрямую по RPC,
+// логи Transfer разбираются на месте. Возвращаем null ТОЛЬКО когда цепь недоступна,
+// и {missing:true} — когда цепь ответила, что транзакции нет. Разница принципиальна:
+// первое означает «повтори позже», второе — «платежа правда нет».
+async function txViaRpc(tx, payTo) {
+  const rpc = "https://mainnet.base.org";
+  const call = async (method, params) => {
+    const r = await fetch(rpc, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    if (!r.ok) return undefined;                 // сеть/лимит — неизвестность
+    const j = await r.json();
+    return j.result;
+  };
+  try {
+    const rc = await call("eth_getTransactionReceipt", [tx]);
+    if (rc === undefined) return null;           // цепь не ответила
+    if (rc === null) return { missing: true };   // цепь ответила: нет такой
+    if (rc.status && rc.status !== "0x1") return { failed: true };
+    const want = String(payTo).replace(/^0x/, "").toLowerCase().padStart(64, "0");
+    const hits = [];
+    for (const lg of (rc.logs || [])) {
+      if (String((lg.topics || [])[0] || "").toLowerCase() !== TRANSFER_TOPIC) continue;
+      if (String((lg.topics || [])[2] || "").replace(/^0x/, "").toLowerCase() !== want) continue;
+      const tok = BASE_STABLES[String(lg.address || "").toLowerCase()];
+      if (!tok) continue;
+      hits.push({ symbol: tok.symbol, usd: Number(BigInt(lg.data || "0x0")) / 10 ** tok.decimals });
+    }
+    let ts = 0;
+    const blk = await call("eth_getBlockByNumber", [rc.blockNumber, false]);
+    if (blk && blk.timestamp) ts = parseInt(blk.timestamp, 16) * 1000;
+    return { hits, ts };
+  } catch {
+    return null;
+  }
+}
+
 async function prepaid(tier, payTo, env) {
   if (!env.BOARD) return { ok: false, why: "store unavailable" };
   const cacheKey = "inbox:" + payTo.toLowerCase();
@@ -762,11 +808,28 @@ async function directPaid(tx, tier, payTo, env) {
   const usedKey = "used:" + tx.toLowerCase();
   if (await env.BOARD.get(usedKey)) return { ok: false, why: "this transaction was already used for a purchase" };
   let d;
+  let indexerFailed = false;
   try {
     const r = await fetch("https://base.blockscout.com/api/v2/transactions/" + tx, { headers: { accept: "application/json" } });
-    if (!r.ok) return { ok: false, why: "transaction not found on Base (" + r.status + ")" };
-    d = await r.json();
-  } catch (e) { return { ok: false, why: "explorer unavailable" }; }
+    if (!r.ok) indexerFailed = true; else d = await r.json();
+  } catch (e) { indexerFailed = true; }
+  if (indexerFailed) {
+    // Индексатор промолчал — спрашиваем саму цепь, а не отказываем заплатившему.
+    const chain = await txViaRpc(tx, payTo);
+    if (chain === null)
+      return { ok: false, retryable: true,
+               why: "the chain explorer is rate-limiting us right now; your payment is not lost — call this same route again in a minute and it will be honoured" };
+    if (chain.missing) return { ok: false, why: "no such transaction on Base" };
+    if (chain.failed) return { ok: false, why: "transaction did not succeed" };
+    if (chain.ts && Date.now() - chain.ts > 30 * 864e5)
+      return { ok: false, why: "transaction older than 30 days" };
+    const paid = (chain.hits || []).find((h) => h.usd + 1e-9 >= tier.usd);
+    if (!paid)
+      return { ok: false, why: "no payment to " + payTo + " of at least $" + tier.usd + " found in this transaction" };
+    if (!(await claimOnce(env, tx.toLowerCase(), { at: new Date().toISOString(), amount: paid.usd, asset: paid.symbol, via: "rpc" })))
+      return { ok: false, why: "this transaction was already used for a purchase" };
+    return { ok: true, tx, asset: paid.symbol, amount: paid.usd };
+  }
   if (d.status !== "ok" || (d.result && d.result !== "success")) return { ok: false, why: "transaction did not succeed" };
   const ts = Date.parse(d.timestamp || "");
   if (!ts || Date.now() - ts > 30 * 864e5) return { ok: false, why: "transaction older than 30 days" };

@@ -23,12 +23,12 @@ src = src.replace('import CATALOG from "../catalog.slim.json";',
                   'import SNAPSHOT from "./snapshot.json" with { type: "json" };')
          .replace('import BAKED_ROUTES from "../routes.json";',
                   'import BAKED_ROUTES from "./routes.json" with { type: "json" };');
-src = src.slice(0, src.lastIndexOf("export default")) + "export { prepaid, TIERS, INBOX_CACHE, SPENT };\n";
+src = src.slice(0, src.lastIndexOf("export default")) + "export { prepaid, TIERS, INBOX_CACHE, SPENT, directPaid, txViaRpc, recentTransfersViaRpc };\n";
 const dir = mkdtempSync(join(tmpdir(), "p0-prepaid-"));
 writeFileSync(join(dir, "index.mjs"), src);
 for (const f of ["catalog.slim.json", "snapshot.json", "routes.json"])
   writeFileSync(join(dir, f), readFileSync(join(root, f)));
-const { prepaid, TIERS, INBOX_CACHE, SPENT } = await import(pathToFileURL(join(dir, "index.mjs")).href);
+const { prepaid, TIERS, INBOX_CACHE, SPENT, directPaid, txViaRpc } = await import(pathToFileURL(join(dir, "index.mjs")).href);
 
 const PAYTO = "0xECa891e34b3E5873181Fb779672564E198C55354";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -138,73 +138,68 @@ globalThis.fetch = async (url) => {
 r = await prepaid(TIERS["/networks"], PAYTO, { BOARD: kv() });
 check("rpc being down still serves from the indexer", r.ok && r.tx === "0xviaindexer", JSON.stringify(r));
 
+
+// ЗАДУШЕННЫЙ ЛИМИТОМ ИНДЕКСАТОР НЕ ИМЕЕТ ПРАВА ОТКАЗЫВАТЬ ЗАПЛАТИВШЕМУ (18.09.2026).
+//
+// Найдено на ЖИВОМ сервисе: /dataset?tx=<хеш> на четырёх НАСТОЯЩИХ наших оплатах
+// ответил «transaction not found on Base (429)». 429 — это нас придушили лимитом,
+// а мы выдавали покупателю «платежа нет». Каталог скаута фиксирует ровно такой
+// исход: onchain_volume_usd_30d=0.117 (наши платежи они ВИДЯТ) при deliveries=0.
+//
+// Отдельный урок про сами тесты: эти проверки сперва были дописаны в КОНЕЦ файла,
+// а файл заканчивается process.exit — они не выполнялись ни разу. Вместе с ними
+// молча не выполнялись и две вчерашние, которыми я отчитался за проверку цепи.
+// Поэтому они здесь, ДО итоговой строки, и в том же стиле check(), что и остальные.
+const TOPIC_RL = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const TX_RL = "0x" + "ab".repeat(32);
+const pad32rl = (a) => "0x" + a.replace(/^0x/, "").toLowerCase().padStart(64, "0");
+const receiptOk = {
+  ok: true,
+  json: async () => ({ result: { status: "0x1", blockNumber: "0x1",
+    logs: [{ address: USDC, topics: [TOPIC_RL, pad32rl(PAYTO), pad32rl(PAYTO)],
+             data: "0x" + (250000).toString(16) }] } }),
+};
+const blockNow = { ok: true, json: async () => ({ result: { timestamp: "0x" + Math.floor(Date.now() / 1000).toString(16) } }) };
+
+// (1) индексатор душит лимитом, цепь отвечает -> товар ОБЯЗАН уйти
+SPENT.clear();
+globalThis.fetch = async (url, opt) => {
+  if (String(url).includes("blockscout")) return { ok: false, status: 429 };
+  const m = JSON.parse(opt.body).method;
+  if (m === "eth_getTransactionReceipt") return receiptOk;
+  if (m === "eth_getBlockByNumber") return blockNow;
+  return { ok: false, status: 500 };
+};
+r = await directPaid(TX_RL, { usd: 0.25 }, PAYTO, { BOARD: kv() });
+check("429 индексатора не превращается в «платежа нет»: цепь подтверждает, товар уходит",
+      r.ok === true && r.asset === "USDC", JSON.stringify(r));
+
+// (2) молчат ОБА источника -> отказ временный, а не «платежа нет»
+SPENT.clear();
+globalThis.fetch = async () => { throw new Error("down"); };
+r = await directPaid(TX_RL, { usd: 0.25 }, PAYTO, { BOARD: kv() });
+check("когда молчат оба источника, отказ временный и не зовётся «не найдено»",
+      r.ok === false && r.retryable === true && !/not found/i.test(r.why || ""), JSON.stringify(r));
+
+// (3) цепь ответила «нет такой транзакции» -> честный отказ, повторять нечего
+SPENT.clear();
+globalThis.fetch = async (url, opt) => {
+  if (String(url).includes("blockscout")) return { ok: false, status: 429 };
+  if (JSON.parse(opt.body).method === "eth_getTransactionReceipt")
+    return { ok: true, json: async () => ({ result: null }) };
+  return { ok: false, status: 500 };
+};
+r = await directPaid(TX_RL, { usd: 0.25 }, PAYTO, { BOARD: kv() });
+check("несуществующая транзакция — честный отказ, а не приглашение повторить",
+      r.ok === false && !r.retryable, JSON.stringify(r));
+
+// (4) сама txViaRpc обязана различать «цепь молчит» и «транзакции нет»
+globalThis.fetch = async () => { throw new Error("down"); };
+check("txViaRpc: недоступная цепь = null (неизвестность), а не отсутствие платежа",
+      (await txViaRpc(TX_RL, PAYTO)) === null);
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ result: null }) });
+check("txViaRpc: ответ цепи «нет такой» помечается missing",
+      ((await txViaRpc(TX_RL, PAYTO)) || {}).missing === true);
+
 console.log("\n  passed " + pass + ", failed " + fail);
 process.exit(fail ? 1 : 0);
-
-// ИНДЕКСАТОР ОПАЗДЫВАЕТ — СПРАШИВАЕМ ЦЕПЬ (18.09.2026).
-//
-// Почему это появилось: скаут каталога расплачивается на своей стороне и ТУТ ЖЕ
-// зовёт маршрут. Его двенадцать переводов уложились в 72 секунды, и на все мы
-// ответили 402 — потому что искали платёж только в индексаторе Blockscout, а тот
-// отстаёт. В записи каталога о нас это и осталось: onchain_volume_usd_30d = 0.117
-// при deliveries = 0 и paid_verified = false. В их переписи это отдельный класс
-// отказа («ещё 25 взяли платёж и всё равно ответили 402»), и повторных покупок в
-// нём не бывает.
-//
-// Проверено на настоящей цепи: eth_getLogs по окну блоков 51424200..51424300
-// находит те самые переводы (0.001/0.001/0.010 USDC от 0x7e571e95…, хеш
-// 0x92122bdc… совпадает с первым). Здесь закреплено поведение, а не сеть.
-test("свежий платёж виден из цепи, даже когда индексатор о нём ещё молчит", async () => {
-  const payTo = "0xECa891e34b3E5873181Fb779672564E198C55354";
-  const fresh = new Date().toISOString();
-  const saved = globalThis.fetch;
-  globalThis.fetch = async (url, opt) => {
-    const u = String(url);
-    if (u.includes("blockscout")) {
-      // индексатор ещё НЕ знает о переводе
-      return { ok: true, json: async () => ({ items: [] }) };
-    }
-    if (u.includes("mainnet.base.org")) {
-      const body = JSON.parse(opt.body);
-      if (body.method === "eth_blockNumber") {
-        return { ok: true, json: async () => ({ result: "0x3100000" }) };
-      }
-      if (body.method === "eth_getLogs") {
-        const addr = String(body.params[0].address).toLowerCase();
-        if (addr !== "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913") {
-          return { ok: true, json: async () => ({ result: [] }) };
-        }
-        return { ok: true, json: async () => ({ result: [{
-          transactionHash: "0xfeed0000000000000000000000000000000000000000000000000000000000ab",
-          topics: [
-            "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
-            "0x0000000000000000000000007e571e959cc7c75ccdd2eac24f8775ea2eaa2f09",
-            "0x000000000000000000000000eca891e34b3e5873181fb779672564e198c55354",
-          ],
-          data: "0x" + (1000).toString(16),          // 0.001 USDC
-        }] }) };
-      }
-    }
-    return { ok: false, json: async () => ({}) };
-  };
-  try {
-    const tail = await M.recentTransfersViaRpc(payTo);
-    assert.equal(tail.length, 1, "перевод из цепи не найден");
-    assert.equal(tail[0].to, payTo.toLowerCase());
-    assert.equal(tail[0].from.toLowerCase(), "0x7e571e959cc7c75ccdd2eac24f8775ea2eaa2f09");
-    assert.equal(tail[0].raw, "1000", "сумма прочитана неверно");
-  } finally {
-    globalThis.fetch = saved;
-  }
-});
-
-test("недоступная цепь не ломает выдачу: остаёмся с индексатором", async () => {
-  const saved = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error("rpc down"); };
-  try {
-    const tail = await M.recentTransfersViaRpc("0xECa891e34b3E5873181Fb779672564E198C55354");
-    assert.deepEqual(tail, [], "отказ RPC должен давать пустой хвост, а не исключение");
-  } finally {
-    globalThis.fetch = saved;
-  }
-});
