@@ -16,6 +16,62 @@
    }
   },
   {
+   "path": "/in-ai",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'ai': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 194 providers and 541 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "ai"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-ai-agents",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'ai-agents': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 248 providers and 433 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "ai-agents"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-analytics",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'analytics': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 128 providers and 396 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "analytics"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-base",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'base': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 305 providers and 687 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "base"
+    },
+    "limit": 25
+   }
+  },
+  {
    "path": "/in-bitcoin",
    "usd": 0.001,
    "what": "Highest-demand x402 services tagged 'bitcoin': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 86 providers and 249 paying wallets measured in this tag.",
@@ -30,6 +86,34 @@
    }
   },
   {
+   "path": "/in-compliance",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'compliance': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 184 providers and 278 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "compliance"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-country",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'country': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 760 providers and 765 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "country"
+    },
+    "limit": 25
+   }
+  },
+  {
    "path": "/in-crypto",
    "usd": 0.001,
    "what": "Highest-demand x402 services tagged 'crypto': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 830 providers and 1968 paying wallets measured in this tag.",
@@ -39,6 +123,34 @@
     "by": "payers",
     "where": {
      "tag": "crypto"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-data",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'data': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 299 providers and 573 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "data"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-defi",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'defi': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 257 providers and 591 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "defi"
     },
     "limit": 25
    }
@@ -72,6 +184,76 @@
    }
   },
   {
+   "path": "/in-europe",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'europe': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 924 providers and 930 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "europe"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-evidence",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'evidence': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 743 providers and 765 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "evidence"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-evm",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'evm': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 194 providers and 280 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "evm"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-finance",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'finance': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 874 providers and 997 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "finance"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-fun",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'fun': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 18 providers and 434 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "fun"
+    },
+    "limit": 25
+   }
+  },
+  {
    "path": "/in-gateway",
    "usd": 0.001,
    "what": "Highest-demand x402 services tagged 'gateway': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 72 providers and 289 paying wallets measured in this tag.",
@@ -81,6 +263,34 @@
     "by": "payers",
     "where": {
      "tag": "gateway"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-hyperliquid",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'hyperliquid': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 78 providers and 243 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "hyperliquid"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-inference",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'inference': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 125 providers and 382 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "inference"
     },
     "limit": 25
    }
@@ -100,6 +310,20 @@
    }
   },
   {
+   "path": "/in-land",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'land': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 911 providers and 912 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "land"
+    },
+    "limit": 25
+   }
+  },
+  {
    "path": "/in-leverage",
    "usd": 0.001,
    "what": "Highest-demand x402 services tagged 'leverage': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 216 providers and 225 paying wallets measured in this tag.",
@@ -109,6 +333,62 @@
     "by": "payers",
     "where": {
      "tag": "leverage"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-llm",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'llm': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 183 providers and 459 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "llm"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-macro",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'macro': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 663 providers and 877 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "macro"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-market-data",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'market-data': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 374 providers and 894 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "market-data"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-on-chain",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'on-chain': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 83 providers and 317 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "on-chain"
     },
     "limit": 25
    }
@@ -128,6 +408,34 @@
    }
   },
   {
+   "path": "/in-options",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'options': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 161 providers and 335 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "options"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-pay-per-call",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'pay-per-call': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 138 providers and 243 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "pay-per-call"
+    },
+    "limit": 25
+   }
+  },
+  {
    "path": "/in-price",
    "usd": 0.001,
    "what": "Highest-demand x402 services tagged 'price': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 88 providers and 235 paying wallets measured in this tag.",
@@ -142,6 +450,76 @@
    }
   },
   {
+   "path": "/in-random",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'random': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 31 providers and 268 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "random"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-research",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'research': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 129 providers and 449 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "research"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-risk",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'risk': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 188 providers and 273 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "risk"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-search",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'search': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 160 providers and 524 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "search"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-sec",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'sec': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 172 providers and 332 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "sec"
+    },
+    "limit": 25
+   }
+  },
+  {
    "path": "/in-security",
    "usd": 0.001,
    "what": "Highest-demand x402 services tagged 'security': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 132 providers and 213 paying wallets measured in this tag.",
@@ -151,6 +529,34 @@
     "by": "payers",
     "where": {
      "tag": "security"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-smart-money",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'smart-money': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 63 providers and 291 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "smart-money"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-stocks",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'stocks': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 215 providers and 458 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "stocks"
     },
     "limit": 25
    }
@@ -184,6 +590,62 @@
    }
   },
   {
+   "path": "/in-trading",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'trading': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 160 providers and 311 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "trading"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-twitter",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'twitter': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 108 providers and 306 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "twitter"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-usdc",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'usdc': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 88 providers and 284 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "usdc"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-utility",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'utility': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 64 providers and 271 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "utility"
+    },
+    "limit": 25
+   }
+  },
+  {
    "path": "/in-verdict",
    "usd": 0.001,
    "what": "Highest-demand x402 services tagged 'verdict': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 7 providers and 2197 paying wallets measured in this tag.",
@@ -198,6 +660,20 @@
    }
   },
   {
+   "path": "/in-verification",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'verification': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 181 providers and 258 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "verification"
+    },
+    "limit": 25
+   }
+  },
+  {
    "path": "/in-weather",
    "usd": 0.001,
    "what": "Highest-demand x402 services tagged 'weather': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 133 providers and 232 paying wallets measured in this tag.",
@@ -207,6 +683,34 @@
     "by": "payers",
     "where": {
      "tag": "weather"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-web",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'web': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 183 providers and 463 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "web"
+    },
+    "limit": 25
+   }
+  },
+  {
+   "path": "/in-x402",
+   "usd": 0.001,
+   "what": "Highest-demand x402 services tagged 'x402': ranked by 30-day unique paying wallets, with calls, price, network and calls-per-payer for each. 837 providers and 1345 paying wallets measured in this tag.",
+   "spec": {
+    "source": "catalog",
+    "op": "top",
+    "by": "payers",
+    "where": {
+     "tag": "x402"
     },
     "limit": 25
    }
