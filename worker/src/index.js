@@ -602,6 +602,61 @@ const INBOX_CACHE = new Map();
 const SPENT = new Set();
 // Обнуляются в тестах: состояние изолята не должно течь между случаями.
 
+// Свежий хвост входящих переводов ПРЯМО ИЗ ЦЕПИ, минуя индексатор.
+//
+// eth_getLogs по событию Transfer признанных стейблов на наш адрес за последние
+// блоки. Нужен ровно для гонки, описанной в prepaid(): индексатор отстаёт, а
+// покупатель звонит через секунду после оплаты.
+//
+// Окно 180 блоков — это около шести минут на Base (блок ~2 с), с запасом под
+// тридцатиминутное окно prepaid, но без тяжёлых запросов: публичные RPC режут
+// диапазон, поэтому просим немного и никогда не падаем на отказе — просто
+// возвращаем пусто и остаёмся с индексатором.
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+async function recentTransfersViaRpc(payTo) {
+  const rpc = "https://mainnet.base.org";
+  const pad = (a) => "0x" + String(a).replace(/^0x/, "").toLowerCase().padStart(64, "0");
+  try {
+    const head = await fetch(rpc, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+    });
+    if (!head.ok) return [];
+    const hj = await head.json();
+    const tip = parseInt(hj.result, 16);
+    if (!Number.isFinite(tip)) return [];
+    const from = "0x" + Math.max(0, tip - 180).toString(16);
+    const out = [];
+    for (const [addr, meta] of Object.entries(BASE_STABLES)) {
+      const r = await fetch(rpc, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 2, method: "eth_getLogs",
+          params: [{ address: addr, fromBlock: from, toBlock: "latest",
+                     topics: [TRANSFER_TOPIC, null, pad(payTo)] }],
+        }),
+      });
+      if (!r.ok) continue;
+      const j = await r.json();
+      for (const lg of (j.result || [])) {
+        // Сумма лежит в data, отправитель — во втором топике.
+        out.push({
+          tx: lg.transactionHash,
+          ts: new Date().toISOString(),        // лог свежий по построению окна
+          to: String(payTo).toLowerCase(),
+          from: "0x" + String(lg.topics[1] || "").slice(-40),
+          token: String(addr).toLowerCase(),
+          raw: String(BigInt(lg.data || "0x0")),
+        });
+      }
+    }
+    return out;
+  } catch {
+    return [];                                // цепь недоступна — живём индексатором
+  }
+}
+
 async function prepaid(tier, payTo, env) {
   if (!env.BOARD) return { ok: false, why: "store unavailable" };
   const cacheKey = "inbox:" + payTo.toLowerCase();
@@ -630,6 +685,24 @@ async function prepaid(tier, payTo, env) {
   let items = hit && Date.now() - hit.at < 60 * 1000 ? hit.items : null;
   let fresh = false;
   if (!items) { items = await load(); fresh = true; }
+  // ИНДЕКСАТОР ОПАЗДЫВАЕТ, А ПОКУПАТЕЛЬ ЗВОНИТ СРАЗУ. ЭТО И ЕСТЬ ГОНКА.
+  //
+  // Скаут каталога, который единственный нам платил, работает так: расплачивается
+  // на своей стороне и ТУТ ЖЕ зовёт маршрут. Его двенадцать переводов уложились в
+  // 72 секунды — и на все мы ответили 402, потому что искали платёж в индексаторе
+  // Blockscout, а тот отстаёт на секунды-десятки секунд. В их же переписи это
+  // отдельный класс отказа: «ещё 25 взяли платёж и всё равно ответили 402», и
+  // повторных покупок в нём не бывает. В записи каталога о нас так и стоит:
+  // onchain_volume_usd_30d = 0.117, а deliveries = 0, paid_verified = false.
+  //
+  // Логи блока доступны сразу, как блок собран (на Base это ~2 секунды), поэтому
+  // спрашиваем ЦЕПЬ напрямую и доливаем к тому, что дал индексатор. Индексатор
+  // остаётся: он даёт длинную историю, а RPC — свежий хвост.
+  const tail = await recentTransfersViaRpc(payTo);
+  if (tail && tail.length) {
+    const seen = new Set((items || []).map((t) => String(t.tx).toLowerCase()));
+    items = (items || []).concat(tail.filter((t) => !seen.has(String(t.tx).toLowerCase())));
+  }
   if (!items) return { ok: false, why: "explorer unavailable" };
   const now = Date.now();
   const mine = payTo.toLowerCase();
