@@ -626,7 +626,13 @@ async function recentTransfersViaRpc(payTo) {
     const hj = await head.json();
     const tip = parseInt(hj.result, 16);
     if (!Number.isFinite(tip)) return [];
-    const from = "0x" + Math.max(0, tip - 180).toString(16);
+    // ОКНО ЦЕПИ ОБЯЗАНО СОВПАДАТЬ С ОКНОМ ПРИЁМА (18.09.2026).
+    // Было 180 блоков (~6 мин) при том, что платёж мы принимаем 30 минут. Если
+    // индексатор в это время душит нас лимитом, платёж возрастом 6-30 минут не
+    // видел НИКТО, и заплативший получал отказ. 900 блоков по ~2 с на Base — это
+    // ровно те же 30 минут. Замерено на mainnet.base.org: 900 и 1200 проходят,
+    // 3000 отвечает 413, поэтому шире не просим.
+    const from = "0x" + Math.max(0, tip - 900).toString(16);
     const out = [];
     for (const [addr, meta] of Object.entries(BASE_STABLES)) {
       const r = await fetch(rpc, {
