@@ -166,7 +166,14 @@ def test_the_improver_can_actually_reach_self_deploy():
 
 
 def test_deploy_if_changed_skips_when_bundle_unchanged(monkeypatch):
-    """Тот же исходник — тихий no-op, а не деплой: цикл не жжёт предел на ровном месте."""
+    """Тот же исходник — тихий no-op, а не деплой: цикл не жжёт предел на ровном месте.
+
+    git подменён НАРОЧНО: тест проверяет логику хеша, а не состояние рабочей копии.
+    Без подмены он трогал настоящий git и падал в полном наборе, но проходил в
+    одиночку — классическая зависимость от порядка, которую нельзя оставлять.
+    """
+    monkeypatch.setattr(sd, "_behind_origin", lambda: (False, "совпадает"))
+    monkeypatch.setattr(sd, "_fast_forward", lambda: (True, "не требовалось"))
     monkeypatch.setattr(sd, "_token", lambda: "fake-token")
     monkeypatch.setattr(sd, "_bundle_hash", lambda: "abc123")
     from core.db import connect
@@ -182,7 +189,14 @@ def test_deploy_if_changed_skips_when_bundle_unchanged(monkeypatch):
 
 
 def test_deploy_if_changed_deploys_when_bundle_changed(monkeypatch):
-    """Исходник изменился — полный деплой; хеш записывается только при успехе."""
+    """Исходник изменился — полный деплой; хеш записывается только при успехе.
+
+    git подменён по той же причине: иначе настоящий `merge --ff-only` в рабочей
+    копии с несохранёнными правками отказывал, деплой пропускался, и тест падал
+    только в полном наборе.
+    """
+    monkeypatch.setattr(sd, "_behind_origin", lambda: (False, "совпадает"))
+    monkeypatch.setattr(sd, "_fast_forward", lambda: (True, "не требовалось"))
     monkeypatch.setattr(sd, "_token", lambda: "fake-token")
     monkeypatch.setattr(sd, "_bundle_hash", lambda: "newhash999")
     from core.db import connect

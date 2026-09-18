@@ -302,7 +302,7 @@ def ensure_listings(limit=CREATE_CAP):
     want = {p.lstrip("/") for p in live_tariff()}
     missing = sorted(want - have)
     extra = sorted(have - want)
-    created, failed = [], []
+    created, failed, adopted = [], [], []
     for route in missing[:limit]:
         path = "/" + route
         t = live_tariff().get(path) or {}
@@ -325,9 +325,25 @@ def ensure_listings(limit=CREATE_CAP):
                 c.execute("INSERT OR REPLACE INTO directory_claim(listing_id,route,claim_token,created_at) "
                           "VALUES (?,?,?,?)", (lid, route, tok, now()))
             created.append(route)
+        elif st == 409 and d.get("listing_id"):
+            # «УЖЕ ОБЪЯВЛЕНО» — ЭТО НЕ ОТКАЗ, А ПОДАРОК: НАМ ВЕРНУЛИ ИДЕНТИФИКАТОР.
+            #
+            # Так вскрылось расхождение, которое дороже, чем кажется. Облачный прогон
+            # создаёт объявления сам, но его копия файла со списком домой не приезжает
+            # (облачная и локальная базы разные). Замер 18.09: из 13 попыток ОДИННАДЦАТЬ
+            # вернули 409 с готовым listing_id — то есть объявления в каталоге есть, а
+            # мы про них не знаем.
+            #
+            # Цена незнания прямая: без идентификатора `fix_price_drift` не может
+            # подравнять цену, а расхождение цены каталог считает price_drift и ВАЛИТ
+            # маршрут. Иначе говоря, мы теряли бы платящие объявления и даже не видели,
+            # какие. Поэтому идентификатор из 409 записываем и берём объявление под
+            # наблюдение — ключа правки тут нет, и это названо честно.
+            cfg[route] = d["listing_id"]
+            adopted.append(route)
         else:
             failed.append(f"{route} ({st} {str(d)[:60]})")
-    if created:
+    if created or adopted:
         c.commit()
         _save_config(cfg)
         _note("dealer", "ОБЪЯВЛЕНИЯ СОЗДАНЫ АГЕНТОМ (без рук): " + ", ".join(created)
@@ -336,6 +352,9 @@ def ensure_listings(limit=CREATE_CAP):
     out = []
     if created:
         out.append(f"создано {len(created)}: {', '.join(created)}")
+    if adopted:
+        out.append(f"взято под наблюдение уже созданных облаком {len(adopted)}: "
+                   + ", ".join(adopted) + " (ключа правки нет — цену им не подравнять)")
     if failed:
         out.append(f"не создано {len(failed)}: {'; '.join(failed)}")
     if len(missing) > limit:

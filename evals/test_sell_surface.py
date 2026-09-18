@@ -331,3 +331,49 @@ class BuyerCount(unittest.TestCase):
         from agents import sell_surface
         src = inspect.getsource(sell_surface.cycle)
         self.assertIn("buyers()", src)
+
+
+class AdoptCloudCreatedListings(Base):
+    """«Уже объявлено» — не отказ, а возвращённый идентификатор.
+
+    Расхождение, вскрытое 18.09 и дороже, чем выглядит: облачный прогон создаёт
+    объявления сам, но его копия файла со списком домой не приезжает — облачная и
+    локальная базы разные. Из 13 попыток ОДИННАДЦАТЬ вернули 409 с готовым
+    listing_id: объявления в каталоге есть, а мы про них не знаем.
+
+    Без идентификатора `fix_price_drift` не может подравнять цену, а расхождение
+    цены каталог считает price_drift и ВАЛИТ маршрут. То есть мы теряли бы платящие
+    объявления и даже не видели, какие.
+    """
+
+    def test_a_409_with_an_id_is_adopted_not_discarded(self):
+        self.cfg = {}
+        seen = {}
+
+        def h(method, url, body, headers):
+            if method == "POST":
+                return 409, {"error": "endpoint_already_listed", "listing_id": "cloud-made-42"}
+            return 200, {}
+
+        self.stub(h)
+        out = self.ss.ensure_listings(limit=1)
+        self.assertIn("под наблюдение", out, f"идентификатор из 409 выброшен: {out[:120]}")
+        self.assertIn("cloud-made-42", self.ss.listings_config().values().__str__(),
+                      "объявление, созданное облаком, не записано в список")
+
+    def test_adoption_is_honest_about_the_missing_edit_key(self):
+        """У принятого объявления нет ключа правки — это обязано быть сказано."""
+        self.cfg = {}
+        self.stub(lambda m, u, b, h: (409, {"error": "endpoint_already_listed",
+                                            "listing_id": "x1"}) if m == "POST" else (200, {}))
+        out = self.ss.ensure_listings(limit=1)
+        self.assertIn("ключа правки нет", out,
+                      "молчим о том, что цену такому объявлению не подравнять")
+
+    def test_a_409_without_an_id_is_still_a_failure(self):
+        """Нечего принимать — значит отказ, а не тихое «всё хорошо»."""
+        self.cfg = {}
+        self.stub(lambda m, u, b, h: (409, {"error": "endpoint_already_listed"})
+                  if m == "POST" else (200, {}))
+        out = self.ss.ensure_listings(limit=1)
+        self.assertIn("не создано", out)

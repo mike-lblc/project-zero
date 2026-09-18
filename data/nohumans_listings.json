@@ -15,6 +15,12 @@
     "in-agents": "646f091c-a12",
     "in-crypto": "8ed53edb-d8e",
     "in-token": "26e47b37-49c",
-    "in-verdict": "fb8fa872-5f4"
+    "in-verdict": "fb8fa872-5f4",
+    "in-evm": "85f042ca-fac",
+    "in-fun": "5d5fe6c0-50f",
+    "in-ai": "20196d18-22d",
+    "in-ai-agents": "7fdf7369-b83",
+    "in-analytics": "396cb0e4-304",
+    "in-base": "8fb9eff6-58c"
   }
 }
