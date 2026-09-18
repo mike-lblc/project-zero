@@ -113,11 +113,17 @@ class Prices(Base):
         c.commit(); c.close()
         patched = {}
 
+        # Каталог здесь ПРИМЕНЯЕТ правку, как настоящий: до PATCH цена другая,
+        # после — та, что прислали. Это важно с 18.09: шаг больше не считает
+        # успехом код ответа 200, а перечитывает запись и сверяет значение.
+        state = {"price": 0.05}
+
         def h(method, url, body, headers):
             if method == "GET":
-                return 200, {"price_amount": 0.05}          # каталог думает, что цена другая
+                return 200, {"price_amount": state["price"]}
             if method == "PATCH":
                 patched["body"] = body; patched["hdr"] = headers
+                state["price"] = body["price_amount"]
                 return 200, {}
             return 200, {}
         self.stub(h)
@@ -126,6 +132,31 @@ class Prices(Base):
         from core.identity import TARIFF
         self.assertEqual(patched["body"]["price_amount"], TARIFF["/networks"]["usd"])
         self.assertEqual(patched["hdr"]["x-claim-token"], "tok-net")
+
+    def test_a_patch_that_does_not_land_is_not_reported_as_fixed(self):
+        """Код ответа 200 — это не «подравнено» (18.09.2026).
+
+        Шаг два хода подряд рапортовал об одних и тех же шестнадцати маршрутах:
+        он считал успехом сам код ответа и НИ РАЗУ не перечитывал запись. Отчёт,
+        который не проверяет собственный результат, показывает работу вместо
+        результата — а владелец по этим отчётам судит, работает ли канал.
+        Здесь каталог отвечает 200 и НЕ применяет правку.
+        """
+        self.cfg = {"networks": "id-net"}
+        c = self.db.connect(); self.ss._table(c)
+        c.execute("INSERT INTO directory_claim(listing_id,route,claim_token,created_at) VALUES (?,?,?,?)",
+                  ("id-net", "networks", "tok-net", "now"))
+        c.commit(); c.close()
+
+        def h(method, url, body, headers):
+            if method == "GET":
+                return 200, {"price_amount": 0.05}      # не меняется, что бы ни прислали
+            return 200, {}                              # PATCH «принят», но не применён
+        self.stub(h)
+        out = self.ss.fix_price_drift()
+        self.assertNotIn("подравнено", out,
+                         "шаг объявил успехом правку, которая не легла: " + out)
+        self.assertIn("не обновилась", out, "молчаливый провал вместо честного отчёта: " + out)
 
     def test_without_a_token_the_drift_is_reported_not_silently_ignored(self):
         """Настоящее отсутствие ключа: ни в базе, ни в окружении.
@@ -158,11 +189,16 @@ class Prices(Base):
         self.cfg = {"networks": "id-net"}
         patched = {}
 
+        # Каталог применяет правку: шаг перечитывает запись и сверяет значение,
+        # поэтому неподвижная заглушка означала бы «правка не легла».
+        state = {"price": 0.05}
+
         def h(method, url, body, headers):
             if method == "GET":
-                return 200, {"price_amount": 0.05}
+                return 200, {"price_amount": state["price"]}
             if method == "PATCH":
                 patched["hdr"] = headers
+                state["price"] = body["price_amount"]
                 return 200, {}
             return 200, {}
 
@@ -295,8 +331,6 @@ class Boundaries(unittest.TestCase):
         self.assertIn("sell_surface", worker.CLOUD_STEPS)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class BuyerCount(unittest.TestCase):
@@ -386,3 +420,6 @@ class AdoptCloudCreatedListings(Base):
                   if m == "POST" else (200, {}))
         out = self.ss.ensure_listings(limit=1)
         self.assertIn("не создано", out)
+
+if __name__ == "__main__":
+    unittest.main()

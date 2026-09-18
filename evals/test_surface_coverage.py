@@ -71,5 +71,31 @@ class NoRefutedClaim(unittest.TestCase):
             self.assertFalse(bad, f"опровергнутая причина снова в коде: {ln.strip()[:80]}")
 
 
+
+
+class DeclaredRouteCap(unittest.TestCase):
+    """Предел на число объявленных маршрутов обязан быть ВЫШЕ факта.
+
+    18.09 предел стоял 40, а маршрутов агенты накопили 51 — и хранилище
+    заперлось: POST /routes отвечал «at most 40 declared routes» на любую запись.
+    Значит нельзя было ни объявить новый маршрут, ни ПОПРАВИТЬ ЦЕНУ. А
+    расхождение объявленной и живой цены каталог считает price_drift и валит
+    маршрут: в тот момент дрейфовало двенадцать наших объявлений, и починить их
+    было нечем. Предел ниже факта — это не защита, это замок изнутри.
+    """
+
+    def test_the_cap_is_above_what_we_already_declared(self):
+        import json
+        import re
+        src = (ROOT / "worker" / "src" / "index.js").read_text(encoding="utf-8")
+        m = re.search(r"list\.length > (\d+)\) return json\(\{ error: \"at most", src)
+        self.assertIsNotNone(m, "предел объявленных маршрутов больше не находится в коде")
+        cap = int(m.group(1))
+        baked = json.loads((ROOT / "worker" / "routes.json").read_text(encoding="utf-8"))
+        have = len(baked.get("routes") or [])
+        self.assertGreater(cap, have,
+                           f"предел {cap} не выше уже объявленных {have}: хранилище заперто, "
+                           f"цену не поправить и маршрут не добавить")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

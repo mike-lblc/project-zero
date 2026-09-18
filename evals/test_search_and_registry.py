@@ -145,8 +145,6 @@ class Queue(unittest.TestCase):
         self.assertEqual(orphans, ["продажа данных"])
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class MarketExpansion(unittest.TestCase):
@@ -208,3 +206,6 @@ class Consistency(unittest.TestCase):
         for f in out:
             self.assertIn("класс", f)
             self.assertIn("что", f)
+
+if __name__ == "__main__":
+    unittest.main()

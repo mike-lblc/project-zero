@@ -136,8 +136,6 @@ class ReceiptMirror(unittest.TestCase):
             payment.record_receipt("0x" + "ef" * 32, "tx_hash", 0, "USDC")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Tron(unittest.TestCase):
@@ -218,3 +216,6 @@ class AnyAsset(unittest.TestCase):
         self.assertEqual(p.usd_value("USDT", "2.5"), 2.5)
         self.assertEqual(p.usd_value("usdc", 3), 3.0)
         self.assertIsNone(p.usd_value("GAS35COM", 1))
+
+if __name__ == "__main__":
+    unittest.main()

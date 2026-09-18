@@ -266,8 +266,6 @@ class Collector(TempDB):
                          "поступление приписано одной из двух одинаковых заявок наугад")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class UntrustedBountyTrap(unittest.TestCase):
@@ -312,3 +310,6 @@ class DeliverReady(unittest.TestCase):
         finally:
             db.DB_PATH, done, db._WAL_SET, guard.check_action = saved
             db._SCHEMA_DONE.clear(); db._SCHEMA_DONE.update(done); tmp.cleanup()
+
+if __name__ == "__main__":
+    unittest.main()

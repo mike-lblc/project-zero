@@ -1931,7 +1931,12 @@ export default {
       try { body = await request.json(); } catch { return json({ error: "not json" }, 400); }
       const list = Array.isArray(body) ? body : (body && body.routes) || [];
       if (!Array.isArray(list)) return json({ error: "send an array of route specs" }, 400);
-      if (list.length > 40) return json({ error: "at most 40 declared routes" }, 400);
+      // ПРЕДЕЛ НИЖЕ ФАКТА ЗАПИРАЕТ ХРАНИЛИЩЕ (18.09.2026). Стояло 40, а объявленных
+      // маршрутов агенты накопили 51 — и любая запись стала невозможна: ни поправить
+      // цену, ни объявить новый. Цена этого прямая: расхождение объявленной и живой
+      // цены каталог считает price_drift и ВАЛИТ маршрут, а починить его было нечем.
+      // 96 — с запасом над нынешними 51; ограничение остаётся защитой от разрастания.
+      if (list.length > 96) return json({ error: "at most 96 declared routes" }, 400);
       const accepted = [], rejected = [];
       for (const r of list) {
         const [ok, why] = validateRouteSpec(r);

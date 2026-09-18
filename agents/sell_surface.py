@@ -372,7 +372,7 @@ def fix_price_drift():
     c = connect()
     _table(c)
     cfg = listings_config()
-    fixed, drift = [], []
+    fixed, drift, stale = [], [], []
     for route, lid in sorted(cfg.items()):
         path = "/" + route
         want = (live_tariff().get(path) or {}).get("usd")
@@ -393,15 +393,32 @@ def fix_price_drift():
         if not tok:
             continue
         st2, _ = _http(f"{NH}/{lid}", "PATCH", {"price_amount": want}, {"x-claim-token": tok})
-        if st2 == 200:
-            fixed.append(route)
+        if st2 != 200:
+            continue
+        # ОТВЕТ 200 — ЭТО НЕ «ПОДРАВНЕНО». Замер 18.09: шаг два хода подряд
+        # рапортовал об одних и тех же шестнадцати маршрутах, потому что считал
+        # успехом сам код ответа и ни разу не перечитывал запись. Отчёт, который
+        # не проверяет собственный результат, показывает работу вместо результата.
+        st3, back = _http(f"{NH}/{lid}")
+        try:
+            landed = st3 == 200 and abs(float(back.get("price_amount")) - float(want)) < 1e-9
+        except (TypeError, ValueError):
+            landed = False
+        (fixed if landed else stale).append(route)
     c.close()
     if fixed:
         _note("dealer", "ЦЕНА В КАТАЛОГЕ ПОДРАВНЕНА агентом: " + ", ".join(fixed)
               + ". Расхождение объявленной и живой цены каталог считает price_drift и валит маршрут.", conf=0.9)
-    if drift and not fixed:
+    if drift and not fixed and not stale:
         return "расхождение цен, но ключа правки нет: " + "; ".join(drift)
-    return ("подравнено " + ", ".join(fixed)) if fixed else "цены совпадают"
+    out = []
+    if fixed:
+        out.append("подравнено " + ", ".join(fixed))
+    if stale:
+        # Их запись обновляется своим пробом (~30 мин) — это НЕ отказ, но и не успех.
+        out.append(f"правка принята, но запись ещё не обновилась у {len(stale)}: "
+                   + ", ".join(stale[:6]) + " (у них свой проб ~30 мин)")
+    return "; ".join(out) if out else "цены совпадают"
 
 
 def trigger_auditions(limit=3):
