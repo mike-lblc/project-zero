@@ -23,7 +23,19 @@ from agents import worker  # noqa: E402
 
 
 class Base(unittest.TestCase):
+    """База с ИЗОЛИРОВАННОЙ записью прогонов.
+
+    ТЕСТЫ НЕ ИМЕЮТ ПРАВА ПИСАТЬ В БОЕВУЮ ВЕДОМОСТЬ. Замер 18.09: из 190 «прогонов
+    шагов за сегодня» 81 оказался мусором отсюда — шаг с именем «t», worker_start и
+    worker_deadline. По этой же таблице владелец читает, чем заняты агенты, то есть
+    мои тесты подмешивали 43% ложной активности в отчёт о работе. Ведомость, в
+    которую пишут тесты, перестаёт быть ведомостью.
+    """
+
     def setUp(self):
+        # record_run уводится в пустоту на время теста: проверяем цикл, а не журнал.
+        self._saved_record = worker.record_run
+        worker.record_run = lambda *a, **k: None
         # Замок живого локального воркера не трогаем: тест не должен ни
         # останавливать его, ни притворяться им.
         self.saved_lock = worker.LOCK
@@ -31,6 +43,7 @@ class Base(unittest.TestCase):
         self.saved = (list(worker.CYCLE), list(worker.SLOW_CYCLE), list(worker.MONEY_CYCLE))
 
     def tearDown(self):
+        worker.record_run = self._saved_record
         worker.LOCK = self.saved_lock
         worker.CYCLE, worker.SLOW_CYCLE, worker.MONEY_CYCLE = self.saved
 
